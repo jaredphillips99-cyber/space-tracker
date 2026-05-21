@@ -1,0 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-bg-base: #08090d;
+  --color-bg-surface: #0f1117;
+  --color-bg-elevated: #161821;
+  --color-border: #1e2030;
+  --color-border-muted: #14151c;
+
+  --color-text-primary: #e2e4ef;
+  --color-text-secondary: #8b8fa8;
+  --color-text-muted: #4a4e63;
+
+  --color-cyan: #00c8ff;
+  --color-violet: #a259ff;
+  --color-amber: #f59e0b;
+  --color-green: #22c55e;
+  --color-red: #ef4444;
+  --color-orange: #ff6b35;
+
+  --color-rklb: #00c8ff;
+  --color-pl: #a259ff;
+  --color-rdw: #ff6b35;
+
+  --font-mono: 'Space Mono', ui-monospace, monospace;
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #08090d;
+  color: #e2e4ef;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0f1117; }
+::-webkit-scrollbar-thumb { background: #1e2030; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2a2d45; }
+
+/* Ticker accent bars */
+.ticker-rklb { border-left-color: #00c8ff !important; }
+.ticker-pl   { border-left-color: #a259ff !important; }
+.ticker-rdw  { border-left-color: #ff6b35 !important; }
