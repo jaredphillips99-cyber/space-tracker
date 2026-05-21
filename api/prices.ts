@@ -1,5 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import yahooFinance from 'yahoo-finance2';
+import YahooFinance from 'yahoo-finance2';
+
+// yahoo-finance2 v3 requires instantiation (breaking change from v2)
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -21,20 +24,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const results = await Promise.allSettled(
     tickers.map(async (ticker) => {
-      const quote = await yahooFinance.quote(ticker, {
-        fields: [
-          'regularMarketPrice',
-          'regularMarketChange',
-          'regularMarketChangePercent',
-          'regularMarketOpen',
-          'marketCap',
-          'regularMarketVolume',
-          'fiftyTwoWeekHigh',
-          'fiftyTwoWeekLow',
-        ],
-      });
+      // v3: no `fields` param — returns all fields by default
+      const quote = await yahooFinance.quote(ticker);
 
-      // Compute 1-week change via spark data
+      // Compute 1-week change via chart data
       let weekChangePercent: number | undefined;
       try {
         const spark = await yahooFinance.chart(ticker, {
@@ -73,6 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const prices = results.map((result, i) => {
     if (result.status === 'fulfilled') return result.value;
+    console.error(`Price fetch failed for ${tickers[i]}:`, result.reason?.message);
     return {
       ticker: tickers[i],
       price: 0,

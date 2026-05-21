@@ -8,7 +8,8 @@ const NAV_LINKS = [
   { to: '/compare', label: 'Compare' },
 ];
 
-const SECTORS: Sector[] = ['space', 'ai_infrastructure', 'defense', 'clean_energy', 'lng_export'];
+// lng_export intentionally excluded
+const SECTORS: Sector[] = ['space', 'ai_infrastructure', 'defense', 'clean_energy'];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();

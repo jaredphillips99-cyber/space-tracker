@@ -1,21 +1,19 @@
 // ─── Sectors ─────────────────────────────────────────────────────────────────
 
-export type Sector = 'space' | 'ai_infrastructure' | 'defense' | 'clean_energy' | 'lng_export';
+export type Sector = 'space' | 'ai_infrastructure' | 'defense' | 'clean_energy';
 
 export const SECTOR_LABELS: Record<Sector, string> = {
   space: 'Space',
   ai_infrastructure: 'AI Infra',
   defense: 'Defense',
   clean_energy: 'Clean Energy',
-  lng_export: 'LNG Export',
 };
 
 export const SECTOR_COLORS: Record<Sector, string> = {
   space: '#00c8ff',
   ai_infrastructure: '#a259ff',
-  defense: '#d97706',    // amber-600
-  clean_energy: '#22c55e',
-  lng_export: '#f59e0b', // amber-500
+  defense: '#f97316',
+  clean_energy: '#00e676',
 };
 
 // ─── Ticker Config ────────────────────────────────────────────────────────────
@@ -24,7 +22,7 @@ export interface TickerConfig {
   ticker: string;
   name: string;
   sectors: Sector[];
-  color?: string;              // brand accent for specific stocks (RKLB, PL, RDW)
+  color?: string;              // brand accent for specific stocks
   description?: string;
   fiscalYearEnd?: string;      // e.g. "December", "March"
   nextEarningsDate?: string | null;
