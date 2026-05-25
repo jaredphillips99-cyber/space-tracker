@@ -1,19 +1,4 @@
-/**
- * useAnalysis — fetches EDGAR earnings data + streams Claude analysis.
- *
- * Usage:
- *   const { run, status, meta, jsonData, narrative, error, convictionRating } =
- *     useAnalysis();
- *
- *   // Kick off analysis for a ticker
- *   await run('RKLB');
- */
-
 import { useState, useRef, useCallback } from 'react';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type AnalysisStatus =
   | 'idle'
@@ -38,72 +23,67 @@ export interface AnalysisMeta {
 }
 
 export interface AnalysisJson {
-  revenue:                     number | null;
-  revenueGrowthYoY:            number | null;
-  grossMarginPercent:          number | null;
-  operatingMarginPercent:      number | null;
+  revenue: number | null;
+  revenueGrowthYoY: number | null;
+  grossMarginPercent: number | null;
+  operatingMarginPercent: number | null;
   adjustedEbitdaMarginPercent: number | null;
-  netIncomeLoss:               number | null;
-  eps:                         number | null;
-  epsAdjusted:                 number | null;
-  cashAndEquivalents:          number | null;
-  backlog:                     number | null;
-  guidanceRevenueLow:          number | null;
-  guidanceRevenueHigh:         number | null;
-  guidancePeriod:              string | null;
-  guidanceDirection:           'raised' | 'maintained' | 'lowered' | 'initiated' | null;
+  netIncomeLoss: number | null;
+  eps: number | null;
+  epsAdjusted: number | null;
+  cashAndEquivalents: number | null;
+  backlog: number | null;
+  guidanceRevenueLow: number | null;
+  guidanceRevenueHigh: number | null;
+  guidancePeriod: string | null;
+  guidanceDirection: 'raised' | 'maintained' | 'lowered' | 'initiated' | null;
   analystConsensusTargetPrice: number | null;
-  segments: Array<{
-    name:      string;
-    revenue:   number | null;
-    growthYoY: number | null;
-  }> | null;
-  convictionRating:    ConvictionRating;
+  segments:
+    | Array<{
+        name: string;
+        revenue: number | null;
+        growthYoY: number | null;
+      }>
+    | null;
+  convictionRating: ConvictionRating;
   convictionRationale: string;
 }
 
 export interface UseAnalysisReturn {
-  run:              (ticker: string) => Promise<void>;
-  cancel:           () => void;
-  status:           AnalysisStatus;
-  meta:             AnalysisMeta | null;
-  jsonData:         AnalysisJson | null;
-  narrative:        string;         // streams in progressively
-  error:            string | null;
+  run: (ticker: string) => Promise<void>;
+  cancel: () => void;
+  status: AnalysisStatus;
+  meta: AnalysisMeta | null;
+  jsonData: AnalysisJson | null;
+  narrative: string;
+  error: string | null;
   convictionRating: ConvictionRating | null;
 }
 
-// ---------------------------------------------------------------------------
-// Conviction label helpers (for UI rendering)
-// ---------------------------------------------------------------------------
-
 export const CONVICTION_LABELS: Record<ConvictionRating, string> = {
-  strong_buy:  'Strong Buy',
-  buy:         'Buy',
-  hold:        'Hold',
-  sell:        'Sell',
+  strong_buy: 'Strong Buy',
+  buy: 'Buy',
+  hold: 'Hold',
+  sell: 'Sell',
   strong_sell: 'Strong Sell',
 };
 
 export const CONVICTION_COLORS: Record<ConvictionRating, string> = {
-  strong_buy:  '#00e676',  // green
-  buy:         '#69f0ae',  // light green
-  hold:        '#8b93a8',  // muted
-  sell:        '#ff7043',  // orange-red
-  strong_sell: '#ff4b6e',  // red
+  strong_buy: '#00e676',
+  buy: '#69f0ae',
+  hold: '#8b93a8',
+  sell: '#ff7043',
+  strong_sell: '#ff4b6e',
 };
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
 export function useAnalysis(): UseAnalysisReturn {
-  const [status,           setStatus]           = useState<AnalysisStatus>('idle');
-  const [meta,             setMeta]             = useState<AnalysisMeta | null>(null);
-  const [jsonData,         setJsonData]         = useState<AnalysisJson | null>(null);
-  const [narrative,        setNarrative]        = useState<string>('');
-  const [error,            setError]            = useState<string | null>(null);
-  const [convictionRating, setConvictionRating] = useState<ConvictionRating | null>(null);
+  const [status, setStatus] = useState<AnalysisStatus>('idle');
+  const [meta, setMeta] = useState<AnalysisMeta | null>(null);
+  const [jsonData, setJsonData] = useState<AnalysisJson | null>(null);
+  const [narrative, setNarrative] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  const [convictionRating, setConvictionRating] =
+    useState<ConvictionRating | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -153,9 +133,9 @@ export function useAnalysis(): UseAnalysisReturn {
       }
 
       // Parse the SSE stream
-      const reader  = res.body.getReader();
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let   buffer  = '';
+      let buffer = '';
 
       while (true) {
         if (ctrl.signal.aborted) break;
@@ -179,8 +159,11 @@ export function useAnalysis(): UseAnalysisReturn {
           if (!payload) continue;
 
           let msg: Record<string, unknown>;
-          try { msg = JSON.parse(payload); }
-          catch { continue; }
+          try {
+            msg = JSON.parse(payload);
+          } catch {
+            continue;
+          }
 
           // We rely on the preceding event: line — but since we read them
           // as a flat stream, we match by shape instead.
@@ -213,7 +196,7 @@ export function useAnalysis(): UseAnalysisReturn {
             }
 
             case 'narrative_chunk':
-              setNarrative(prev => prev + (msg.text as string ?? ''));
+              setNarrative((prev) => prev + (msg.text as string ?? ''));
               break;
 
             case 'done':
@@ -232,7 +215,6 @@ export function useAnalysis(): UseAnalysisReturn {
       }
 
       if (status !== 'error') setStatus('done');
-
     } catch (err: unknown) {
       if ((err as Error)?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : String(err));

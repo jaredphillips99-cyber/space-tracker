@@ -13,6 +13,7 @@
     "@anthropic-ai/sdk": "^0.97.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.15.1",
     "yahoo-finance2": "^3.14.1",
     "zustand": "^5.0.13"
