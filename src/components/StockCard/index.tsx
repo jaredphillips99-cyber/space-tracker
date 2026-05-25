@@ -51,8 +51,9 @@ export function StockCard({ ticker }: { ticker: string }) {
   const [inputOpen, setInputOpen] = useState(false);
 
   const price = useStore((s) => s.prices[ticker]);
-  const { analysis, runAnalysis } = useAnalysis(ticker);
+  const { run, cancel: _cancel, status: _status, meta: _meta, jsonData, narrative: _narrative, error: _error, convictionRating: _convictionRating } = useAnalysis();
   const cfg = TICKER_MAP[ticker];
+  const analysis = undefined as any; // TODO: wire up new useAnalysis API
 
   if (!cfg) {
     return (
@@ -63,12 +64,12 @@ export function StockCard({ ticker }: { ticker: string }) {
   }
 
   const accentColor = cfg.color ?? '#8b8fa8';
-  const upside = computeImpliedUpside(price?.price, analysis?.analystTarget);
-  const stale = analysis && isAnalysisStale(analysis);
+  const upside = computeImpliedUpside(price?.price, jsonData?.analystConsensusTargetPrice ?? undefined);
+  const stale = jsonData ? isAnalysisStale(jsonData as any) : false;
 
   const handleRunAnalysis = async () => {
     setInputOpen(false);
-    await runAnalysis(earningsText || undefined, transcriptText || undefined);
+    await run(ticker);
   };
 
   return (
@@ -137,9 +138,9 @@ export function StockCard({ ticker }: { ticker: string }) {
         style={{ backgroundColor: '#0f1117', border: '1px solid #1e2030' }}
       >
         <MetricCell label="MKT CAP" value={fmtMktCap(price?.marketCap)} />
-        <MetricCell label="REV GROWTH" value={analysis?.revenueGrowthYoY != null ? fmtPct(analysis.revenueGrowthYoY * 100) : '—'} />
-        <MetricCell label="GROSS MARGIN" value={fmtMargin(analysis?.grossMargin)} />
-        <MetricCell label="ANALYST TARGET" value={analysis?.analystTarget ? fmtPrice(analysis.analystTarget) : '—'} />
+        <MetricCell label="REV GROWTH" value={jsonData?.revenueGrowthYoY != null ? fmtPct(jsonData.revenueGrowthYoY * 100) : '—'} />
+        <MetricCell label="GROSS MARGIN" value={fmtMargin(jsonData?.grossMarginPercent ?? undefined)} />
+        <MetricCell label="ANALYST TARGET" value={jsonData?.analystConsensusTargetPrice ? fmtPrice(jsonData.analystConsensusTargetPrice) : '—'} />
       </div>
 
       {/* ── Analysis section ─────────────────────────────────────────────── */}
@@ -330,7 +331,7 @@ export function StockCard({ ticker }: { ticker: string }) {
                     CATALYSTS
                   </div>
                   <ul className="flex flex-col gap-1">
-                    {analysis.catalysts.map((c, i) => (
+                    {analysis.catalysts.map((c: string, i: number) => (
                       <li key={i} className="flex items-start gap-2 text-xs" style={{ color: '#8b8fa8', fontFamily: 'DM Sans, sans-serif' }}>
                         <span style={{ color: accentColor, marginTop: 1 }}>›</span>
                         {c}
@@ -347,7 +348,7 @@ export function StockCard({ ticker }: { ticker: string }) {
                     RISKS
                   </div>
                   <ul className="flex flex-col gap-1">
-                    {analysis.risks.map((r, i) => (
+                    {analysis.risks.map((r: string, i: number) => (
                       <li key={i} className="flex items-start gap-2 text-xs" style={{ color: '#8b8fa8', fontFamily: 'DM Sans, sans-serif' }}>
                         <span style={{ color: '#ef4444', marginTop: 1 }}>›</span>
                         {r}

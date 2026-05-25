@@ -1,7 +1,7 @@
 import type { TickerConfig } from '../types';
 
 export const TICKERS: TickerConfig[] = [
-  // ── Space (9) ────────────────────────────────────────────────────────────
+  // ── Space (8) ────────────────────────────────────────────────────────────
   {
     ticker: 'RKLB',
     name: 'Rocket Lab',
@@ -56,14 +56,6 @@ export const TICKERS: TickerConfig[] = [
     sectors: ['space', 'defense'],
     description: 'High-frequency Earth observation constellation; defense and intelligence focus',
     fiscalYearEnd: 'December',
-  },
-  {
-    ticker: 'FLY',
-    name: 'Firefly Aerospace',
-    sectors: ['space'],
-    description: 'Small/medium launch provider; Blue Ghost lunar lander',
-    fiscalYearEnd: 'December',
-    specialNotes: 'Blue Ghost successfully landed on the Moon in 2025',
   },
   {
     ticker: 'SATS',
