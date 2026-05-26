@@ -24,7 +24,6 @@ const CIK_MAP: Record<string, string> = {
 
 const SPECULATIVE  = new Set(['OKLO', 'NNE', 'NXE']);
 const SEDAR_ONLY   = new Set(['NXE']);
-const EDGAR_UA     = 'SpaceTracker Jared Phillips jaredphillips99@gmail.com';
 
 // ─── EDGAR helpers (run in browser — real residential IP, no 403) ─────────────
 
