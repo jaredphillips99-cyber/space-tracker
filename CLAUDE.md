@@ -124,26 +124,18 @@ api/analyze.ts           Anthropic streaming proxy + rate limiting
 ## Session Log — Update at End of Every Claude Code Session
 
 ### Built and Working
-- Project scaffolded: Vite + React + TypeScript + Tailwind
-- src/types/index.ts: full schema defined
-- src/config/tickers.ts: 30 stocks configured
-- Zustand store: all 30 tickers initialized in awaiting state
-- Live prices wired through /api/prices.ts into PriceTable
-- PriceTable shows implied upside computed at render
-- 52-week range bar added to PriceTable
-- StockDetail page built with live price and analysis shell
-- "What's New" sidebar panel built with stale, recent, upcoming sections
-- Default sort updated to 1-day % change descending
-- App builds cleanly with `npm run build`
+- api/edgar.ts: EDGAR pipeline, CIK map for all 31 tickers, EX-99.1 extraction
+- api/analyze.ts: streaming SSE, two-call Claude pattern, conviction ratings
+- src/hooks/useAnalysis.ts: SSE stream parsing, status management, localStorage cache
+- src/components/ConvictionBadge.tsx: buy/sell rating badge component
+- src/components/StockDetail.tsx: deep dive page with financial grid and narrative
+- Speculative ticker handling: OKLO/NNE get dual 8-K+10-Q, NXE gets SEDAR fallback
 
 ### In Progress / Known Issues
-- /api/analyze.ts not yet built
+- Live prices not yet wired to PriceTable (mock data only)
+- PriceTable rows not yet wired to navigate to /stock/:ticker
+- impliedUpsidePercent column not built
+- 52-week range bar not built
+- "What's New" sidebar not built
 - Toast notifications not built
 - Compare page is a stub only
-
-### Next Build Session Priority Order
-1. Build /api/analyze.ts with streaming + rate limiting
-2. Add toast notifications on analysis complete
-3. Flesh out Compare page
-4. Add better earnings calendar and scheduled analysis workflow
-5. Begin Stage 2 Python backend / EDGAR monitoring planning

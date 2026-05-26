@@ -51,6 +51,17 @@ export interface AnalysisJson {
   convictionRationale: string;
 }
 
+// Passed in by the caller — called once when analysis finishes successfully
+export interface AnalysisCompletePayload {
+  meta:      AnalysisMeta;
+  jsonData:  AnalysisJson;
+  narrative: string;
+}
+
+export interface UseAnalysisOptions {
+  onComplete?: (payload: AnalysisCompletePayload) => void;
+}
+
 export interface UseAnalysisReturn {
   run:              (ticker: string) => Promise<void>;
   cancel:           () => void;
@@ -78,7 +89,9 @@ export const CONVICTION_COLORS: Record<ConvictionRating, string> = {
   strong_sell: '#ff4b6e',
 };
 
-export function useAnalysis(): UseAnalysisReturn {
+export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn {
+  const { onComplete } = options;
+
   const [status,           setStatus]           = useState<AnalysisStatus>('idle');
   const [meta,             setMeta]             = useState<AnalysisMeta | null>(null);
   const [jsonData,         setJsonData]         = useState<AnalysisJson | null>(null);
@@ -88,19 +101,28 @@ export function useAnalysis(): UseAnalysisReturn {
 
   const abortRef = useRef<AbortController | null>(null);
 
+  // Use refs for the accumulating values so the onComplete closure always
+  // sees the final state without stale closures
+  const metaRef      = useRef<AnalysisMeta | null>(null);
+  const jsonDataRef  = useRef<AnalysisJson | null>(null);
+  const narrativeRef = useRef<string>('');
+
   const cancel = useCallback(() => {
     abortRef.current?.abort();
     setStatus('idle');
   }, []);
 
   const run = useCallback(async (ticker: string) => {
-    // Reset
+    // Reset everything
     setStatus('fetching_edgar');
     setMeta(null);
     setJsonData(null);
     setNarrative('');
     setError(null);
     setConvictionRating(null);
+    metaRef.current      = null;
+    jsonDataRef.current  = null;
+    narrativeRef.current = '';
 
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -108,10 +130,10 @@ export function useAnalysis(): UseAnalysisReturn {
 
     try {
       const res = await fetch('/api/analyze', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker }),
-        signal: ctrl.signal,
+        body:    JSON.stringify({ ticker }),
+        signal:  ctrl.signal,
       });
 
       if (res.status === 429) {
@@ -122,7 +144,7 @@ export function useAnalysis(): UseAnalysisReturn {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError((body as any)?.error ?? `Server error ${res.status}`);
+        setError((body as { error?: string })?.error ?? `Server error ${res.status}`);
         setStatus('error');
         return;
       }
@@ -137,8 +159,7 @@ export function useAnalysis(): UseAnalysisReturn {
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
       let   buffer  = '';
-      // Track last event type since data lines follow event lines
-      let lastEventType = '';
+      let   lastEventType = '';
 
       while (true) {
         if (ctrl.signal.aborted) break;
@@ -166,10 +187,13 @@ export function useAnalysis(): UseAnalysisReturn {
           catch { continue; }
 
           switch (lastEventType) {
-            case 'meta':
-              setMeta(msg as unknown as AnalysisMeta);
+            case 'meta': {
+              const m = msg as unknown as AnalysisMeta;
+              metaRef.current = m;
+              setMeta(m);
               setStatus('extracting_json');
               break;
+            }
 
             case 'status': {
               const step = msg.step as string;
@@ -180,19 +204,36 @@ export function useAnalysis(): UseAnalysisReturn {
             case 'json': {
               const p = msg.parsed as AnalysisJson | undefined;
               if (p) {
+                jsonDataRef.current = p;
                 setJsonData(p);
                 if (p.convictionRating) setConvictionRating(p.convictionRating);
               }
               break;
             }
 
-            case 'narrative_chunk':
-              setNarrative(prev => prev + ((msg.text as string) ?? ''));
+            case 'narrative_chunk': {
+              const text = (msg.text as string) ?? '';
+              narrativeRef.current += text;
+              setNarrative(prev => prev + text);
               break;
+            }
 
-            case 'done':
+            case 'done': {
               setStatus('done');
+              // Fire onComplete with final values from refs (never stale)
+              if (
+                onComplete &&
+                metaRef.current &&
+                jsonDataRef.current
+              ) {
+                onComplete({
+                  meta:      metaRef.current,
+                  jsonData:  jsonDataRef.current,
+                  narrative: narrativeRef.current,
+                });
+              }
               break;
+            }
 
             case 'error':
               setError((msg.message as string) ?? 'Unknown error');
@@ -210,7 +251,7 @@ export function useAnalysis(): UseAnalysisReturn {
       setError(err instanceof Error ? err.message : String(err));
       setStatus('error');
     }
-  }, []);
+  }, [onComplete]);
 
   return { run, cancel, status, meta, jsonData, narrative, error, convictionRating };
 }

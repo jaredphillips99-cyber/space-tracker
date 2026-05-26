@@ -1,337 +1,463 @@
-/**
- * StockDetail — deep dive page for a single ticker.
- *
- * Route: /stock/:ticker   (React Router v6)
- *
- * Flow:
- *   1. On mount (or "Run Analysis" click) → calls /api/analyze
- *   2. analyze.ts fetches EDGAR internally, then streams back SSE
- *   3. JSON block renders as financial cards; narrative streams in as Markdown prose
- *   4. ConvictionBadge renders the buy/sell rating from the JSON block
- *
- * localStorage caching: stores the last analysis per ticker so the user
- * doesn't burn API calls on repeat visits. Cache invalidated after 30 days.
- */
-
-import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-
-import { useAnalysis } from '../hooks/useAnalysis';
+import { useCallback } from 'react';
+import { useAnalysis, type AnalysisCompletePayload } from '../hooks/useAnalysis';
+import type { AnalysisMeta, AnalysisJson } from '../hooks/useAnalysis';
+import { useStore } from '../store/useStore';
 import { ConvictionBadge } from './ConvictionBadge';
-import type { AnalysisJson, AnalysisMeta } from '../hooks/useAnalysis';
+import ReactMarkdown from 'react-markdown';
+import type { StockAnalysis, GuidanceDirection, AnalystRating } from '../types';
 
-// ---------------------------------------------------------------------------
-// Formatters
-// ---------------------------------------------------------------------------
+export function StockDetail() {
+  const { ticker } = useParams<{ ticker: string }>();
+  const navigate   = useNavigate();
 
-const fmtUSD = (v: number | null | undefined, decimals = 1) =>
-  v == null ? '—' : `$${v.toFixed(decimals)}M`;
+  // ── Store: source of truth for persisted analysis ─────────────────────────
+  const setAnalysis    = useStore(s => s.setAnalysis);
+  const storedAnalysis = useStore(s => ticker ? s.analyses[ticker] : undefined);
+  const livePrice      = useStore(s => ticker ? s.prices[ticker] : undefined);
 
-const fmtPct = (v: number | null | undefined) =>
-  v == null ? '—' : `${(v * 100).toFixed(1)}%`;
-
-const fmtPrice = (v: number | null | undefined) =>
-  v == null ? '—' : `$${v.toFixed(2)}`;
-
-// ---------------------------------------------------------------------------
-// Cache helpers
-// ---------------------------------------------------------------------------
-
-const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-interface CachedAnalysis {
-  meta:      AnalysisMeta;
-  jsonData:  AnalysisJson;
-  narrative: string;
-  savedAt:   number;
-}
-
-function loadCache(ticker: string): CachedAnalysis | null {
-  try {
-    const raw = localStorage.getItem(`analysis:${ticker}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedAnalysis;
-    if (Date.now() - parsed.savedAt > CACHE_TTL_MS) return null;
-    return parsed;
-  } catch { return null; }
-}
-
-function saveCache(ticker: string, data: CachedAnalysis) {
-  try {
-    localStorage.setItem(`analysis:${ticker}`, JSON.stringify(data));
-  } catch { /* storage full — ignore */ }
-}
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      className="rounded-lg p-3 flex flex-col gap-1"
-      style={{ background: '#161922', border: '1px solid #1e2230' }}
-    >
-      <span className="text-xs uppercase tracking-widest" style={{ color: '#8b93a8', fontFamily: "'Space Mono', monospace" }}>
-        {label}
-      </span>
-      <span className="text-lg font-semibold" style={{ fontFamily: "'Space Mono', monospace", color: '#e2e6f0' }}>
-        {value}
-      </span>
-    </div>
+  // ── Write to store when analysis completes ────────────────────────────────
+  const handleComplete = useCallback(
+    (payload: AnalysisCompletePayload) => {
+      if (!ticker) return;
+      const { meta, jsonData, narrative } = payload;
+      setAnalysis({
+        ticker,
+        analyzedAt:         Date.now(),
+        analystTarget:      jsonData.analystConsensusTargetPrice ?? undefined,
+        guidanceDirection:  mapGuidanceDirection(jsonData.guidanceDirection),
+        analystRating:      mapConvictionToRating(jsonData.convictionRating),
+        revenueGrowthYoY:   jsonData.revenueGrowthYoY ?? undefined,
+        grossMargin:        jsonData.grossMarginPercent ?? undefined,
+        recentRevenue:      jsonData.revenue ?? undefined,
+        recentEPS:          jsonData.epsAdjusted ?? undefined,
+        summary:            narrative,
+        earningsText:       meta.documentUrl ?? undefined,
+        streamedContent:    JSON.stringify({ meta, jsonData }),
+      });
+    },
+    [ticker, setAnalysis],
   );
-}
 
-function GuidanceBadge({ direction }: { direction: AnalysisJson['guidanceDirection'] }) {
-  if (!direction) return null;
-  const map: Record<string, { label: string; color: string }> = {
-    raised:     { label: '▲ Raised',     color: '#00e676' },
-    maintained: { label: '— Maintained', color: '#8b93a8' },
-    lowered:    { label: '▼ Lowered',    color: '#ff4b6e' },
-    initiated:  { label: '◆ Initiated',  color: '#00c8ff' },
-  };
-  const { label, color } = map[direction] ?? { label: direction, color: '#8b93a8' };
-  return (
-    <span
-      className="text-xs font-mono px-2 py-0.5 rounded"
-      style={{ color, background: `${color}18`, border: `1px solid ${color}40` }}
-    >
-      {label}
-    </span>
-  );
-}
+  const { run, cancel, status, meta, jsonData, narrative, error, convictionRating } =
+    useAnalysis({ onComplete: handleComplete });
 
-function AnalysisStatusBar({ status, ticker }: { status: string; ticker: string }) {
-  const messages: Record<string, string> = {
-    fetching_edgar:    `Fetching ${ticker} earnings from SEC EDGAR…`,
-    extracting_json:   'Extracting financial metrics…',
-    writing_narrative: 'Writing analysis…',
-    done:              '',
-    error:             '',
-    idle:              '',
-  };
-  const msg = messages[status];
-  if (!msg) return null;
-  return (
-    <div className="flex items-center gap-2 text-sm" style={{ color: '#8b93a8' }}>
-      <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: '#00c8ff' }} />
-      {msg}
-    </div>
-  );
-}
+  if (!ticker) return <div>Invalid ticker</div>;
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
+  const isRunning = status === 'fetching_edgar' || status === 'extracting_json' || status === 'writing_narrative';
 
-export default function StockDetail() {
-  const { ticker = '' } = useParams<{ ticker: string }>();
-  const navigate = useNavigate();
-  const TICKER = ticker.toUpperCase();
+  // ── Resolve display data: live stream first, then persisted store ─────────
+  const isLiveActive = status !== 'idle' && status !== 'error';
 
-  const { run, cancel, status, meta, jsonData, narrative, error, convictionRating } = useAnalysis();
+  let displayMeta:       AnalysisMeta | null = null;
+  let displayJsonData:   AnalysisJson | null = null;
+  let displayNarrative:  string             = '';
+  let displayConviction: string | null      = null;
 
-  const [cachedData, setCachedData] = useState<CachedAnalysis | null>(null);
-  const [hasRunOnce, setHasRunOnce] = useState(false);
-
-  // Load from cache on mount
-  useEffect(() => {
-    const cached = loadCache(TICKER);
-    if (cached) setCachedData(cached);
-  }, [TICKER]);
-
-  // Save to cache when analysis completes
-  useEffect(() => {
-    if (status === 'done' && meta && jsonData) {
-      const toCache: CachedAnalysis = { meta, jsonData, narrative, savedAt: Date.now() };
-      saveCache(TICKER, toCache);
-      setCachedData(toCache);
-    }
-  }, [status, meta, jsonData, narrative, TICKER]);
-
-  // What to display — live state takes priority over cache
-  const displayMeta      = meta      ?? cachedData?.meta;
-  const displayJson      = jsonData  ?? cachedData?.jsonData;
-  const displayNarrative = narrative || cachedData?.narrative || '';
-  const displayConviction = convictionRating ?? cachedData?.jsonData?.convictionRating ?? null;
-
-  const isLive = status !== 'idle' && status !== 'error';
-
-  function handleRun() {
-    setHasRunOnce(true);
-    run(TICKER);
+  if (isLiveActive || status === 'done') {
+    displayMeta       = meta      ?? null;
+    displayJsonData   = jsonData  ?? null;
+    displayNarrative  = narrative ?? '';
+    displayConviction = convictionRating ?? null;
+  } else if (storedAnalysis) {
+    const recovered   = recoverFromStore(storedAnalysis);
+    displayMeta       = recovered.meta;
+    displayJsonData   = recovered.jsonData;
+    displayNarrative  = storedAnalysis.summary ?? '';
+    displayConviction = storedAnalysis.analystRating
+      ? ratingToConviction(storedAnalysis.analystRating)
+      : null;
   }
 
+  const hasCached = !!storedAnalysis;
+
   return (
-    <div
-      className="min-h-screen p-4 md:p-8 max-w-4xl mx-auto"
-      style={{ background: '#08090d', color: '#e2e6f0' }}
-    >
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <button
-            onClick={() => navigate('/')}
-            className="text-xs mb-2 hover:opacity-80 transition-opacity"
-            style={{ color: '#8b93a8', fontFamily: "'Space Mono', monospace" }}
-          >
-            ← Back
-          </button>
-          <h1
-            className="text-3xl font-bold tracking-tight"
-            style={{ fontFamily: "'Space Mono', monospace", color: '#e2e6f0' }}
-          >
-            {TICKER}
-          </h1>
-          {displayMeta && (
-            <p className="text-sm mt-1" style={{ color: '#8b93a8' }}>
-              {displayMeta.period} earnings · filed {displayMeta.filingDate}
-              {' · '}
-              <a
-                href={displayMeta.documentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:opacity-80"
-                style={{ color: '#00c8ff' }}
-              >
-                SEC filing ↗
-              </a>
-            </p>
+    <div className="min-h-screen" style={{ backgroundColor: '#08090d', color: '#e2e6f0' }}>
+      <div className="max-w-4xl mx-auto p-6">
+
+        {/* Back */}
+        <button
+          onClick={() => navigate('/')}
+          className="mb-6 px-3 py-1.5 rounded text-sm"
+          style={{
+            backgroundColor: '#161922',
+            border: '1px solid #1e2230',
+            color: '#00c8ff',
+            fontFamily: 'Space Mono, monospace',
+            cursor: 'pointer',
+          }}
+        >
+          ← DASHBOARD
+        </button>
+
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '16px' }}>
+              <h1 style={{ fontFamily: 'Space Mono, monospace', fontSize: '32px', margin: 0 }}>
+                {ticker}
+              </h1>
+              {livePrice && (
+                <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '20px', color: '#e2e6f0' }}>
+                  ${livePrice.price.toFixed(2)}
+                  <span style={{
+                    fontSize: '14px',
+                    marginLeft: '8px',
+                    color: livePrice.changePercent >= 0 ? '#00e676' : '#ff4b6e',
+                  }}>
+                    {livePrice.changePercent >= 0 ? '+' : ''}{livePrice.changePercent.toFixed(2)}%
+                  </span>
+                </span>
+              )}
+            </div>
+            {displayMeta && (
+              <p style={{ color: '#8b93a8', marginTop: '4px', fontSize: '14px' }}>
+                {displayMeta.period && <span>{displayMeta.period} earnings · </span>}
+                {displayMeta.filingDate && <span>filed {displayMeta.filingDate} · </span>}
+                {displayMeta.documentUrl && (
+                  <a
+                    href={displayMeta.documentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#00c8ff', textDecoration: 'none' }}
+                  >
+                    SEC filing ↗
+                  </a>
+                )}
+                {displayMeta.note && (
+                  <span style={{ color: '#ffd166', marginLeft: '8px' }}>⚠ {displayMeta.note}</span>
+                )}
+              </p>
+            )}
+          </div>
+
+          {displayConviction && (
+            <ConvictionBadge rating={displayConviction as any} size="lg" />
           )}
         </div>
 
-        {/* Conviction badge */}
-        {displayConviction && displayJson && (
-          <ConvictionBadge
-            rating={displayConviction}
-            rationale={displayJson.convictionRationale}
-            size="lg"
-          />
+        {/* Run / Re-run / Cancel buttons */}
+        <div className="mb-6 flex gap-2 items-center">
+          <button
+            onClick={() => run(ticker)}
+            disabled={isRunning}
+            style={{
+              backgroundColor: '#00c8ff',
+              color: '#08090d',
+              padding: '8px 16px',
+              borderRadius: '4px',
+              border: 'none',
+              fontFamily: 'Space Mono, monospace',
+              fontWeight: 600,
+              cursor: isRunning ? 'not-allowed' : 'pointer',
+              opacity: isRunning ? 0.5 : 1,
+            }}
+          >
+            {isRunning ? '⏳ RUNNING…' : hasCached ? '↺ RE-RUN ANALYSIS' : 'RUN ANALYSIS'}
+          </button>
+
+          {isRunning && (
+            <button
+              onClick={cancel}
+              style={{
+                backgroundColor: '#ff4b6e',
+                color: '#ffffff',
+                padding: '8px 16px',
+                borderRadius: '4px',
+                border: 'none',
+                fontFamily: 'Space Mono, monospace',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              CANCEL
+            </button>
+          )}
+
+          {hasCached && !isRunning && storedAnalysis?.analyzedAt && (
+            <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '11px', color: '#4a4e63' }}>
+              cached {formatAge(storedAnalysis.analyzedAt)}
+            </span>
+          )}
+        </div>
+
+        {/* Status bar */}
+        {isRunning && (
+          <div
+            className="mb-6 px-4 py-3 rounded"
+            style={{
+              backgroundColor: '#161922',
+              border: '1px solid #1e2230',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontFamily: 'DM Sans, sans-serif',
+            }}
+          >
+            <span style={{
+              display: 'inline-block', width: '8px', height: '8px',
+              backgroundColor: '#00c8ff', borderRadius: '50%',
+              animation: 'pulse 1.5s infinite',
+            }} />
+            <span style={{ color: '#8b93a8' }}>
+              {status === 'fetching_edgar'    && 'Fetching earnings filing from SEC EDGAR…'}
+              {status === 'extracting_json'   && 'Extracting financial data…'}
+              {status === 'writing_narrative' && 'Writing analysis…'}
+            </span>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div
+            className="mb-6 px-4 py-3 rounded"
+            style={{
+              backgroundColor: '#ff4b6e20',
+              border: '1px solid #ff4b6e',
+              color: '#ff4b6e',
+              fontFamily: 'DM Sans, sans-serif',
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {/* Financial metrics grid */}
+        {displayJsonData && (
+          <>
+            <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <MetricCard label="REVENUE"      value={fmt.dollars(displayJsonData.revenue, 'M')} />
+              <MetricCard label="REV GROWTH"   value={fmt.percent(displayJsonData.revenueGrowthYoY)} />
+              <MetricCard label="GROSS MARGIN" value={fmt.percent(displayJsonData.grossMarginPercent)} />
+              <MetricCard label="ADJ EBITDA"   value={fmt.percent(displayJsonData.adjustedEbitdaMarginPercent)} />
+              <MetricCard label="CASH"         value={fmt.dollars(displayJsonData.cashAndEquivalents, 'M')} />
+              <MetricCard label="BACKLOG"      value={fmt.dollars(displayJsonData.backlog, 'M')} />
+              <MetricCard label="EPS (ADJ)"    value={displayJsonData.epsAdjusted != null ? `$${displayJsonData.epsAdjusted.toFixed(2)}` : '—'} />
+              <MetricCard
+                label="ANALYST TARGET"
+                value={displayJsonData.analystConsensusTargetPrice != null
+                  ? `$${displayJsonData.analystConsensusTargetPrice.toFixed(2)}`
+                  : '—'}
+                sub={
+                  displayJsonData.analystConsensusTargetPrice && livePrice?.price
+                    ? computeUpside(livePrice.price, displayJsonData.analystConsensusTargetPrice)
+                    : undefined
+                }
+              />
+            </div>
+
+            {/* Guidance */}
+            {displayJsonData.guidanceDirection && (
+              <div
+                className="mb-6 p-4 rounded"
+                style={{ backgroundColor: '#161922', border: '1px solid #1e2230' }}
+              >
+                <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', color: '#8b93a8', marginBottom: '8px' }}>
+                  FY GUIDANCE
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontFamily: 'Space Mono, monospace' }}>
+                  {(displayJsonData.guidanceRevenueLow != null || displayJsonData.guidanceRevenueHigh != null) && (
+                    <span>
+                      ${displayJsonData.guidanceRevenueLow ?? '?'}–${displayJsonData.guidanceRevenueHigh ?? '?'}M
+                      {displayJsonData.guidancePeriod && ` (${displayJsonData.guidancePeriod})`}
+                    </span>
+                  )}
+                  <GuidanceBadge direction={displayJsonData.guidanceDirection} />
+                </div>
+              </div>
+            )}
+
+            {/* Segments */}
+            {displayJsonData.segments && displayJsonData.segments.length > 0 && (
+              <div className="mb-6">
+                <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', color: '#8b93a8', marginBottom: '8px' }}>
+                  SEGMENTS
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {displayJsonData.segments.map((seg, i) => (
+                    <div key={i} className="px-2 py-1 rounded text-xs"
+                      style={{ backgroundColor: '#161922', border: '1px solid #1e2230', fontFamily: 'Space Mono, monospace' }}
+                    >
+                      {seg.name}: {seg.revenue != null ? `$${(seg.revenue / 1000).toFixed(1)}M` : '?'}
+                      {seg.growthYoY != null && (
+                        <span style={{ marginLeft: '4px', color: seg.growthYoY >= 0 ? '#00e676' : '#ff4b6e' }}>
+                          {seg.growthYoY >= 0 ? '+' : ''}{(seg.growthYoY * 100).toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Narrative */}
+        {displayNarrative && (
+          <div className="prose prose-invert max-w-none" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+            <ReactMarkdown
+              components={{
+                h2: ({ ...props }) => (
+                  <h2 style={{ fontSize: '18px', fontWeight: 600, marginTop: '20px', marginBottom: '12px', color: '#00c8ff' }} {...props} />
+                ),
+                p: ({ ...props }) => (
+                  <p style={{ marginBottom: '12px', lineHeight: 1.6 }} {...props} />
+                ),
+                li: ({ ...props }) => (
+                  <li style={{ marginBottom: '6px', marginLeft: '20px' }} {...props} />
+                ),
+              }}
+            >
+              {displayNarrative}
+            </ReactMarkdown>
+            {isRunning && (
+              <span style={{
+                display: 'inline-block', width: '8px', height: '16px',
+                backgroundColor: '#00c8ff', marginLeft: '4px',
+                animation: 'blink 1s infinite',
+              }} />
+            )}
+          </div>
+        )}
+
+        {!displayNarrative && !isRunning && (
+          <div style={{ textAlign: 'center', color: '#8b93a8', padding: '40px 20px' }}>
+            {error ? 'Analysis failed. Try again.' : 'Click "RUN ANALYSIS" to generate an AI-powered earnings breakdown.'}
+          </div>
         )}
       </div>
 
-      {/* Run / Re-run button */}
-      <div className="flex items-center gap-4 mb-6">
-        <button
-          onClick={isLive ? cancel : handleRun}
-          disabled={false}
-          className="px-4 py-2 rounded text-sm font-semibold transition-opacity hover:opacity-80 active:scale-95"
-          style={{
-            fontFamily: "'Space Mono', monospace",
-            background: isLive ? '#ff4b6e22' : '#00c8ff22',
-            color:       isLive ? '#ff4b6e'   : '#00c8ff',
-            border:      `1px solid ${isLive ? '#ff4b6e' : '#00c8ff'}`,
-          }}
-        >
-          {isLive ? 'Cancel' : cachedData ? '↺ Re-run Analysis' : 'Run Analysis'}
-        </button>
-        <AnalysisStatusBar status={status} ticker={TICKER} />
+      <style>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes blink  { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── Formatting helpers ───────────────────────────────────────────────────────
+
+const fmt = {
+  dollars: (val: number | null | undefined, unit: 'M' | 'B' = 'M'): string => {
+    if (val == null) return '—';
+    const divisor = unit === 'M' ? 1000 : 1_000_000;
+    return `$${(val / divisor).toFixed(1)}${unit}`;
+  },
+  percent: (val: number | null | undefined): string => {
+    if (val == null) return '—';
+    return `${(val * 100).toFixed(1)}%`;
+  },
+};
+
+function computeUpside(price: number, target: number): string {
+  const pct = ((target - price) / price) * 100;
+  const sign = pct >= 0 ? '+' : '';
+  return `${sign}${pct.toFixed(1)}% upside`;
+}
+
+function formatAge(ts: number): string {
+  const mins  = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 60)  return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+// ─── Store recovery helpers ───────────────────────────────────────────────────
+
+function recoverFromStore(stored: StockAnalysis): {
+  meta: AnalysisMeta | null;
+  jsonData: AnalysisJson | null;
+} {
+  if (!stored.streamedContent) return { meta: null, jsonData: null };
+  try {
+    const parsed = JSON.parse(stored.streamedContent) as {
+      meta: AnalysisMeta;
+      jsonData: AnalysisJson;
+    };
+    return { meta: parsed.meta ?? null, jsonData: parsed.jsonData ?? null };
+  } catch {
+    return { meta: null, jsonData: null };
+  }
+}
+
+function mapGuidanceDirection(
+  d: 'raised' | 'maintained' | 'lowered' | 'initiated' | null,
+): GuidanceDirection | undefined {
+  if (!d) return undefined;
+  const map: Record<string, GuidanceDirection> = {
+    raised:     'Raised',
+    maintained: 'Maintained',
+    lowered:    'Lowered',
+    initiated:  'Raised',
+  };
+  return map[d];
+}
+
+function mapConvictionToRating(c: string | null): AnalystRating | undefined {
+  if (!c) return undefined;
+  const map: Record<string, AnalystRating> = {
+    strong_buy:  'Strong Buy',
+    buy:         'Buy',
+    hold:        'Hold',
+    sell:        'Sell',
+    strong_sell: 'Strong Sell',
+  };
+  return map[c];
+}
+
+function ratingToConviction(r: AnalystRating): string {
+  const map: Record<AnalystRating, string> = {
+    'Strong Buy':  'strong_buy',
+    'Buy':         'buy',
+    'Hold':        'hold',
+    'Sell':        'sell',
+    'Strong Sell': 'strong_sell',
+  };
+  return map[r] ?? 'hold';
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="p-3 rounded" style={{ backgroundColor: '#161922', border: '1px solid #1e2230' }}>
+      <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '10px', color: '#4a4e63', marginBottom: '4px' }}>
+        {label}
       </div>
-
-      {/* Error state */}
-      {error && (
-        <div
-          className="rounded-lg p-4 mb-6 text-sm"
-          style={{ background: '#ff4b6e18', border: '1px solid #ff4b6e40', color: '#ff4b6e' }}
-        >
-          {error}
-        </div>
-      )}
-
-      {/* Financial metrics grid */}
-      {displayJson && (
-        <section className="mb-8">
-          <h2 className="text-xs uppercase tracking-widest mb-3" style={{ color: '#8b93a8', fontFamily: "'Space Mono', monospace" }}>
-            Financial Snapshot
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <MetricCard label="Revenue"       value={fmtUSD(displayJson.revenue)} />
-            <MetricCard label="Rev Growth YoY" value={fmtPct(displayJson.revenueGrowthYoY)} />
-            <MetricCard label="Gross Margin"  value={fmtPct(displayJson.grossMarginPercent)} />
-            <MetricCard label="Adj. EBITDA Margin" value={fmtPct(displayJson.adjustedEbitdaMarginPercent)} />
-            <MetricCard label="Cash"          value={fmtUSD(displayJson.cashAndEquivalents)} />
-            <MetricCard label="Backlog"       value={fmtUSD(displayJson.backlog)} />
-            <MetricCard label="EPS (adj)"     value={displayJson.epsAdjusted != null ? `$${displayJson.epsAdjusted.toFixed(2)}` : '—'} />
-            <MetricCard label="Analyst Target" value={fmtPrice(displayJson.analystConsensusTargetPrice)} />
-          </div>
-
-          {/* Guidance row */}
-          {(displayJson.guidanceRevenueLow || displayJson.guidanceRevenueHigh) && (
-            <div
-              className="rounded-lg p-3 flex flex-wrap items-center gap-3"
-              style={{ background: '#161922', border: '1px solid #1e2230' }}
-            >
-              <span className="text-xs uppercase tracking-widest" style={{ color: '#8b93a8', fontFamily: "'Space Mono', monospace" }}>
-                Guidance {displayJson.guidancePeriod}
-              </span>
-              <span className="font-mono text-sm" style={{ color: '#e2e6f0' }}>
-                {displayJson.guidanceRevenueLow != null && displayJson.guidanceRevenueHigh != null
-                  ? `$${displayJson.guidanceRevenueLow}M – $${displayJson.guidanceRevenueHigh}M`
-                  : fmtUSD(displayJson.guidanceRevenueLow ?? displayJson.guidanceRevenueHigh)}
-              </span>
-              <GuidanceBadge direction={displayJson.guidanceDirection} />
-            </div>
-          )}
-
-          {/* Segments */}
-          {displayJson.segments && displayJson.segments.length > 0 && (
-            <div className="mt-4">
-              <p className="text-xs uppercase tracking-widest mb-2" style={{ color: '#8b93a8', fontFamily: "'Space Mono', monospace" }}>
-                Segments
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {displayJson.segments.map(seg => (
-                  <div
-                    key={seg.name}
-                    className="rounded px-3 py-2 text-sm"
-                    style={{ background: '#161922', border: '1px solid #1e2230' }}
-                  >
-                    <span style={{ color: '#e2e6f0', fontFamily: "'Space Mono', monospace" }}>{seg.name}</span>
-                    <span className="ml-2" style={{ color: '#8b93a8' }}>{fmtUSD(seg.revenue)}</span>
-                    {seg.growthYoY != null && (
-                      <span
-                        className="ml-2 text-xs"
-                        style={{ color: seg.growthYoY >= 0 ? '#00e676' : '#ff4b6e' }}
-                      >
-                        {fmtPct(seg.growthYoY)}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* Streaming narrative */}
-      {displayNarrative && (
-        <section>
-          <h2 className="text-xs uppercase tracking-widest mb-4" style={{ color: '#8b93a8', fontFamily: "'Space Mono', monospace" }}>
-            Analysis
-          </h2>
-          <div
-            className="prose prose-invert prose-sm max-w-none leading-relaxed"
-            style={{ color: '#e2e6f0', fontFamily: "'DM Sans', sans-serif" }}
-          >
-            <ReactMarkdown>{displayNarrative}</ReactMarkdown>
-          </div>
-          {status === 'writing_narrative' && (
-            <span className="inline-block w-1 h-4 ml-0.5 align-text-bottom animate-pulse" style={{ background: '#00c8ff' }} />
-          )}
-        </section>
-      )}
-
-      {/* Empty state */}
-      {!displayJson && !displayNarrative && !isLive && !error && (
-        <div className="text-center py-16" style={{ color: '#8b93a8' }}>
-          <p className="text-sm mb-4">No analysis yet for {TICKER}.</p>
-          <p className="text-xs">
-            Click "Run Analysis" to automatically fetch the latest earnings release from SEC EDGAR and generate a deep dive.
-          </p>
+      <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '14px', fontWeight: 600, color: '#e2e4ef' }}>
+        {value}
+      </div>
+      {sub && (
+        <div style={{
+          fontFamily: 'Space Mono, monospace', fontSize: '10px', marginTop: '2px',
+          color: sub.startsWith('+') ? '#00e676' : '#ff4b6e',
+        }}>
+          {sub}
         </div>
       )}
     </div>
+  );
+}
+
+function GuidanceBadge({ direction }: {
+  direction: 'raised' | 'maintained' | 'lowered' | 'initiated' | null;
+}) {
+  const colors: Record<string, string> = {
+    raised: '#00e676', maintained: '#8b93a8', lowered: '#ff4b6e', initiated: '#00c8ff',
+  };
+  const labels: Record<string, string> = {
+    raised: 'RAISED', maintained: 'MAINTAINED', lowered: 'LOWERED', initiated: 'INITIATED',
+  };
+  const key   = direction ?? 'maintained';
+  const color = colors[key];
+  return (
+    <span style={{
+      backgroundColor: `${color}18`, color, padding: '4px 8px', borderRadius: '3px',
+      fontSize: '11px', fontWeight: 600, fontFamily: 'Space Mono, monospace',
+      border: `1px solid ${color}66`,
+    }}>
+      {labels[key]}
+    </span>
   );
 }
