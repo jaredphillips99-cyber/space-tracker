@@ -76,19 +76,35 @@ async function secFetch(url: string): Promise<string | null> {
   } catch { return null; }
 }
 
-async function resolveDocUrl(indexHtml: string, accNo: string): Promise<string | null> {
-  const ex99 = Array.from(indexHtml.matchAll(/(ex-?99\.?\d?|exhibit\s*99)[^\s>]*/gi));
-  for (const m of ex99) {
-    const h = m[0];
-    if (h.endsWith('.htm') || h.endsWith('.html')) return h;
+// Returns a full https:// URL to the target document, or null if not found.
+// Handles both absolute paths (/Archives/...) and relative filenames.
+function resolveDocUrl(indexHtml: string, accNo: string, baseUrl: string): string | null {
+  const SEC_ROOT = 'https://www.sec.gov';
+  const accBase  = accNo.replace(/-/g, '');
+
+  const hrefs = Array.from(indexHtml.matchAll(/href\s*=\s*["']([^"']+\.htm[l]?)["']/gi))
+    .map(m => m[1]);
+
+  const toFull = (h: string) =>
+    h.startsWith('http') ? h :
+    h.startsWith('/')    ? SEC_ROOT + h :
+                           baseUrl + h;
+
+  // 1. Prefer EX-99.1 (earnings press release)
+  for (const h of hrefs) {
+    if (/ex-?99/i.test(h) && !/ex-?99[._-]?[2-9]/i.test(h)) return toFull(h);
   }
-  const hrefs = Array.from(indexHtml.matchAll(/href\s*=\s*["']([^"']+\.htm[l]?)["']/gi));
-  const base  = accNo.replace(/-/g, '');
-  for (const m of hrefs) {
-    const h = m[1];
-    if (/-10q\.htm/i.test(h) && !/ex/i.test(h)) return h;
-    if (h.includes(base) && !/ex/i.test(h)) return h;
+
+  // 2. Fall back to primary 10-Q document
+  for (const h of hrefs) {
+    if (/-10q\.htm/i.test(h) && !/ex/i.test(h)) return toFull(h);
   }
+
+  // 3. Fall back to any file sharing the accession number base
+  for (const h of hrefs) {
+    if (h.includes(accBase) && !/ex/i.test(h)) return toFull(h);
+  }
+
   return null;
 }
 
@@ -127,12 +143,12 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
     ];
 
     const fetchDoc = async (filing: NonNullable<ReturnType<typeof findFiling>>, mda = false) => {
-      const base     = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${filing.accessionNumber.replace(/-/g, '')}/`;
+      const base      = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${filing.accessionNumber.replace(/-/g, '')}/`;
       const indexHtml = await secFetch(base);
       if (!indexHtml) return null;
-      const rel = await resolveDocUrl(indexHtml, filing.accessionNumber);
-      if (!rel) return null;
-      const raw = await secFetch(base + rel);
+      const docUrl = resolveDocUrl(indexHtml, filing.accessionNumber, base);
+      if (!docUrl) return null;
+      const raw = await secFetch(docUrl);
       if (!raw) return null;
       const text = stripHtml(raw).substring(0, 80000);
       return mda ? extractMDA(text) : text;
@@ -171,10 +187,9 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
   const indexHtml = await secFetch(base);
   if (!indexHtml) throw new Error('Failed to fetch filing index');
 
-  const rel = await resolveDocUrl(indexHtml, filing.accessionNumber);
-  if (!rel) throw new Error('Could not find EX-99.1 document');
+  const docUrl = resolveDocUrl(indexHtml, filing.accessionNumber, base);
+  if (!docUrl) throw new Error('Could not find EX-99.1 document');
 
-  const docUrl  = base + rel;
   const rawDoc  = await secFetch(docUrl);
   if (!rawDoc) throw new Error('Failed to fetch earnings document');
 
