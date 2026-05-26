@@ -16,74 +16,75 @@ export type ConvictionRating =
   | 'strong_sell';
 
 export interface AnalysisMeta {
-  ticker: string;
-  filingDate: string;
-  period: string;
-  documentUrl: string;
+  ticker:        string;
+  filingDate:    string | null;
+  period:        string | null;
+  documentUrl:   string | null;
+  isSpeculative: boolean;
+  isSedarOnly:   boolean;
+  sources:       { hasEightK: boolean; hasTenQ: boolean } | null;
+  note:          string | null;
 }
 
 export interface AnalysisJson {
-  revenue: number | null;
-  revenueGrowthYoY: number | null;
-  grossMarginPercent: number | null;
-  operatingMarginPercent: number | null;
+  revenue:                     number | null;
+  revenueGrowthYoY:            number | null;
+  grossMarginPercent:          number | null;
+  operatingMarginPercent:      number | null;
   adjustedEbitdaMarginPercent: number | null;
-  netIncomeLoss: number | null;
-  eps: number | null;
-  epsAdjusted: number | null;
-  cashAndEquivalents: number | null;
-  backlog: number | null;
-  guidanceRevenueLow: number | null;
-  guidanceRevenueHigh: number | null;
-  guidancePeriod: string | null;
-  guidanceDirection: 'raised' | 'maintained' | 'lowered' | 'initiated' | null;
+  netIncomeLoss:               number | null;
+  eps:                         number | null;
+  epsAdjusted:                 number | null;
+  cashAndEquivalents:          number | null;
+  backlog:                     number | null;
+  guidanceRevenueLow:          number | null;
+  guidanceRevenueHigh:         number | null;
+  guidancePeriod:              string | null;
+  guidanceDirection:           'raised' | 'maintained' | 'lowered' | 'initiated' | null;
   analystConsensusTargetPrice: number | null;
-  segments:
-    | Array<{
-        name: string;
-        revenue: number | null;
-        growthYoY: number | null;
-      }>
-    | null;
-  convictionRating: ConvictionRating;
+  segments: Array<{
+    name:      string;
+    revenue:   number | null;
+    growthYoY: number | null;
+  }> | null;
+  convictionRating:    ConvictionRating;
   convictionRationale: string;
 }
 
 export interface UseAnalysisReturn {
-  run: (ticker: string) => Promise<void>;
-  cancel: () => void;
-  status: AnalysisStatus;
-  meta: AnalysisMeta | null;
-  jsonData: AnalysisJson | null;
-  narrative: string;
-  error: string | null;
+  run:              (ticker: string) => Promise<void>;
+  cancel:           () => void;
+  status:           AnalysisStatus;
+  meta:             AnalysisMeta | null;
+  jsonData:         AnalysisJson | null;
+  narrative:        string;
+  error:            string | null;
   convictionRating: ConvictionRating | null;
 }
 
 export const CONVICTION_LABELS: Record<ConvictionRating, string> = {
-  strong_buy: 'Strong Buy',
-  buy: 'Buy',
-  hold: 'Hold',
-  sell: 'Sell',
+  strong_buy:  'Strong Buy',
+  buy:         'Buy',
+  hold:        'Hold',
+  sell:        'Sell',
   strong_sell: 'Strong Sell',
 };
 
 export const CONVICTION_COLORS: Record<ConvictionRating, string> = {
-  strong_buy: '#00e676',
-  buy: '#69f0ae',
-  hold: '#8b93a8',
-  sell: '#ff7043',
+  strong_buy:  '#00e676',
+  buy:         '#69f0ae',
+  hold:        '#8b93a8',
+  sell:        '#ff7043',
   strong_sell: '#ff4b6e',
 };
 
 export function useAnalysis(): UseAnalysisReturn {
-  const [status, setStatus] = useState<AnalysisStatus>('idle');
-  const [meta, setMeta] = useState<AnalysisMeta | null>(null);
-  const [jsonData, setJsonData] = useState<AnalysisJson | null>(null);
-  const [narrative, setNarrative] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
-  const [convictionRating, setConvictionRating] =
-    useState<ConvictionRating | null>(null);
+  const [status,           setStatus]           = useState<AnalysisStatus>('idle');
+  const [meta,             setMeta]             = useState<AnalysisMeta | null>(null);
+  const [jsonData,         setJsonData]         = useState<AnalysisJson | null>(null);
+  const [narrative,        setNarrative]        = useState<string>('');
+  const [error,            setError]            = useState<string | null>(null);
+  const [convictionRating, setConvictionRating] = useState<ConvictionRating | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -93,7 +94,7 @@ export function useAnalysis(): UseAnalysisReturn {
   }, []);
 
   const run = useCallback(async (ticker: string) => {
-    // Reset state
+    // Reset
     setStatus('fetching_edgar');
     setMeta(null);
     setJsonData(null);
@@ -132,10 +133,12 @@ export function useAnalysis(): UseAnalysisReturn {
         return;
       }
 
-      // Parse the SSE stream
-      const reader = res.body.getReader();
+      // Parse SSE stream
+      const reader  = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
+      let   buffer  = '';
+      // Track last event type since data lines follow event lines
+      let lastEventType = '';
 
       while (true) {
         if (ctrl.signal.aborted) break;
@@ -148,31 +151,21 @@ export function useAnalysis(): UseAnalysisReturn {
         buffer = lines.pop() ?? '';
 
         for (const line of lines) {
-          // SSE format: "event: TYPE\ndata: {...}\n\n"
           if (line.startsWith('event: ')) {
-            // Handled on the "data:" line following
+            lastEventType = line.slice(7).trim();
             continue;
           }
+
           if (!line.startsWith('data: ')) continue;
 
           const payload = line.slice(6).trim();
           if (!payload) continue;
 
           let msg: Record<string, unknown>;
-          try {
-            msg = JSON.parse(payload);
-          } catch {
-            continue;
-          }
+          try { msg = JSON.parse(payload); }
+          catch { continue; }
 
-          // We rely on the preceding event: line — but since we read them
-          // as a flat stream, we match by shape instead.
-          const eventLine = lines[lines.indexOf(line) - 1] ?? '';
-          const eventType = eventLine.startsWith('event: ')
-            ? eventLine.slice(7).trim()
-            : 'unknown';
-
-          switch (eventType) {
+          switch (lastEventType) {
             case 'meta':
               setMeta(msg as unknown as AnalysisMeta);
               setStatus('extracting_json');
@@ -185,18 +178,16 @@ export function useAnalysis(): UseAnalysisReturn {
             }
 
             case 'json': {
-              const parsed = msg.parsed as AnalysisJson | undefined;
-              if (parsed) {
-                setJsonData(parsed);
-                if (parsed.convictionRating) {
-                  setConvictionRating(parsed.convictionRating);
-                }
+              const p = msg.parsed as AnalysisJson | undefined;
+              if (p) {
+                setJsonData(p);
+                if (p.convictionRating) setConvictionRating(p.convictionRating);
               }
               break;
             }
 
             case 'narrative_chunk':
-              setNarrative((prev) => prev + (msg.text as string ?? ''));
+              setNarrative(prev => prev + ((msg.text as string) ?? ''));
               break;
 
             case 'done':
@@ -214,22 +205,12 @@ export function useAnalysis(): UseAnalysisReturn {
         }
       }
 
-      if (status !== 'error') setStatus('done');
     } catch (err: unknown) {
       if ((err as Error)?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : String(err));
       setStatus('error');
     }
-  }, [status]);
+  }, []);
 
-  return {
-    run,
-    cancel,
-    status,
-    meta,
-    jsonData,
-    narrative,
-    error,
-    convictionRating,
-  };
+  return { run, cancel, status, meta, jsonData, narrative, error, convictionRating };
 }
