@@ -22,20 +22,23 @@ const CIK_MAP: Record<string, string> = {
   NNE:  '0001923891', LHX:  '0000202058', AVAV: '0001368622',
 };
 
-const SPECULATIVE  = new Set(['OKLO', 'NNE', 'NXE']);
-const SEDAR_ONLY   = new Set(['NXE']);
+const SPECULATIVE = new Set(['OKLO', 'NNE', 'NXE']);
+const SEDAR_ONLY  = new Set(['NXE']);
 
-// ─── EDGAR helpers (run in browser — real residential IP, no 403) ─────────────
+// ─── EDGAR helpers ────────────────────────────────────────────────────────────
 
+// FIX: EDGAR submissions API returns `cik` (zero-padded string), not `cik_str`.
+// It also returns `primaryDocument` which we use directly instead of parsing HTML.
 interface EdgarSubmission {
-  cik_str: number;
+  cik: string;  // e.g. "0001819810"
   filings: {
     recent: {
-      accessionNumber: string[];
-      filingDate:      string[];
-      reportDate:      string[];
-      items:           string[];
-      form:            string[];
+      accessionNumber:    string[];
+      filingDate:         string[];
+      reportDate:         string[];
+      items:              string[];
+      form:               string[];
+      primaryDocument:    string[];  // e.g. "rdw-20260506.htm"
     };
   };
 }
@@ -50,12 +53,19 @@ function stripHtml(html: string): string {
     .replace(/\s+/g, ' ').trim();
 }
 
+// FIX: also returns primaryDocument so callers don't need to resolve HTML
 function findFiling(sub: EdgarSubmission, form: string, requireItem?: string) {
   const r = sub.filings.recent;
   for (let i = 0; i < r.form.length; i++) {
     if (r.form[i] !== form) continue;
     if (requireItem && !(r.items[i] ?? '').includes(requireItem)) continue;
-    return { filingDate: r.filingDate[i], accessionNumber: r.accessionNumber[i], period: r.reportDate[i], items: r.items[i] ?? '' };
+    return {
+      filingDate:      r.filingDate[i],
+      accessionNumber: r.accessionNumber[i],
+      period:          r.reportDate[i],
+      items:           r.items[i] ?? '',
+      primaryDocument: (r.primaryDocument ?? [])[i] ?? '',
+    };
   }
   return null;
 }
@@ -68,13 +78,10 @@ function extractMDA(text: string): string {
   return slice.substring(0, end === -1 ? 15000 : Math.min(end + 1000, 20000));
 }
 
-// Route all SEC fetches through our Vercel proxy to avoid CORS blocks.
-// www.sec.gov/Archives does not send Access-Control-Allow-Origin headers,
-// so direct browser fetches are silently blocked. The proxy fetches server-side.
+// Route all /Archives/ fetches through our Vercel proxy to avoid CORS blocks.
+// data.sec.gov (submissions JSON) has CORS headers — fetch directly.
 async function secFetch(url: string): Promise<string | null> {
   try {
-    // data.sec.gov (submissions JSON) has CORS headers — fetch directly.
-    // www.sec.gov/Archives does not — route through proxy.
     const proxyUrl = url.includes('data.sec.gov')
       ? url
       : `/api/edgar-proxy?url=${encodeURIComponent(url)}`;
@@ -83,36 +90,11 @@ async function secFetch(url: string): Promise<string | null> {
   } catch { return null; }
 }
 
-// Returns a full https:// URL to the target document, or null if not found.
-// Handles both absolute paths (/Archives/...) and relative filenames.
-function resolveDocUrl(indexHtml: string, accNo: string, baseUrl: string): string | null {
-  const SEC_ROOT = 'https://www.sec.gov';
-  const accBase  = accNo.replace(/-/g, '');
-
-  const hrefs = Array.from(indexHtml.matchAll(/href\s*=\s*["']([^"']+\.htm[l]?)["']/gi))
-    .map(m => m[1]);
-
-  const toFull = (h: string) =>
-    h.startsWith('http') ? h :
-    h.startsWith('/')    ? SEC_ROOT + h :
-                           baseUrl + h;
-
-  // 1. Prefer EX-99.1 (earnings press release)
-  for (const h of hrefs) {
-    if (/ex-?99/i.test(h) && !/ex-?99[._-]?[2-9]/i.test(h)) return toFull(h);
-  }
-
-  // 2. Fall back to primary 10-Q document
-  for (const h of hrefs) {
-    if (/-10q\.htm/i.test(h) && !/ex/i.test(h)) return toFull(h);
-  }
-
-  // 3. Fall back to any file sharing the accession number base
-  for (const h of hrefs) {
-    if (h.includes(accBase) && !/ex/i.test(h)) return toFull(h);
-  }
-
-  return null;
+// Build the direct document URL from submission data — no HTML parsing needed.
+// FIX: use primaryDocument field instead of resolveDocUrl HTML scraping.
+function buildDocUrl(cikNum: number, accessionNumber: string, primaryDocument: string): string {
+  const accNodash = accessionNumber.replace(/-/g, '');
+  return `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accNodash}/${primaryDocument}`;
 }
 
 async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
@@ -134,11 +116,14 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
   const cik = CIK_MAP[ticker];
   if (!cik) throw new Error(`Unknown ticker: ${ticker}`);
 
-  // Fetch submission index
+  // Fetch submission index (CORS-friendly — data.sec.gov has Access-Control-Allow-Origin: *)
   const subJson = await secFetch(`https://data.sec.gov/submissions/CIK${cik}.json`);
   if (!subJson) throw new Error('Failed to fetch SEC submission index');
   const sub = JSON.parse(subJson) as EdgarSubmission;
-  const cikNum = sub.cik_str;
+
+  // FIX: use sub.cik (zero-padded string like "0001819810"), strip leading zeros for URL
+  const cikNum = parseInt(sub.cik, 10);
+  if (!cikNum) throw new Error(`Invalid CIK in submission response: ${sub.cik}`);
 
   const isSpeculative = SPECULATIVE.has(ticker);
 
@@ -149,12 +134,12 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
       findFiling(sub, '10-Q'),
     ];
 
-    const fetchDoc = async (filing: NonNullable<ReturnType<typeof findFiling>>, mda = false) => {
-      const base      = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${filing.accessionNumber.replace(/-/g, '')}/`;
-      const indexHtml = await secFetch(base);
-      if (!indexHtml) return null;
-      const docUrl = resolveDocUrl(indexHtml, filing.accessionNumber, base);
-      if (!docUrl) return null;
+    const fetchDoc = async (
+      filing: NonNullable<ReturnType<typeof findFiling>>,
+      mda = false,
+    ) => {
+      if (!filing.primaryDocument) return null;
+      const docUrl = buildDocUrl(cikNum, filing.accessionNumber, filing.primaryDocument);
       const raw = await secFetch(docUrl);
       if (!raw) return null;
       const text = stripHtml(raw).substring(0, 80000);
@@ -186,19 +171,16 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
     };
   }
 
-  // ── Normal ticker: latest 8-K item 2.02 ─────────────────────────────────
+  // ── Normal ticker: latest earnings 8-K (item 2.02) ──────────────────────
+  // FIX: require item "2.02" to get the earnings press release, not other 8-Ks
   const filing = findFiling(sub, '8-K', '2.02');
   if (!filing) throw new Error(`No earnings 8-K (item 2.02) found for ${ticker}`);
+  if (!filing.primaryDocument) throw new Error(`No primary document in earnings 8-K for ${ticker}`);
 
-  const base      = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${filing.accessionNumber.replace(/-/g, '')}/`;
-  const indexHtml = await secFetch(base);
-  if (!indexHtml) throw new Error('Failed to fetch filing index');
-
-  const docUrl = resolveDocUrl(indexHtml, filing.accessionNumber, base);
-  if (!docUrl) throw new Error('Could not find EX-99.1 document');
-
+  // FIX: build URL directly from primaryDocument — no HTML parsing
+  const docUrl  = buildDocUrl(cikNum, filing.accessionNumber, filing.primaryDocument);
   const rawDoc  = await secFetch(docUrl);
-  if (!rawDoc) throw new Error('Failed to fetch earnings document');
+  if (!rawDoc) throw new Error('Failed to fetch earnings document from SEC');
 
   const docText = stripHtml(rawDoc).substring(0, 80000);
 
