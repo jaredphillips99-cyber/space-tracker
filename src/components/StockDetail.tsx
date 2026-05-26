@@ -69,9 +69,17 @@ function extractMDA(text: string): string {
   return slice.substring(0, end === -1 ? 15000 : Math.min(end + 1000, 20000));
 }
 
+// Route all SEC fetches through our Vercel proxy to avoid CORS blocks.
+// www.sec.gov/Archives does not send Access-Control-Allow-Origin headers,
+// so direct browser fetches are silently blocked. The proxy fetches server-side.
 async function secFetch(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': EDGAR_UA } });
+    // data.sec.gov (submissions JSON) has CORS headers — fetch directly.
+    // www.sec.gov/Archives does not — route through proxy.
+    const proxyUrl = url.includes('data.sec.gov')
+      ? url
+      : `/api/edgar-proxy?url=${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl);
     return res.ok ? res.text() : null;
   } catch { return null; }
 }
