@@ -51,11 +51,25 @@ export interface AnalysisJson {
   convictionRationale: string;
 }
 
-// Passed in by the caller — called once when analysis finishes successfully
 export interface AnalysisCompletePayload {
   meta:      AnalysisMeta;
   jsonData:  AnalysisJson;
   narrative: string;
+}
+
+// What the caller passes to run() — EDGAR already fetched browser-side
+export interface RunPayload {
+  ticker:        string;
+  earningsText:  string;
+  isSpeculative: boolean;
+  filingMeta: {
+    filingDate:  string | null;
+    period:      string | null;
+    documentUrl: string | null;
+    isSedarOnly: boolean;
+    sources:     { hasEightK: boolean; hasTenQ: boolean } | null;
+    note:        string | null;
+  };
 }
 
 export interface UseAnalysisOptions {
@@ -63,7 +77,7 @@ export interface UseAnalysisOptions {
 }
 
 export interface UseAnalysisReturn {
-  run:              (ticker: string) => Promise<void>;
+  run:              (payload: RunPayload) => Promise<void>;
   cancel:           () => void;
   status:           AnalysisStatus;
   meta:             AnalysisMeta | null;
@@ -99,10 +113,7 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
   const [error,            setError]            = useState<string | null>(null);
   const [convictionRating, setConvictionRating] = useState<ConvictionRating | null>(null);
 
-  const abortRef = useRef<AbortController | null>(null);
-
-  // Use refs for the accumulating values so the onComplete closure always
-  // sees the final state without stale closures
+  const abortRef     = useRef<AbortController | null>(null);
   const metaRef      = useRef<AnalysisMeta | null>(null);
   const jsonDataRef  = useRef<AnalysisJson | null>(null);
   const narrativeRef = useRef<string>('');
@@ -112,9 +123,9 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
     setStatus('idle');
   }, []);
 
-  const run = useCallback(async (ticker: string) => {
-    // Reset everything
-    setStatus('fetching_edgar');
+  const run = useCallback(async (payload: RunPayload) => {
+    // Reset
+    setStatus('extracting_json');
     setMeta(null);
     setJsonData(null);
     setNarrative('');
@@ -132,8 +143,13 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
       const res = await fetch('/api/analyze', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ ticker }),
-        signal:  ctrl.signal,
+        body:    JSON.stringify({
+          ticker:        payload.ticker,
+          earningsText:  payload.earningsText,
+          isSpeculative: payload.isSpeculative,
+          filingMeta:    payload.filingMeta,
+        }),
+        signal: ctrl.signal,
       });
 
       if (res.status === 429) {
@@ -155,10 +171,9 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
         return;
       }
 
-      // Parse SSE stream
-      const reader  = res.body.getReader();
-      const decoder = new TextDecoder();
-      let   buffer  = '';
+      const reader        = res.body.getReader();
+      const decoder       = new TextDecoder();
+      let   buffer        = '';
       let   lastEventType = '';
 
       while (true) {
@@ -176,14 +191,12 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
             lastEventType = line.slice(7).trim();
             continue;
           }
-
           if (!line.startsWith('data: ')) continue;
-
-          const payload = line.slice(6).trim();
-          if (!payload) continue;
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
 
           let msg: Record<string, unknown>;
-          try { msg = JSON.parse(payload); }
+          try { msg = JSON.parse(raw); }
           catch { continue; }
 
           switch (lastEventType) {
@@ -191,16 +204,12 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
               const m = msg as unknown as AnalysisMeta;
               metaRef.current = m;
               setMeta(m);
-              setStatus('extracting_json');
               break;
             }
-
             case 'status': {
-              const step = msg.step as string;
-              if (step === 'narrative') setStatus('writing_narrative');
+              if (msg.step === 'narrative') setStatus('writing_narrative');
               break;
             }
-
             case 'json': {
               const p = msg.parsed as AnalysisJson | undefined;
               if (p) {
@@ -210,22 +219,15 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
               }
               break;
             }
-
             case 'narrative_chunk': {
               const text = (msg.text as string) ?? '';
               narrativeRef.current += text;
               setNarrative(prev => prev + text);
               break;
             }
-
             case 'done': {
               setStatus('done');
-              // Fire onComplete with final values from refs (never stale)
-              if (
-                onComplete &&
-                metaRef.current &&
-                jsonDataRef.current
-              ) {
+              if (onComplete && metaRef.current && jsonDataRef.current) {
                 onComplete({
                   meta:      metaRef.current,
                   jsonData:  jsonDataRef.current,
@@ -234,14 +236,11 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
               }
               break;
             }
-
-            case 'error':
+            case 'error': {
               setError((msg.message as string) ?? 'Unknown error');
               setStatus('error');
               break;
-
-            default:
-              break;
+            }
           }
         }
       }

@@ -1,39 +1,229 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useCallback } from 'react';
-import { useAnalysis, type AnalysisCompletePayload } from '../hooks/useAnalysis';
+import { useCallback, useState } from 'react';
+import { useAnalysis, type AnalysisCompletePayload, type RunPayload } from '../hooks/useAnalysis';
 import type { AnalysisMeta, AnalysisJson } from '../hooks/useAnalysis';
 import { useStore } from '../store/useStore';
 import { ConvictionBadge } from './ConvictionBadge';
 import ReactMarkdown from 'react-markdown';
 import type { StockAnalysis, GuidanceDirection, AnalystRating } from '../types';
 
+// ─── CIK map (browser-side EDGAR fetch) ──────────────────────────────────────
+
+const CIK_MAP: Record<string, string> = {
+  RKLB: '0001819994', PL:   '0001836833', RDW:  '0001819810',
+  LUNR: '0001844452', ASTS: '0001780312', KTOS: '0001069258',
+  BKSY: '0001753539', FLY:  '0001860160', SATS: '0001415404',
+  NVDA: '0001045810', PLTR: '0001321655', CRWV: '0001769628',
+  IREN: '0001878848', NBIS: '0001513845', CIFR: '0001819989',
+  RIOT: '0001167419', VRT:  '0001674101', MOD:  '0000067347',
+  CEG:  '0001868275', VST:  '0001692819', BWXT: '0001486957',
+  GEV:  '0001996810', BE:   '0001664703', CCJ:  '0001009001',
+  LEU:  '0001065059', NXE:  '0001698535', OKLO: '0001849056',
+  NNE:  '0001923891', LHX:  '0000202058', AVAV: '0001368622',
+};
+
+const SPECULATIVE  = new Set(['OKLO', 'NNE', 'NXE']);
+const SEDAR_ONLY   = new Set(['NXE']);
+const EDGAR_UA     = 'SpaceTracker Jared Phillips jaredphillips99@gmail.com';
+
+// ─── EDGAR helpers (run in browser — real residential IP, no 403) ─────────────
+
+interface EdgarSubmission {
+  cik_str: number;
+  filings: {
+    recent: {
+      accessionNumber: string[];
+      filingDate:      string[];
+      reportDate:      string[];
+      items:           string[];
+      form:            string[];
+    };
+  };
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ').trim();
+}
+
+function findFiling(sub: EdgarSubmission, form: string, requireItem?: string) {
+  const r = sub.filings.recent;
+  for (let i = 0; i < r.form.length; i++) {
+    if (r.form[i] !== form) continue;
+    if (requireItem && !(r.items[i] ?? '').includes(requireItem)) continue;
+    return { filingDate: r.filingDate[i], accessionNumber: r.accessionNumber[i], period: r.reportDate[i], items: r.items[i] ?? '' };
+  }
+  return null;
+}
+
+function extractMDA(text: string): string {
+  const start = text.search(/management'?s?\s+discussion\s+and\s+analysis|item\s+2\.?\s*$/mi);
+  if (start === -1) return text.substring(0, 15000);
+  const slice = text.substring(start);
+  const end = slice.search(/item\s+3[^a-z0-9]|quantitative\s+and\s+qualitative|controls\s+and\s+procedures/i);
+  return slice.substring(0, end === -1 ? 15000 : Math.min(end + 1000, 20000));
+}
+
+async function secFetch(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': EDGAR_UA } });
+    return res.ok ? res.text() : null;
+  } catch { return null; }
+}
+
+async function resolveDocUrl(indexHtml: string, accNo: string): Promise<string | null> {
+  const ex99 = Array.from(indexHtml.matchAll(/(ex-?99\.?\d?|exhibit\s*99)[^\s>]*/gi));
+  for (const m of ex99) {
+    const h = m[0];
+    if (h.endsWith('.htm') || h.endsWith('.html')) return h;
+  }
+  const hrefs = Array.from(indexHtml.matchAll(/href\s*=\s*["']([^"']+\.htm[l]?)["']/gi));
+  const base  = accNo.replace(/-/g, '');
+  for (const m of hrefs) {
+    const h = m[1];
+    if (/-10q\.htm/i.test(h) && !/ex/i.test(h)) return h;
+    if (h.includes(base) && !/ex/i.test(h)) return h;
+  }
+  return null;
+}
+
+async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
+  // SEDAR-only tickers (NXE) — no EDGAR filing, use training knowledge
+  if (SEDAR_ONLY.has(ticker)) {
+    return {
+      ticker,
+      earningsText:  `${ticker} is a Canadian company that files on SEDAR, not SEC EDGAR. Use your training knowledge for analysis.`,
+      isSpeculative: true,
+      filingMeta: {
+        filingDate:  null, period: null, documentUrl: null,
+        isSedarOnly: true,
+        sources:     null,
+        note:        'NXE files on SEDAR. Analysis based on training knowledge only.',
+      },
+    };
+  }
+
+  const cik = CIK_MAP[ticker];
+  if (!cik) throw new Error(`Unknown ticker: ${ticker}`);
+
+  // Fetch submission index
+  const subJson = await secFetch(`https://data.sec.gov/submissions/CIK${cik}.json`);
+  if (!subJson) throw new Error('Failed to fetch SEC submission index');
+  const sub = JSON.parse(subJson) as EdgarSubmission;
+  const cikNum = sub.cik_str;
+
+  const isSpeculative = SPECULATIVE.has(ticker);
+
+  // ── Speculative tickers: combine 8-K + 10-Q ─────────────────────────────
+  if (isSpeculative) {
+    const [eightKFiling, tenQFiling] = [
+      findFiling(sub, '8-K'),
+      findFiling(sub, '10-Q'),
+    ];
+
+    const fetchDoc = async (filing: NonNullable<ReturnType<typeof findFiling>>, mda = false) => {
+      const base     = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${filing.accessionNumber.replace(/-/g, '')}/`;
+      const indexHtml = await secFetch(base);
+      if (!indexHtml) return null;
+      const rel = await resolveDocUrl(indexHtml, filing.accessionNumber);
+      if (!rel) return null;
+      const raw = await secFetch(base + rel);
+      if (!raw) return null;
+      const text = stripHtml(raw).substring(0, 80000);
+      return mda ? extractMDA(text) : text;
+    };
+
+    const [eightKText, tenQText] = await Promise.all([
+      eightKFiling ? fetchDoc(eightKFiling, false) : Promise.resolve(null),
+      tenQFiling   ? fetchDoc(tenQFiling,   true)  : Promise.resolve(null),
+    ]);
+
+    let combined = '';
+    if (eightKText) combined += `=== MOST RECENT 8-K ===\nFiled: ${eightKFiling!.filingDate}\n\n${eightKText}`;
+    if (tenQText)   combined += `${combined ? '\n\n' : ''}=== MOST RECENT 10-Q (MD&A) ===\nFiled: ${tenQFiling!.filingDate}\n\n${tenQText}`;
+    if (!combined)  throw new Error('Could not retrieve any EDGAR filings');
+
+    return {
+      ticker,
+      earningsText:  combined,
+      isSpeculative: true,
+      filingMeta: {
+        filingDate:  eightKFiling?.filingDate ?? tenQFiling?.filingDate ?? null,
+        period:      tenQFiling?.period ?? eightKFiling?.period ?? null,
+        documentUrl: null,
+        isSedarOnly: false,
+        sources:     { hasEightK: !!eightKText, hasTenQ: !!tenQText },
+        note:        null,
+      },
+    };
+  }
+
+  // ── Normal ticker: latest 8-K item 2.02 ─────────────────────────────────
+  const filing = findFiling(sub, '8-K', '2.02');
+  if (!filing) throw new Error(`No earnings 8-K (item 2.02) found for ${ticker}`);
+
+  const base      = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${filing.accessionNumber.replace(/-/g, '')}/`;
+  const indexHtml = await secFetch(base);
+  if (!indexHtml) throw new Error('Failed to fetch filing index');
+
+  const rel = await resolveDocUrl(indexHtml, filing.accessionNumber);
+  if (!rel) throw new Error('Could not find EX-99.1 document');
+
+  const docUrl  = base + rel;
+  const rawDoc  = await secFetch(docUrl);
+  if (!rawDoc) throw new Error('Failed to fetch earnings document');
+
+  const docText = stripHtml(rawDoc).substring(0, 80000);
+
+  return {
+    ticker,
+    earningsText:  docText,
+    isSpeculative: false,
+    filingMeta: {
+      filingDate:  filing.filingDate,
+      period:      filing.period,
+      documentUrl: docUrl,
+      isSedarOnly: false,
+      sources:     null,
+      note:        null,
+    },
+  };
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export function StockDetail() {
   const { ticker } = useParams<{ ticker: string }>();
   const navigate   = useNavigate();
 
-  // ── Store: source of truth for persisted analysis ─────────────────────────
   const setAnalysis    = useStore(s => s.setAnalysis);
   const storedAnalysis = useStore(s => ticker ? s.analyses[ticker] : undefined);
   const livePrice      = useStore(s => ticker ? s.prices[ticker] : undefined);
 
-  // ── Write to store when analysis completes ────────────────────────────────
+  const [edgarError, setEdgarError] = useState<string | null>(null);
+
   const handleComplete = useCallback(
     (payload: AnalysisCompletePayload) => {
       if (!ticker) return;
       const { meta, jsonData, narrative } = payload;
       setAnalysis({
         ticker,
-        analyzedAt:         Date.now(),
-        analystTarget:      jsonData.analystConsensusTargetPrice ?? undefined,
-        guidanceDirection:  mapGuidanceDirection(jsonData.guidanceDirection),
-        analystRating:      mapConvictionToRating(jsonData.convictionRating),
-        revenueGrowthYoY:   jsonData.revenueGrowthYoY ?? undefined,
-        grossMargin:        jsonData.grossMarginPercent ?? undefined,
-        recentRevenue:      jsonData.revenue ?? undefined,
-        recentEPS:          jsonData.epsAdjusted ?? undefined,
-        summary:            narrative,
-        earningsText:       meta.documentUrl ?? undefined,
-        streamedContent:    JSON.stringify({ meta, jsonData }),
+        analyzedAt:        Date.now(),
+        analystTarget:     jsonData.analystConsensusTargetPrice ?? undefined,
+        guidanceDirection: mapGuidanceDirection(jsonData.guidanceDirection),
+        analystRating:     mapConvictionToRating(jsonData.convictionRating),
+        revenueGrowthYoY:  jsonData.revenueGrowthYoY ?? undefined,
+        grossMargin:       jsonData.grossMarginPercent ?? undefined,
+        recentRevenue:     jsonData.revenue ?? undefined,
+        recentEPS:         jsonData.epsAdjusted ?? undefined,
+        summary:           narrative,
+        earningsText:      meta.documentUrl ?? undefined,
+        streamedContent:   JSON.stringify({ meta, jsonData }),
       });
     },
     [ticker, setAnalysis],
@@ -44,19 +234,33 @@ export function StockDetail() {
 
   if (!ticker) return <div>Invalid ticker</div>;
 
-  const isRunning = status === 'fetching_edgar' || status === 'extracting_json' || status === 'writing_narrative';
+  // ── Kick off the full analysis: EDGAR fetch (browser) → API stream ────────
+  const handleRunAnalysis = async () => {
+    setEdgarError(null);
+    let payload: RunPayload;
+    try {
+      payload = await fetchEdgarInBrowser(ticker.toUpperCase());
+    } catch (err) {
+      setEdgarError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    await run(payload);
+  };
 
-  // ── Resolve display data: live stream first, then persisted store ─────────
+  const isRunning = status === 'extracting_json' || status === 'writing_narrative';
+  const isBusy    = isRunning;
 
+  // ── Resolve display data ──────────────────────────────────────────────────
+  const isLiveOrDone = status === 'extracting_json' || status === 'writing_narrative' || status === 'done';
 
-let displayMeta:       AnalysisMeta | null = null;
-let displayJsonData:   AnalysisJson | null = null;
-let displayNarrative:  string             = '';
-let displayConviction: string | null      = null;
+  let displayMeta:       AnalysisMeta | null = null;
+  let displayJsonData:   AnalysisJson | null = null;
+  let displayNarrative:  string             = '';
+  let displayConviction: string | null      = null;
 
-if (status === 'fetching_edgar' || status === 'extracting_json' || status === 'writing_narrative' || status === 'done') {
-    displayMeta       = meta      ?? null;
-    displayJsonData   = jsonData  ?? null;
+  if (isLiveOrDone) {
+    displayMeta       = meta     ?? null;
+    displayJsonData   = jsonData ?? null;
     displayNarrative  = narrative ?? '';
     displayConviction = convictionRating ?? null;
   } else if (storedAnalysis) {
@@ -69,7 +273,8 @@ if (status === 'fetching_edgar' || status === 'extracting_json' || status === 'w
       : null;
   }
 
-  const hasCached = !!storedAnalysis;
+  const hasCached  = !!storedAnalysis;
+  const displayErr = edgarError ?? error;
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#08090d', color: '#e2e6f0' }}>
@@ -79,13 +284,7 @@ if (status === 'fetching_edgar' || status === 'extracting_json' || status === 'w
         <button
           onClick={() => navigate('/')}
           className="mb-6 px-3 py-1.5 rounded text-sm"
-          style={{
-            backgroundColor: '#161922',
-            border: '1px solid #1e2230',
-            color: '#00c8ff',
-            fontFamily: 'Space Mono, monospace',
-            cursor: 'pointer',
-          }}
+          style={{ backgroundColor: '#161922', border: '1px solid #1e2230', color: '#00c8ff', fontFamily: 'Space Mono, monospace', cursor: 'pointer' }}
         >
           ← DASHBOARD
         </button>
@@ -100,11 +299,7 @@ if (status === 'fetching_edgar' || status === 'extracting_json' || status === 'w
               {livePrice && (
                 <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '20px', color: '#e2e6f0' }}>
                   ${livePrice.price.toFixed(2)}
-                  <span style={{
-                    fontSize: '14px',
-                    marginLeft: '8px',
-                    color: livePrice.changePercent >= 0 ? '#00e676' : '#ff4b6e',
-                  }}>
+                  <span style={{ fontSize: '14px', marginLeft: '8px', color: livePrice.changePercent >= 0 ? '#00e676' : '#ff4b6e' }}>
                     {livePrice.changePercent >= 0 ? '+' : ''}{livePrice.changePercent.toFixed(2)}%
                   </span>
                 </span>
@@ -112,69 +307,45 @@ if (status === 'fetching_edgar' || status === 'extracting_json' || status === 'w
             </div>
             {displayMeta && (
               <p style={{ color: '#8b93a8', marginTop: '4px', fontSize: '14px' }}>
-                {displayMeta.period && <span>{displayMeta.period} earnings · </span>}
+                {displayMeta.period    && <span>{displayMeta.period} earnings · </span>}
                 {displayMeta.filingDate && <span>filed {displayMeta.filingDate} · </span>}
                 {displayMeta.documentUrl && (
-                  <a
-                    href={displayMeta.documentUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: '#00c8ff', textDecoration: 'none' }}
-                  >
+                  <a href={displayMeta.documentUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#00c8ff', textDecoration: 'none' }}>
                     SEC filing ↗
                   </a>
                 )}
-                {displayMeta.note && (
-                  <span style={{ color: '#ffd166', marginLeft: '8px' }}>⚠ {displayMeta.note}</span>
-                )}
+                {displayMeta.note && <span style={{ color: '#ffd166', marginLeft: '8px' }}>⚠ {displayMeta.note}</span>}
               </p>
             )}
           </div>
-
-          {displayConviction && (
-            <ConvictionBadge rating={displayConviction as any} size="lg" />
-          )}
+          {displayConviction && <ConvictionBadge rating={displayConviction as any} size="lg" />}
         </div>
 
-        {/* Run / Re-run / Cancel buttons */}
+        {/* Buttons */}
         <div className="mb-6 flex gap-2 items-center">
           <button
-            onClick={() => run(ticker)}
-            disabled={isRunning}
+            onClick={handleRunAnalysis}
+            disabled={isBusy}
             style={{
-              backgroundColor: '#00c8ff',
-              color: '#08090d',
-              padding: '8px 16px',
-              borderRadius: '4px',
-              border: 'none',
-              fontFamily: 'Space Mono, monospace',
-              fontWeight: 600,
-              cursor: isRunning ? 'not-allowed' : 'pointer',
-              opacity: isRunning ? 0.5 : 1,
+              backgroundColor: '#00c8ff', color: '#08090d',
+              padding: '8px 16px', borderRadius: '4px', border: 'none',
+              fontFamily: 'Space Mono, monospace', fontWeight: 600,
+              cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.5 : 1,
             }}
           >
-            {isRunning ? '⏳ RUNNING…' : hasCached ? '↺ RE-RUN ANALYSIS' : 'RUN ANALYSIS'}
+            {isBusy ? '⏳ RUNNING…' : hasCached ? '↺ RE-RUN ANALYSIS' : 'RUN ANALYSIS'}
           </button>
 
-          {isRunning && (
+          {isBusy && (
             <button
               onClick={cancel}
-              style={{
-                backgroundColor: '#ff4b6e',
-                color: '#ffffff',
-                padding: '8px 16px',
-                borderRadius: '4px',
-                border: 'none',
-                fontFamily: 'Space Mono, monospace',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              style={{ backgroundColor: '#ff4b6e', color: '#fff', padding: '8px 16px', borderRadius: '4px', border: 'none', fontFamily: 'Space Mono, monospace', fontWeight: 600, cursor: 'pointer' }}
             >
               CANCEL
             </button>
           )}
 
-          {hasCached && !isRunning && storedAnalysis?.analyzedAt && (
+          {hasCached && !isBusy && storedAnalysis?.analyzedAt && (
             <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '11px', color: '#4a4e63' }}>
               cached {formatAge(storedAnalysis.analyzedAt)}
             </span>
@@ -182,25 +353,10 @@ if (status === 'fetching_edgar' || status === 'extracting_json' || status === 'w
         </div>
 
         {/* Status bar */}
-        {isRunning && (
-          <div
-            className="mb-6 px-4 py-3 rounded"
-            style={{
-              backgroundColor: '#161922',
-              border: '1px solid #1e2230',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontFamily: 'DM Sans, sans-serif',
-            }}
-          >
-            <span style={{
-              display: 'inline-block', width: '8px', height: '8px',
-              backgroundColor: '#00c8ff', borderRadius: '50%',
-              animation: 'pulse 1.5s infinite',
-            }} />
-            <span style={{ color: '#8b93a8' }}>
-              {status === 'fetching_edgar'    && 'Fetching earnings filing from SEC EDGAR…'}
+        {isBusy && (
+          <div className="mb-6 px-4 py-3 rounded" style={{ backgroundColor: '#161922', border: '1px solid #1e2230', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#00c8ff', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />
+            <span style={{ color: '#8b93a8', fontFamily: 'DM Sans, sans-serif' }}>
               {status === 'extracting_json'   && 'Extracting financial data…'}
               {status === 'writing_narrative' && 'Writing analysis…'}
             </span>
@@ -208,76 +364,50 @@ if (status === 'fetching_edgar' || status === 'extracting_json' || status === 'w
         )}
 
         {/* Error */}
-        {error && (
-          <div
-            className="mb-6 px-4 py-3 rounded"
-            style={{
-              backgroundColor: '#ff4b6e20',
-              border: '1px solid #ff4b6e',
-              color: '#ff4b6e',
-              fontFamily: 'DM Sans, sans-serif',
-            }}
-          >
-            {error}
+        {displayErr && (
+          <div className="mb-6 px-4 py-3 rounded" style={{ backgroundColor: '#ff4b6e20', border: '1px solid #ff4b6e', color: '#ff4b6e', fontFamily: 'DM Sans, sans-serif' }}>
+            {displayErr}
           </div>
         )}
 
-        {/* Financial metrics grid */}
+        {/* Metrics grid */}
         {displayJsonData && (
           <>
             <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-              <MetricCard label="REVENUE"      value={fmt.dollars(displayJsonData.revenue, 'M')} />
+              <MetricCard label="REVENUE"      value={fmt.dollars(displayJsonData.revenue)} />
               <MetricCard label="REV GROWTH"   value={fmt.percent(displayJsonData.revenueGrowthYoY)} />
               <MetricCard label="GROSS MARGIN" value={fmt.percent(displayJsonData.grossMarginPercent)} />
               <MetricCard label="ADJ EBITDA"   value={fmt.percent(displayJsonData.adjustedEbitdaMarginPercent)} />
-              <MetricCard label="CASH"         value={fmt.dollars(displayJsonData.cashAndEquivalents, 'M')} />
-              <MetricCard label="BACKLOG"      value={fmt.dollars(displayJsonData.backlog, 'M')} />
+              <MetricCard label="CASH"         value={fmt.dollars(displayJsonData.cashAndEquivalents)} />
+              <MetricCard label="BACKLOG"      value={fmt.dollars(displayJsonData.backlog)} />
               <MetricCard label="EPS (ADJ)"    value={displayJsonData.epsAdjusted != null ? `$${displayJsonData.epsAdjusted.toFixed(2)}` : '—'} />
               <MetricCard
                 label="ANALYST TARGET"
-                value={displayJsonData.analystConsensusTargetPrice != null
-                  ? `$${displayJsonData.analystConsensusTargetPrice.toFixed(2)}`
-                  : '—'}
-                sub={
-                  displayJsonData.analystConsensusTargetPrice && livePrice?.price
-                    ? computeUpside(livePrice.price, displayJsonData.analystConsensusTargetPrice)
-                    : undefined
-                }
+                value={displayJsonData.analystConsensusTargetPrice != null ? `$${displayJsonData.analystConsensusTargetPrice.toFixed(2)}` : '—'}
+                sub={displayJsonData.analystConsensusTargetPrice && livePrice?.price
+                  ? computeUpside(livePrice.price, displayJsonData.analystConsensusTargetPrice)
+                  : undefined}
               />
             </div>
 
-            {/* Guidance */}
             {displayJsonData.guidanceDirection && (
-              <div
-                className="mb-6 p-4 rounded"
-                style={{ backgroundColor: '#161922', border: '1px solid #1e2230' }}
-              >
-                <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', color: '#8b93a8', marginBottom: '8px' }}>
-                  FY GUIDANCE
-                </div>
+              <div className="mb-6 p-4 rounded" style={{ backgroundColor: '#161922', border: '1px solid #1e2230' }}>
+                <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', color: '#8b93a8', marginBottom: '8px' }}>FY GUIDANCE</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontFamily: 'Space Mono, monospace' }}>
                   {(displayJsonData.guidanceRevenueLow != null || displayJsonData.guidanceRevenueHigh != null) && (
-                    <span>
-                      ${displayJsonData.guidanceRevenueLow ?? '?'}–${displayJsonData.guidanceRevenueHigh ?? '?'}M
-                      {displayJsonData.guidancePeriod && ` (${displayJsonData.guidancePeriod})`}
-                    </span>
+                    <span>${displayJsonData.guidanceRevenueLow ?? '?'}–${displayJsonData.guidanceRevenueHigh ?? '?'}M{displayJsonData.guidancePeriod && ` (${displayJsonData.guidancePeriod})`}</span>
                   )}
                   <GuidanceBadge direction={displayJsonData.guidanceDirection} />
                 </div>
               </div>
             )}
 
-            {/* Segments */}
             {displayJsonData.segments && displayJsonData.segments.length > 0 && (
               <div className="mb-6">
-                <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', color: '#8b93a8', marginBottom: '8px' }}>
-                  SEGMENTS
-                </div>
+                <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', color: '#8b93a8', marginBottom: '8px' }}>SEGMENTS</div>
                 <div className="flex flex-wrap gap-2">
                   {displayJsonData.segments.map((seg, i) => (
-                    <div key={i} className="px-2 py-1 rounded text-xs"
-                      style={{ backgroundColor: '#161922', border: '1px solid #1e2230', fontFamily: 'Space Mono, monospace' }}
-                    >
+                    <div key={i} className="px-2 py-1 rounded" style={{ backgroundColor: '#161922', border: '1px solid #1e2230', fontFamily: 'Space Mono, monospace', fontSize: '12px' }}>
                       {seg.name}: {seg.revenue != null ? `$${(seg.revenue / 1000).toFixed(1)}M` : '?'}
                       {seg.growthYoY != null && (
                         <span style={{ marginLeft: '4px', color: seg.growthYoY >= 0 ? '#00e676' : '#ff4b6e' }}>
@@ -297,32 +427,20 @@ if (status === 'fetching_edgar' || status === 'extracting_json' || status === 'w
           <div className="prose prose-invert max-w-none" style={{ fontFamily: 'DM Sans, sans-serif' }}>
             <ReactMarkdown
               components={{
-                h2: ({ ...props }) => (
-                  <h2 style={{ fontSize: '18px', fontWeight: 600, marginTop: '20px', marginBottom: '12px', color: '#00c8ff' }} {...props} />
-                ),
-                p: ({ ...props }) => (
-                  <p style={{ marginBottom: '12px', lineHeight: 1.6 }} {...props} />
-                ),
-                li: ({ ...props }) => (
-                  <li style={{ marginBottom: '6px', marginLeft: '20px' }} {...props} />
-                ),
+                h2: ({ ...props }) => <h2 style={{ fontSize: '18px', fontWeight: 600, marginTop: '20px', marginBottom: '12px', color: '#00c8ff' }} {...props} />,
+                p:  ({ ...props }) => <p  style={{ marginBottom: '12px', lineHeight: 1.6 }} {...props} />,
+                li: ({ ...props }) => <li style={{ marginBottom: '6px', marginLeft: '20px' }} {...props} />,
               }}
             >
               {displayNarrative}
             </ReactMarkdown>
-            {isRunning && (
-              <span style={{
-                display: 'inline-block', width: '8px', height: '16px',
-                backgroundColor: '#00c8ff', marginLeft: '4px',
-                animation: 'blink 1s infinite',
-              }} />
-            )}
+            {isRunning && <span style={{ display: 'inline-block', width: '8px', height: '16px', backgroundColor: '#00c8ff', marginLeft: '4px', animation: 'blink 1s infinite' }} />}
           </div>
         )}
 
-        {!displayNarrative && !isRunning && (
+        {!displayNarrative && !isBusy && (
           <div style={{ textAlign: 'center', color: '#8b93a8', padding: '40px 20px' }}>
-            {error ? 'Analysis failed. Try again.' : 'Click "RUN ANALYSIS" to generate an AI-powered earnings breakdown.'}
+            {displayErr ? 'Analysis failed. Try again.' : 'Click "RUN ANALYSIS" to generate an AI-powered earnings breakdown.'}
           </div>
         )}
       </div>
@@ -335,13 +453,12 @@ if (status === 'fetching_edgar' || status === 'extracting_json' || status === 'w
   );
 }
 
-// ─── Formatting helpers ───────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmt = {
-  dollars: (val: number | null | undefined, unit: 'M' | 'B' = 'M'): string => {
+  dollars: (val: number | null | undefined): string => {
     if (val == null) return '—';
-    const divisor = unit === 'M' ? 1000 : 1_000_000;
-    return `$${(val / divisor).toFixed(1)}${unit}`;
+    return `$${(val / 1000).toFixed(1)}M`;
   },
   percent: (val: number | null | undefined): string => {
     if (val == null) return '—';
@@ -351,69 +468,39 @@ const fmt = {
 
 function computeUpside(price: number, target: number): string {
   const pct = ((target - price) / price) * 100;
-  const sign = pct >= 0 ? '+' : '';
-  return `${sign}${pct.toFixed(1)}% upside`;
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% upside`;
 }
 
 function formatAge(ts: number): string {
-  const mins  = Math.floor((Date.now() - ts) / 60000);
+  const mins = Math.floor((Date.now() - ts) / 60000);
   if (mins < 60)  return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-// ─── Store recovery helpers ───────────────────────────────────────────────────
-
-function recoverFromStore(stored: StockAnalysis): {
-  meta: AnalysisMeta | null;
-  jsonData: AnalysisJson | null;
-} {
+function recoverFromStore(stored: StockAnalysis): { meta: AnalysisMeta | null; jsonData: AnalysisJson | null } {
   if (!stored.streamedContent) return { meta: null, jsonData: null };
   try {
-    const parsed = JSON.parse(stored.streamedContent) as {
-      meta: AnalysisMeta;
-      jsonData: AnalysisJson;
-    };
-    return { meta: parsed.meta ?? null, jsonData: parsed.jsonData ?? null };
-  } catch {
-    return { meta: null, jsonData: null };
-  }
+    const p = JSON.parse(stored.streamedContent) as { meta: AnalysisMeta; jsonData: AnalysisJson };
+    return { meta: p.meta ?? null, jsonData: p.jsonData ?? null };
+  } catch { return { meta: null, jsonData: null }; }
 }
 
-function mapGuidanceDirection(
-  d: 'raised' | 'maintained' | 'lowered' | 'initiated' | null,
-): GuidanceDirection | undefined {
+function mapGuidanceDirection(d: 'raised' | 'maintained' | 'lowered' | 'initiated' | null): GuidanceDirection | undefined {
   if (!d) return undefined;
-  const map: Record<string, GuidanceDirection> = {
-    raised:     'Raised',
-    maintained: 'Maintained',
-    lowered:    'Lowered',
-    initiated:  'Raised',
-  };
+  const map: Record<string, GuidanceDirection> = { raised: 'Raised', maintained: 'Maintained', lowered: 'Lowered', initiated: 'Raised' };
   return map[d];
 }
 
 function mapConvictionToRating(c: string | null): AnalystRating | undefined {
   if (!c) return undefined;
-  const map: Record<string, AnalystRating> = {
-    strong_buy:  'Strong Buy',
-    buy:         'Buy',
-    hold:        'Hold',
-    sell:        'Sell',
-    strong_sell: 'Strong Sell',
-  };
+  const map: Record<string, AnalystRating> = { strong_buy: 'Strong Buy', buy: 'Buy', hold: 'Hold', sell: 'Sell', strong_sell: 'Strong Sell' };
   return map[c];
 }
 
 function ratingToConviction(r: AnalystRating): string {
-  const map: Record<AnalystRating, string> = {
-    'Strong Buy':  'strong_buy',
-    'Buy':         'buy',
-    'Hold':        'hold',
-    'Sell':        'sell',
-    'Strong Sell': 'strong_sell',
-  };
+  const map: Record<AnalystRating, string> = { 'Strong Buy': 'strong_buy', 'Buy': 'buy', 'Hold': 'hold', 'Sell': 'sell', 'Strong Sell': 'strong_sell' };
   return map[r] ?? 'hold';
 }
 
@@ -422,41 +509,20 @@ function ratingToConviction(r: AnalystRating): string {
 function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="p-3 rounded" style={{ backgroundColor: '#161922', border: '1px solid #1e2230' }}>
-      <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '10px', color: '#4a4e63', marginBottom: '4px' }}>
-        {label}
-      </div>
-      <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '14px', fontWeight: 600, color: '#e2e4ef' }}>
-        {value}
-      </div>
-      {sub && (
-        <div style={{
-          fontFamily: 'Space Mono, monospace', fontSize: '10px', marginTop: '2px',
-          color: sub.startsWith('+') ? '#00e676' : '#ff4b6e',
-        }}>
-          {sub}
-        </div>
-      )}
+      <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '10px', color: '#4a4e63', marginBottom: '4px' }}>{label}</div>
+      <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '14px', fontWeight: 600, color: '#e2e4ef' }}>{value}</div>
+      {sub && <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '10px', marginTop: '2px', color: sub.startsWith('+') ? '#00e676' : '#ff4b6e' }}>{sub}</div>}
     </div>
   );
 }
 
-function GuidanceBadge({ direction }: {
-  direction: 'raised' | 'maintained' | 'lowered' | 'initiated' | null;
-}) {
-  const colors: Record<string, string> = {
-    raised: '#00e676', maintained: '#8b93a8', lowered: '#ff4b6e', initiated: '#00c8ff',
-  };
-  const labels: Record<string, string> = {
-    raised: 'RAISED', maintained: 'MAINTAINED', lowered: 'LOWERED', initiated: 'INITIATED',
-  };
-  const key   = direction ?? 'maintained';
+function GuidanceBadge({ direction }: { direction: 'raised' | 'maintained' | 'lowered' | 'initiated' | null }) {
+  const colors: Record<string, string> = { raised: '#00e676', maintained: '#8b93a8', lowered: '#ff4b6e', initiated: '#00c8ff' };
+  const labels: Record<string, string> = { raised: 'RAISED', maintained: 'MAINTAINED', lowered: 'LOWERED', initiated: 'INITIATED' };
+  const key = direction ?? 'maintained';
   const color = colors[key];
   return (
-    <span style={{
-      backgroundColor: `${color}18`, color, padding: '4px 8px', borderRadius: '3px',
-      fontSize: '11px', fontWeight: 600, fontFamily: 'Space Mono, monospace',
-      border: `1px solid ${color}66`,
-    }}>
+    <span style={{ backgroundColor: `${color}18`, color, padding: '4px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 600, fontFamily: 'Space Mono, monospace', border: `1px solid ${color}66` }}>
       {labels[key]}
     </span>
   );

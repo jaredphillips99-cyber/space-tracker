@@ -69,7 +69,7 @@ Yahoo Finance → proxied through /api/prices.ts (Vercel serverless)
 Anthropic API → proxied through /api/analyze.ts (Vercel serverless)
   Always streaming — never switch to non-streaming.
   Rate limit: 10 calls per IP per hour, return 429 if exceeded.
-  Model: claude-sonnet-4-20250514
+  Model: claude-sonnet-4-6
   Two-call pattern:
     Call 1 — structured JSON extraction (financials, guidance, segments)
     Call 2 — narrative generation (management, scenarios, risks)
