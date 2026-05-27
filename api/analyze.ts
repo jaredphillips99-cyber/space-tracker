@@ -164,7 +164,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
 
     const jsonRes = await anthropic.messages.create({
       model:     'claude-sonnet-4-6',
-      max_tokens: 1200,
+      max_tokens: 2000,
       messages:  [{ role: 'user', content: buildJsonPrompt(upperTicker, isSpeculative ?? false, earningsText) }],
     });
 
