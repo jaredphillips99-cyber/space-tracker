@@ -7,7 +7,7 @@ import { ConvictionBadge } from './ConvictionBadge';
 import ReactMarkdown from 'react-markdown';
 import type { StockAnalysis, GuidanceDirection, AnalystRating } from '../types';
 
-// ─── CIK map (browser-side EDGAR fetch) ──────────────────────────────────────
+// ─── CIK map ──────────────────────────────────────────────────────────────────
 
 const CIK_MAP: Record<string, string> = {
   RKLB: '0001819994', PL:   '0001836833', RDW:  '0001819810',
@@ -25,23 +25,23 @@ const CIK_MAP: Record<string, string> = {
 const SPECULATIVE = new Set(['OKLO', 'NNE', 'NXE']);
 const SEDAR_ONLY  = new Set(['NXE']);
 
-// ─── EDGAR helpers ────────────────────────────────────────────────────────────
+// ─── EDGAR types ──────────────────────────────────────────────────────────────
 
-// FIX: EDGAR submissions API returns `cik` (zero-padded string), not `cik_str`.
-// It also returns `primaryDocument` which we use directly instead of parsing HTML.
 interface EdgarSubmission {
-  cik: string;  // e.g. "0001819810"
+  cik: string;  // zero-padded string e.g. "0001819810"
   filings: {
     recent: {
-      accessionNumber:    string[];
-      filingDate:         string[];
-      reportDate:         string[];
-      items:              string[];
-      form:               string[];
-      primaryDocument:    string[];  // e.g. "rdw-20260506.htm"
+      accessionNumber: string[];
+      filingDate:      string[];
+      reportDate:      string[];
+      items:           string[];
+      form:            string[];
+      primaryDocument: string[];
     };
   };
 }
+
+// ─── EDGAR helpers ────────────────────────────────────────────────────────────
 
 function stripHtml(html: string): string {
   return html
@@ -53,7 +53,6 @@ function stripHtml(html: string): string {
     .replace(/\s+/g, ' ').trim();
 }
 
-// FIX: also returns primaryDocument so callers don't need to resolve HTML
 function findFiling(sub: EdgarSubmission, form: string, requireItem?: string) {
   const r = sub.filings.recent;
   for (let i = 0; i < r.form.length; i++) {
@@ -78,8 +77,8 @@ function extractMDA(text: string): string {
   return slice.substring(0, end === -1 ? 15000 : Math.min(end + 1000, 20000));
 }
 
-// Route all /Archives/ fetches through our Vercel proxy to avoid CORS blocks.
-// data.sec.gov (submissions JSON) has CORS headers — fetch directly.
+// Route /Archives/ fetches through the Vercel proxy (no CORS headers on www.sec.gov).
+// data.sec.gov has CORS — fetch directly.
 async function secFetch(url: string): Promise<string | null> {
   try {
     const proxyUrl = url.includes('data.sec.gov')
@@ -90,25 +89,52 @@ async function secFetch(url: string): Promise<string | null> {
   } catch { return null; }
 }
 
-// Build the direct document URL from submission data — no HTML parsing needed.
-// FIX: use primaryDocument field instead of resolveDocUrl HTML scraping.
-function buildDocUrl(cikNum: number, accessionNumber: string, primaryDocument: string): string {
+// Fetch the filing's -index.htm page and return the URL of the earnings exhibit.
+// Strategy:
+//   1. Prefer any file whose name matches an EX-99.1 pattern (ex99, ex-99, ex991, ex99d1, ex99_1)
+//   2. Fall back to the second /Archives/ .htm file — SEC always lists cover first, exhibits after
+// This correctly handles tickers like NVDA where the press release is named q1fy27pr.htm.
+async function resolveExhibitUrl(
+  cikNum: number,
+  accessionNumber: string,
+): Promise<string | null> {
+  const SEC_ROOT  = 'https://www.sec.gov';
   const accNodash = accessionNumber.replace(/-/g, '');
-  return `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accNodash}/${primaryDocument}`;
+  const indexUrl  = `${SEC_ROOT}/Archives/edgar/data/${cikNum}/${accNodash}/${accessionNumber}-index.htm`;
+
+  const html = await secFetch(indexUrl);
+  if (!html) return null;
+
+  // Collect all /Archives/ .htm hrefs in document order
+  const archiveHrefs = Array.from(
+    html.matchAll(/href\s*=\s*["']([^"']+\.htm[l]?)["']/gi),
+  )
+    .map(m => m[1])
+    .filter(h => h.includes('/Archives/'))
+    .map(h => (h.startsWith('/') ? SEC_ROOT + h : h));
+
+  if (archiveHrefs.length === 0) return null;
+
+  // Prefer EX-99.1 by name pattern
+  const ex99 = archiveHrefs.find(h =>
+    /ex-?99[._d]?1|ex99[._d]?1|ex-?991\b/i.test(h.split('/').pop() ?? ''),
+  );
+  if (ex99) return ex99;
+
+  // Fallback: position [1] = first exhibit (cover is always [0])
+  return archiveHrefs[1] ?? archiveHrefs[0];
 }
 
 async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
-  // SEDAR-only tickers (NXE) — no EDGAR filing, use training knowledge
   if (SEDAR_ONLY.has(ticker)) {
     return {
       ticker,
       earningsText:  `${ticker} is a Canadian company that files on SEDAR, not SEC EDGAR. Use your training knowledge for analysis.`,
       isSpeculative: true,
       filingMeta: {
-        filingDate:  null, period: null, documentUrl: null,
-        isSedarOnly: true,
-        sources:     null,
-        note:        'NXE files on SEDAR. Analysis based on training knowledge only.',
+        filingDate: null, period: null, documentUrl: null,
+        isSedarOnly: true, sources: null,
+        note: 'NXE files on SEDAR. Analysis based on training knowledge only.',
       },
     };
   }
@@ -116,30 +142,28 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
   const cik = CIK_MAP[ticker];
   if (!cik) throw new Error(`Unknown ticker: ${ticker}`);
 
-  // Fetch submission index (CORS-friendly — data.sec.gov has Access-Control-Allow-Origin: *)
   const subJson = await secFetch(`https://data.sec.gov/submissions/CIK${cik}.json`);
   if (!subJson) throw new Error('Failed to fetch SEC submission index');
   const sub = JSON.parse(subJson) as EdgarSubmission;
 
-  // FIX: use sub.cik (zero-padded string like "0001819810"), strip leading zeros for URL
   const cikNum = parseInt(sub.cik, 10);
   if (!cikNum) throw new Error(`Invalid CIK in submission response: ${sub.cik}`);
 
   const isSpeculative = SPECULATIVE.has(ticker);
 
-  // ── Speculative tickers: combine 8-K + 10-Q ─────────────────────────────
+  // ── Speculative tickers: combine 8-K exhibit + 10-Q MD&A ────────────────
   if (isSpeculative) {
     const [eightKFiling, tenQFiling] = [
       findFiling(sub, '8-K'),
       findFiling(sub, '10-Q'),
     ];
 
-    const fetchDoc = async (
+    const fetchExhibit = async (
       filing: NonNullable<ReturnType<typeof findFiling>>,
       mda = false,
     ) => {
-      if (!filing.primaryDocument) return null;
-      const docUrl = buildDocUrl(cikNum, filing.accessionNumber, filing.primaryDocument);
+      const docUrl = await resolveExhibitUrl(cikNum, filing.accessionNumber);
+      if (!docUrl) return null;
       const raw = await secFetch(docUrl);
       if (!raw) return null;
       const text = stripHtml(raw).substring(0, 80000);
@@ -147,8 +171,8 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
     };
 
     const [eightKText, tenQText] = await Promise.all([
-      eightKFiling ? fetchDoc(eightKFiling, false) : Promise.resolve(null),
-      tenQFiling   ? fetchDoc(tenQFiling,   true)  : Promise.resolve(null),
+      eightKFiling ? fetchExhibit(eightKFiling, false) : Promise.resolve(null),
+      tenQFiling   ? fetchExhibit(tenQFiling,   true)  : Promise.resolve(null),
     ]);
 
     let combined = '';
@@ -171,15 +195,14 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
     };
   }
 
-  // ── Normal ticker: latest earnings 8-K (item 2.02) ──────────────────────
-  // FIX: require item "2.02" to get the earnings press release, not other 8-Ks
+  // ── Normal ticker: EX-99.1 from earnings 8-K (item 2.02) ────────────────
   const filing = findFiling(sub, '8-K', '2.02');
   if (!filing) throw new Error(`No earnings 8-K (item 2.02) found for ${ticker}`);
-  if (!filing.primaryDocument) throw new Error(`No primary document in earnings 8-K for ${ticker}`);
 
-  // FIX: build URL directly from primaryDocument — no HTML parsing
-  const docUrl  = buildDocUrl(cikNum, filing.accessionNumber, filing.primaryDocument);
-  const rawDoc  = await secFetch(docUrl);
+  const docUrl = await resolveExhibitUrl(cikNum, filing.accessionNumber);
+  if (!docUrl) throw new Error('Could not resolve earnings exhibit URL');
+
+  const rawDoc = await secFetch(docUrl);
   if (!rawDoc) throw new Error('Failed to fetch earnings document from SEC');
 
   const docText = stripHtml(rawDoc).substring(0, 80000);
@@ -238,7 +261,6 @@ export function StockDetail() {
 
   if (!ticker) return <div>Invalid ticker</div>;
 
-  // ── Kick off the full analysis: EDGAR fetch (browser) → API stream ────────
   const handleRunAnalysis = async () => {
     setEdgarError(null);
     let payload: RunPayload;
@@ -253,9 +275,7 @@ export function StockDetail() {
 
   const isRunning = status === 'extracting_json' || status === 'writing_narrative';
   const isBusy    = isRunning;
-
-  // ── Resolve display data ──────────────────────────────────────────────────
-  const isLiveOrDone = status === 'extracting_json' || status === 'writing_narrative' || status === 'done';
+  const isLiveOrDone = isRunning || status === 'done';
 
   let displayMeta:       AnalysisMeta | null = null;
   let displayJsonData:   AnalysisJson | null = null;
@@ -284,7 +304,6 @@ export function StockDetail() {
     <div className="min-h-screen" style={{ backgroundColor: '#08090d', color: '#e2e6f0' }}>
       <div className="max-w-4xl mx-auto p-6">
 
-        {/* Back */}
         <button
           onClick={() => navigate('/')}
           className="mb-6 px-3 py-1.5 rounded text-sm"
@@ -293,13 +312,10 @@ export function StockDetail() {
           ← DASHBOARD
         </button>
 
-        {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '16px' }}>
-              <h1 style={{ fontFamily: 'Space Mono, monospace', fontSize: '32px', margin: 0 }}>
-                {ticker}
-              </h1>
+              <h1 style={{ fontFamily: 'Space Mono, monospace', fontSize: '32px', margin: 0 }}>{ticker}</h1>
               {livePrice && (
                 <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '20px', color: '#e2e6f0' }}>
                   ${livePrice.price.toFixed(2)}
@@ -325,7 +341,6 @@ export function StockDetail() {
           {displayConviction && <ConvictionBadge rating={displayConviction as any} size="lg" />}
         </div>
 
-        {/* Buttons */}
         <div className="mb-6 flex gap-2 items-center">
           <button
             onClick={handleRunAnalysis}
@@ -339,16 +354,11 @@ export function StockDetail() {
           >
             {isBusy ? '⏳ RUNNING…' : hasCached ? '↺ RE-RUN ANALYSIS' : 'RUN ANALYSIS'}
           </button>
-
           {isBusy && (
-            <button
-              onClick={cancel}
-              style={{ backgroundColor: '#ff4b6e', color: '#fff', padding: '8px 16px', borderRadius: '4px', border: 'none', fontFamily: 'Space Mono, monospace', fontWeight: 600, cursor: 'pointer' }}
-            >
+            <button onClick={cancel} style={{ backgroundColor: '#ff4b6e', color: '#fff', padding: '8px 16px', borderRadius: '4px', border: 'none', fontFamily: 'Space Mono, monospace', fontWeight: 600, cursor: 'pointer' }}>
               CANCEL
             </button>
           )}
-
           {hasCached && !isBusy && storedAnalysis?.analyzedAt && (
             <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '11px', color: '#4a4e63' }}>
               cached {formatAge(storedAnalysis.analyzedAt)}
@@ -356,7 +366,6 @@ export function StockDetail() {
           )}
         </div>
 
-        {/* Status bar */}
         {isBusy && (
           <div className="mb-6 px-4 py-3 rounded" style={{ backgroundColor: '#161922', border: '1px solid #1e2230', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#00c8ff', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />
@@ -367,14 +376,12 @@ export function StockDetail() {
           </div>
         )}
 
-        {/* Error */}
         {displayErr && (
           <div className="mb-6 px-4 py-3 rounded" style={{ backgroundColor: '#ff4b6e20', border: '1px solid #ff4b6e', color: '#ff4b6e', fontFamily: 'DM Sans, sans-serif' }}>
             {displayErr}
           </div>
         )}
 
-        {/* Metrics grid */}
         {displayJsonData && (
           <>
             <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -426,7 +433,6 @@ export function StockDetail() {
           </>
         )}
 
-        {/* Narrative */}
         {displayNarrative && (
           <div className="prose prose-invert max-w-none" style={{ fontFamily: 'DM Sans, sans-serif' }}>
             <ReactMarkdown
@@ -460,14 +466,10 @@ export function StockDetail() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmt = {
-  dollars: (val: number | null | undefined): string => {
-    if (val == null) return '—';
-    return `$${(val / 1000).toFixed(1)}M`;
-  },
-  percent: (val: number | null | undefined): string => {
-    if (val == null) return '—';
-    return `${(val * 100).toFixed(1)}%`;
-  },
+  dollars: (val: number | null | undefined): string =>
+    val == null ? '—' : `$${(val / 1000).toFixed(1)}M`,
+  percent: (val: number | null | undefined): string =>
+    val == null ? '—' : `${(val * 100).toFixed(1)}%`,
 };
 
 function computeUpside(price: number, target: number): string {
@@ -523,7 +525,7 @@ function MetricCard({ label, value, sub }: { label: string; value: string; sub?:
 function GuidanceBadge({ direction }: { direction: 'raised' | 'maintained' | 'lowered' | 'initiated' | null }) {
   const colors: Record<string, string> = { raised: '#00e676', maintained: '#8b93a8', lowered: '#ff4b6e', initiated: '#00c8ff' };
   const labels: Record<string, string> = { raised: 'RAISED', maintained: 'MAINTAINED', lowered: 'LOWERED', initiated: 'INITIATED' };
-  const key = direction ?? 'maintained';
+  const key   = direction ?? 'maintained';
   const color = colors[key];
   return (
     <span style={{ backgroundColor: `${color}18`, color, padding: '4px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 600, fontFamily: 'Space Mono, monospace', border: `1px solid ${color}66` }}>
