@@ -4,7 +4,16 @@ import type { AppState, LivePrice, StockAnalysis, Sector, SortField, SortDir } f
 
 const ANALYSIS_STORAGE_KEY = 'space-tracker-analyses';
 
-export const useStore = create<AppState>()(
+// ─── Extend AppState with auth ─────────────────────────────────────────────────
+// isAdmin = true  → logged-in user, sees Run Analysis button
+// isAdmin = false → reader, dashboard is read-only, portfolio still works
+
+interface ExtendedAppState extends AppState {
+  isAdmin: boolean;
+  setAdminSession: (isAdmin: boolean) => void;
+}
+
+export const useStore = create<ExtendedAppState>()(
   persist(
     (set, get) => ({
       // ── State ──────────────────────────────────────────────────────────────
@@ -15,6 +24,10 @@ export const useStore = create<AppState>()(
       sectorFilter: null,
       sortBy: 'dayChange',
       sortDir: 'desc',
+      isAdmin: false,
+
+      // ── Auth actions ───────────────────────────────────────────────────────
+      setAdminSession: (isAdmin: boolean) => set({ isAdmin }),
 
       // ── Price actions ──────────────────────────────────────────────────────
       setPrices: (prices: LivePrice[]) => {
@@ -63,8 +76,11 @@ export const useStore = create<AppState>()(
     {
       name: ANALYSIS_STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
-      // Only persist analyses to localStorage — prices are always re-fetched
-      partialize: (state) => ({ analyses: state.analyses }),
+      // Persist analyses + admin session to localStorage
+      partialize: (state) => ({
+        analyses: state.analyses,
+        isAdmin:  state.isAdmin,
+      }),
     },
   ),
 );

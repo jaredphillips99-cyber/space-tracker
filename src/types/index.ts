@@ -42,6 +42,9 @@ export interface LivePrice {
   regularMarketOpen?: number;
   fiftyTwoWeekHigh?: number;
   fiftyTwoWeekLow?: number;
+  // Analyst consensus data sourced from Yahoo Finance (updated daily)
+  analystTargetPrice?: number;   // mean analyst price target
+  recommendationMean?: number;   // 1.0 (Strong Buy) → 5.0 (Strong Sell)
   fetchError?: boolean;
   fetchedAt: number;        // unix ms timestamp
 }
@@ -98,6 +101,28 @@ export function computeImpliedUpside(
   if (!currentPrice || !analystTarget || currentPrice <= 0) return undefined;
   return ((analystTarget - currentPrice) / currentPrice) * 100;
 }
+
+// ─── Analyst rating helpers (sourced from Yahoo Finance recommendationMean) ───
+// Yahoo uses a 1–5 numeric scale: 1.0 = Strong Buy, 5.0 = Strong Sell
+
+export type YahooRatingLabel = 'Strong Buy' | 'Buy' | 'Hold' | 'Sell' | 'Strong Sell';
+
+export function recommendationMeanToLabel(mean: number | undefined): YahooRatingLabel | undefined {
+  if (mean == null) return undefined;
+  if (mean <= 1.5) return 'Strong Buy';
+  if (mean <= 2.5) return 'Buy';
+  if (mean <= 3.5) return 'Hold';
+  if (mean <= 4.5) return 'Sell';
+  return 'Strong Sell';
+}
+
+export const YAHOO_RATING_COLORS: Record<YahooRatingLabel, { text: string; bg: string }> = {
+  'Strong Buy':  { text: '#00e676', bg: '#00e67614' },
+  'Buy':         { text: '#4ade80', bg: '#4ade8014' },
+  'Hold':        { text: '#6b7190', bg: '#6b719014' },
+  'Sell':        { text: '#f87171', bg: '#f8717114' },
+  'Strong Sell': { text: '#ff4b6e', bg: '#ff4b6e14' },
+};
 
 // ─── Staleness ────────────────────────────────────────────────────────────────
 

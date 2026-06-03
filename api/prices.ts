@@ -24,8 +24,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const results = await Promise.allSettled(
     tickers.map(async (ticker) => {
-      // v3: no `fields` param — returns all fields by default
+      // Primary quote for price/market data
       const quote = await yahooFinance.quote(ticker);
+
+      // ── Analyst consensus data ──────────────────────────────────────────
+      // quote() does not reliably return targetMeanPrice / recommendationMean
+      // in all environments. quoteSummary with the 'financialData' module is
+      // the authoritative source — it always includes both fields when available.
+      let analystTargetPrice: number | undefined;
+      let recommendationMean: number | undefined;
+
+      try {
+        const summary = await yahooFinance.quoteSummary(ticker, {
+          modules: ['financialData'],
+        });
+        const fd = summary?.financialData;
+        if (fd) {
+          analystTargetPrice = (fd as any).targetMeanPrice?.raw
+            ?? (fd as any).targetMeanPrice
+            ?? undefined;
+          recommendationMean = (fd as any).recommendationMean?.raw
+            ?? (fd as any).recommendationMean
+            ?? undefined;
+        }
+      } catch {
+        // Analyst data is optional — fall back to whatever quote() has
+        analystTargetPrice = (quote as any).targetMeanPrice ?? undefined;
+        recommendationMean = (quote as any).recommendationMean ?? undefined;
+      }
 
       // Compute 1-week change via chart data
       let weekChangePercent: number | undefined;
@@ -58,6 +84,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         regularMarketOpen: quote.regularMarketOpen,
         fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh,
         fiftyTwoWeekLow: quote.fiftyTwoWeekLow,
+        // Analyst consensus — sourced from quoteSummary.financialData
+        analystTargetPrice,
+        recommendationMean,
         fetchError: false,
         fetchedAt,
       };

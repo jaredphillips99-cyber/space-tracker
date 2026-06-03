@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
 
 export type AnalysisStatus =
   | 'idle'
@@ -49,6 +50,7 @@ export interface AnalysisJson {
   }> | null;
   convictionRating:    ConvictionRating;
   convictionRationale: string;
+  keyMetrics?:         string;
 }
 
 export interface AnalysisCompletePayload {
@@ -57,7 +59,6 @@ export interface AnalysisCompletePayload {
   narrative: string;
 }
 
-// What the caller passes to run() — EDGAR already fetched browser-side
 export interface RunPayload {
   ticker:        string;
   earningsText:  string;
@@ -103,6 +104,41 @@ export const CONVICTION_COLORS: Record<ConvictionRating, string> = {
   strong_sell: '#ff4b6e',
 };
 
+// ─── Push completed analysis to Supabase ──────────────────────────────────────
+
+async function pushToSupabase(
+  payload: AnalysisCompletePayload,
+  analyzedAt: number,
+): Promise<void> {
+  const { meta, jsonData, narrative } = payload;
+
+  const row = {
+    ticker:         meta.ticker,
+    analyzed_at:    analyzedAt,
+    conviction:     jsonData.convictionRating ?? null,
+    guidance:       jsonData.guidanceDirection ?? null,
+    key_metrics:    jsonData.keyMetrics ?? null,
+    summary:        narrative,
+    raw_json:       jsonData as unknown as Record<string, unknown>,
+    filing_date:    meta.filingDate,
+    period:         meta.period,
+    document_url:   meta.documentUrl,
+    is_speculative: meta.isSpeculative,
+  };
+
+  const { error } = await supabase
+    .from('analyses')
+    .upsert(row, { onConflict: 'ticker' });
+
+  if (error) {
+    console.error('[supabase] Failed to push analysis for', meta.ticker, error.message);
+  } else {
+    console.log('[supabase] Pushed analysis for', meta.ticker);
+  }
+}
+
+// ─── Hook ──────────────────────────────────────────────────────────────────────
+
 export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn {
   const { onComplete } = options;
 
@@ -138,6 +174,8 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+
+    const analyzedAt = Date.now();
 
     try {
       const res = await fetch('/api/analyze', {
@@ -227,12 +265,18 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
             }
             case 'done': {
               setStatus('done');
-              if (onComplete && metaRef.current && jsonDataRef.current) {
-                onComplete({
+              if (metaRef.current && jsonDataRef.current) {
+                const completePayload: AnalysisCompletePayload = {
                   meta:      metaRef.current,
                   jsonData:  jsonDataRef.current,
                   narrative: narrativeRef.current,
-                });
+                };
+
+                // 1. Call the existing onComplete handler (writes to localStorage via useStore)
+                if (onComplete) onComplete(completePayload);
+
+                // 2. Push to Supabase (fire-and-forget — localStorage is already updated)
+                pushToSupabase(completePayload, analyzedAt).catch(console.error);
               }
               break;
             }

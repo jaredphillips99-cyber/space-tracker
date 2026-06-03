@@ -1,12 +1,15 @@
 import type { TickerConfig } from '../types';
 
+// ── Sector filter logic depends on sectors[0] being the PRIMARY sector. ──────
+// Crossover tags come second and are displayed on rows but do not drive
+// sector tab membership. Keep this ordering intentional for every entry.
+
 export const TICKERS: TickerConfig[] = [
-  // ── Space (8) ────────────────────────────────────────────────────────────
+  // ── Space (9) ────────────────────────────────────────────────────────────
   {
     ticker: 'RKLB',
     name: 'Rocket Lab',
     sectors: ['space', 'defense'],
-    color: '#00c8ff',
     description: 'End-to-end space company; Electron launch vehicle and Neutron in development',
     fiscalYearEnd: 'December',
   },
@@ -14,7 +17,6 @@ export const TICKERS: TickerConfig[] = [
     ticker: 'PL',
     name: 'Planet Labs',
     sectors: ['space', 'defense'],
-    color: '#a259ff',
     description: 'Daily Earth-imaging satellite constellation; defense and commercial data analytics',
     fiscalYearEnd: 'January',
   },
@@ -22,7 +24,6 @@ export const TICKERS: TickerConfig[] = [
     ticker: 'RDW',
     name: 'Redwire',
     sectors: ['space', 'defense'],
-    color: '#ff6b35',
     description: 'Space infrastructure manufacturer; solar arrays, structures, and payloads',
     fiscalYearEnd: 'December',
   },
@@ -43,19 +44,19 @@ export const TICKERS: TickerConfig[] = [
     specialNotes: 'BlueBird constellation; AT&T and Verizon commercial agreements',
   },
   {
-    ticker: 'KTOS',
-    name: 'Kratos Defense',
-    sectors: ['defense', 'space'],
-    description: 'Unmanned systems, satellites, and high-performance electronics for US military',
-    fiscalYearEnd: 'December',
-    specialNotes: 'Drone and hypersonics programs; HASTE competitor to RKLB',
-  },
-  {
     ticker: 'BKSY',
     name: 'BlackSky',
     sectors: ['space', 'defense'],
     description: 'High-frequency Earth observation constellation; defense and intelligence focus',
     fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'FLY',
+    name: 'Firefly Aerospace',
+    sectors: ['space'],
+    description: 'Small/medium launch vehicles and lunar landers; Blue Ghost Moon mission',
+    fiscalYearEnd: 'December',
+    specialNotes: '$75M NASA subcontract (May 2026) for MoonFall lunar drone delivery (2028)',
   },
   {
     ticker: 'SATS',
@@ -64,6 +65,15 @@ export const TICKERS: TickerConfig[] = [
     description: 'Satellite broadband operator; restructuring and debt reduction story',
     fiscalYearEnd: 'December',
     specialNotes: 'Restructuring story — not pure space infrastructure play',
+  },
+  {
+    ticker: 'KTOS',
+    name: 'Kratos Defense',
+    // Primary sector is defense; space is crossover (satellite ground infrastructure)
+    sectors: ['defense', 'space'],
+    description: 'Unmanned systems, satellites, and high-performance electronics for US military',
+    fiscalYearEnd: 'December',
+    specialNotes: 'Drone and hypersonics programs; HASTE competitor to RKLB',
   },
 
   // ── AI Infrastructure (9) ─────────────────────────────────────────────────
@@ -77,6 +87,7 @@ export const TICKERS: TickerConfig[] = [
   {
     ticker: 'PLTR',
     name: 'Palantir',
+    // Primary sector is ai_infrastructure; defense is crossover
     sectors: ['ai_infrastructure', 'defense'],
     description: 'AI and data analytics platform for defense and commercial enterprise; AIP platform',
     fiscalYearEnd: 'December',
@@ -85,13 +96,14 @@ export const TICKERS: TickerConfig[] = [
     ticker: 'CRWV',
     name: 'CoreWeave',
     sectors: ['ai_infrastructure'],
-    description: 'GPU cloud; $15.1B Microsoft contract; recently IPO\'d',
+    description: "GPU cloud; $15.1B Microsoft contract; recently IPO'd",
     fiscalYearEnd: 'December',
     specialNotes: 'GPU-accelerated cloud infrastructure for AI workloads; Nvidia-backed',
   },
   {
     ticker: 'IREN',
     name: 'Iris Energy',
+    // Primary sector is ai_infrastructure; clean_energy is crossover (renewable-powered)
     sectors: ['ai_infrastructure', 'clean_energy'],
     description: 'Bitcoin miner → Bare-Metal AI Cloud; $9.7B Microsoft deal; renewable-powered',
     fiscalYearEnd: 'June',
@@ -138,6 +150,7 @@ export const TICKERS: TickerConfig[] = [
   {
     ticker: 'CEG',
     name: 'Constellation Energy',
+    // Primary sector is clean_energy; ai_infrastructure is crossover (clean power for AI data centers)
     sectors: ['clean_energy', 'ai_infrastructure'],
     description: 'Largest US nuclear fleet; Three Mile Island restart; clean power for AI',
     fiscalYearEnd: 'December',
@@ -152,6 +165,7 @@ export const TICKERS: TickerConfig[] = [
   {
     ticker: 'BWXT',
     name: 'BWX Technologies',
+    // Primary sector is clean_energy; defense is crossover (naval reactors)
     sectors: ['clean_energy', 'defense'],
     description: 'Naval reactor components and SMR developer; only Navy nuclear supplier',
     fiscalYearEnd: 'December',
@@ -174,12 +188,13 @@ export const TICKERS: TickerConfig[] = [
     ticker: 'CCJ',
     name: 'Cameco',
     sectors: ['clean_energy'],
-    description: 'World\'s largest publicly traded uranium producer; ~15% of global supply',
+    description: "World's largest publicly traded uranium producer; ~15% of global supply",
     fiscalYearEnd: 'December',
   },
   {
     ticker: 'LEU',
     name: 'Centrus Energy',
+    // Primary sector is clean_energy; defense is crossover (HALEU for naval/weapons programs)
     sectors: ['clean_energy', 'defense'],
     description: 'Only US HALEU enrichment licensee; $900M DOE contract',
     fiscalYearEnd: 'December',
@@ -195,6 +210,7 @@ export const TICKERS: TickerConfig[] = [
   {
     ticker: 'OKLO',
     name: 'Oklo',
+    // Primary sector is clean_energy; ai_infrastructure is crossover (Meta data center deal)
     sectors: ['clean_energy', 'ai_infrastructure'],
     description: 'Pre-revenue microreactors; Sam Altman chairman; Meta deal for Ohio data center',
     fiscalYearEnd: 'December',
@@ -209,10 +225,11 @@ export const TICKERS: TickerConfig[] = [
     specialNotes: 'Pre-revenue — focus analysis on milestones, partnerships, burn rate',
   },
 
-  // ── Defense (3 + crossovers above) ────────────────────────────────────────
+  // ── Defense (pure-play; crossovers listed above in their primary sectors) ──
   {
     ticker: 'LHX',
     name: 'L3Harris',
+    // Primary sector is defense; space is crossover (sensors + Golden Dome)
     sectors: ['defense', 'space'],
     description: 'Defense electronics and space sensors; Golden Dome candidate',
     fiscalYearEnd: 'December',

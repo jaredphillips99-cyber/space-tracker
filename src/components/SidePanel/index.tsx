@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import { TICKERS } from '../../config/tickers';
-import { isAnalysisStale } from '../../types';
+import { isAnalysisStale, SECTOR_COLORS } from '../../types';
 
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -12,6 +12,24 @@ function relativeTime(ts: number): string {
   if (days < 30) return `${days}d ago`;
   const months = Math.floor(days / 30);
   return `${months}mo ago`;
+}
+
+// ─── Extract first prose sentence from narrative ──────────────────────────────
+// The stored summary field is the full narrative, which starts with a markdown
+// heading like "## What Happened\n\nFirst sentence..." — strip all leading
+// heading lines and return the first real prose sentence (up to ~100 chars).
+function extractSnippet(summary?: string): string {
+  if (!summary) return '';
+  // Remove all leading markdown headings (## Foo, ### Bar, etc.)
+  const withoutHeadings = summary
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('#'))
+    .join('\n');
+  // Trim whitespace and grab first non-empty paragraph
+  const trimmed = withoutHeadings.replace(/\n{2,}/g, '\n').trim();
+  const firstLine = trimmed.split('\n')[0]?.trim() ?? '';
+  // Strip any remaining markdown bold (**text**) for clean display
+  return firstLine.replace(/\*\*/g, '');
 }
 
 function parseDate(iso?: string): Date | null {
@@ -156,18 +174,21 @@ export function SidePanel() {
               <div>
                 <span
                   className="text-xs font-bold"
-                  style={{ fontFamily: 'Space Mono, monospace', color: t.color ?? '#e2e4ef' }}
+                  style={{ fontFamily: 'Space Mono, monospace', color: SECTOR_COLORS[t.sectors[0] as keyof typeof SECTOR_COLORS] ?? '#e2e4ef' }}
                 >
                   {t.ticker}
                 </span>
-                {a.summary && (
-                  <p
-                    className="text-xs mt-0.5 line-clamp-1"
-                    style={{ color: '#8b8fa8', maxWidth: 180 }}
-                  >
-                    {a.summary.slice(0, 80)}…
-                  </p>
-                )}
+                {a.summary && (() => {
+                  const snippet = extractSnippet(a.summary);
+                  return snippet ? (
+                    <p
+                      className="text-xs mt-0.5 line-clamp-2"
+                      style={{ color: '#8b8fa8', maxWidth: 180 }}
+                    >
+                      {snippet.length > 90 ? snippet.slice(0, 90) + '…' : snippet}
+                    </p>
+                  ) : null;
+                })()}
               </div>
               <span className="text-xs ml-2 shrink-0" style={{ fontFamily: 'Space Mono, monospace', color: '#4a4e63' }}>
                 {relativeTime(a.analyzedAt)}
@@ -197,7 +218,7 @@ export function SidePanel() {
               <div>
                 <span
                   className="text-xs font-bold"
-                  style={{ fontFamily: 'Space Mono, monospace', color: t.color ?? '#e2e4ef' }}
+                  style={{ fontFamily: 'Space Mono, monospace', color: SECTOR_COLORS[t.sectors[0] as keyof typeof SECTOR_COLORS] ?? '#e2e4ef' }}
                 >
                   {t.ticker}
                 </span>
