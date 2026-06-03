@@ -439,6 +439,9 @@ export default function PortfolioTab() {
   const [trimResult, setTrimResult] = useState<string | null>(null);
   const [trimLoading, setTrimLoading] = useState(false);
   const [trimError, setTrimError] = useState('');
+  const [memoResult, setMemoResult] = useState<string | null>(null);
+  const [memoLoading, setMemoLoading] = useState(false);
+  const [memoError, setMemoError] = useState('');
 
   // Sector Explore
   const [exploreOpen, setExploreOpen] = useState(false);
@@ -628,6 +631,7 @@ export default function PortfolioTab() {
     setSimTicker(ticker);
     setSimLive({ price: null, loading: false, error: false });
     setTrimResult(null);
+    setMemoResult(null);
     if (simFetchRef.current) clearTimeout(simFetchRef.current);
     if (!ticker) return;
     simFetchRef.current = setTimeout(async () => {
@@ -698,6 +702,59 @@ export default function PortfolioTab() {
     } catch (e: unknown) {
       setTrimError(e instanceof Error ? e.message : 'Unknown error');
     } finally { setTrimLoading(false); }
+  }
+
+  // ─── Memo helpers ─────────────────────────────────────────────────────────
+
+  function getKeyMetrics(ticker: string): string | undefined {
+    try {
+      const raw = localStorage.getItem('space-tracker-analyses');
+      if (!raw) return undefined;
+      const parsed = JSON.parse(raw);
+      const analysis = parsed?.state?.analyses?.[ticker];
+      return analysis?.keyMetrics ?? undefined;
+    } catch { return undefined; }
+  }
+
+  async function runTrimMemo(computed: ComputedPosition[], sectorActuals: SectorActuals) {
+    if (!simTicker) { setMemoError('Enter a candidate ticker first.'); return; }
+    setMemoLoading(true); setMemoError('');
+    try {
+      const { sector: candidateSector, subSector: candidateSubSector } = classifyTicker(simTicker);
+      const res = await fetch('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'trim_memo',
+          positions: computed.map(p => ({
+            ticker: p.ticker,
+            sector: p.sector,
+            subSector: p.subSector ?? undefined,
+            weightPct: parseFloat(p.portfolioWeightPct.toFixed(1)),
+            gainPct: parseFloat((p.unrealizedGainPct ?? 0).toFixed(1)),
+            inUniverse: p.inUniverse,
+            keyMetrics: getKeyMetrics(p.ticker),
+          })),
+          candidate: {
+            ticker: simTicker,
+            sector: candidateSector,
+            subSector: candidateSubSector ?? undefined,
+            targetWeightPct: simAlloc,
+            inUniverse: isInUniverse(simTicker),
+            keyMetrics: getKeyMetrics(simTicker),
+          },
+          accountType,
+          accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
+          sectorTargets: hasTargets ? sectorTargets : undefined,
+          sectorActuals: hasTargets ? sectorActuals : undefined,
+        }),
+      });
+      if (!res.ok) { const err = await res.json(); throw new Error(err.error ?? 'API error'); }
+      const { result } = await res.json();
+      setMemoResult(result);
+    } catch (e: unknown) {
+      setMemoError(e instanceof Error ? e.message : 'Unknown error');
+    } finally { setMemoLoading(false); }
   }
 
   // ─── Sector Explore ───────────────────────────────────────────────────────
@@ -1131,11 +1188,54 @@ export default function PortfolioTab() {
               </>
             )}
 
-            <button onClick={() => runTrimSuggestion(computed, sectorActuals)} disabled={trimLoading || !simTicker} style={{ width: '100%', background: trimLoading || !simTicker ? '#161922' : '#e2e6f0', border: 'none', borderRadius: 8, color: trimLoading || !simTicker ? '#8b93a8' : '#08090d', fontSize: 12, fontWeight: 500, padding: '10px 0', cursor: trimLoading || !simTicker ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              {trimLoading ? 'Analyzing…' : '✦ Get trim suggestion'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
+              <button
+                onClick={() => runTrimMemo(computed, sectorActuals)}
+                disabled={memoLoading || trimLoading || !simTicker}
+                style={{
+                  width: '100%',
+                  background: memoLoading || trimLoading || !simTicker ? '#161922' : '#a259ff',
+                  border: 'none', borderRadius: 8,
+                  color: memoLoading || trimLoading || !simTicker ? '#8b93a8' : '#fff',
+                  fontSize: 12, fontWeight: 500, padding: '10px 0',
+                  cursor: memoLoading || trimLoading || !simTicker ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                {memoLoading ? 'Writing memo…' : '✦ Should I? — get memo'}
+              </button>
+              <button
+                onClick={() => runTrimSuggestion(computed, sectorActuals)}
+                disabled={trimLoading || memoLoading || !simTicker}
+                style={{
+                  width: '100%',
+                  background: 'none',
+                  border: '1px solid #1e2230', borderRadius: 8,
+                  color: trimLoading || memoLoading || !simTicker ? '#4a4e63' : '#8b93a8',
+                  fontSize: 12, padding: '8px 0',
+                  cursor: trimLoading || memoLoading || !simTicker ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                {trimLoading ? 'Analyzing…' : 'Quick trim suggestion'}
+              </button>
+            </div>
+            {memoError && <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 8 }}>{memoError}</div>}
             {trimError && <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 8 }}>{trimError}</div>}
           </div>
+
+          {memoResult && (
+            <div style={{ borderLeft: '3px solid #a259ff', padding: '16px 18px', background: '#a259ff0d', marginTop: 12, borderRadius: '0 8px 8px 0' }}>
+              <div style={{ fontSize: 10, fontWeight: 500, color: '#a259ff', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                Should I? — {simTicker} at {simAlloc}%
+                {accountType !== 'unspecified' && (
+                  <span style={{ color: acctCfg.color, background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}44`, borderRadius: 4, padding: '1px 6px', fontSize: 9, fontFamily: 'Space Mono, monospace' }}>{acctCfg.shortLabel}</span>
+                )}
+              </div>
+              <MarkdownCard>{memoResult}</MarkdownCard>
+              <button onClick={() => runTrimMemo(computed, sectorActuals)} disabled={memoLoading} style={{ marginTop: 10, background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
+            </div>
+          )}
 
           {trimResult && (
             <div style={{ borderLeft: '3px solid #ffd166', padding: '16px 18px', background: '#ffd1660d', marginTop: 12, borderRadius: '0 8px 8px 0' }}>
