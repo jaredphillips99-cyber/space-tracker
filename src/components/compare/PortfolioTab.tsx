@@ -12,7 +12,7 @@ import {
   type SubSector,
 } from '../../config/gics';
 
-// ─── Session cache ────────────────────────────────────────────────────────────
+// ─── Session cache (anonymous fallback only) ──────────────────────────────────
 
 const SESSION_KEY = 'portfolio_session_v2';
 const SESSION_TTL_MS = 60 * 60 * 1000;
@@ -44,6 +44,18 @@ function saveSession(data: SessionCache) {
   try {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(data));
   } catch {}
+}
+
+// ─── Sync props (passed from Portfolio.tsx when authenticated) ────────────────
+
+export interface PortfolioTabSyncProps {
+  syncedPositions:     PortfolioPosition[] | null;  // null = not yet loaded / not authenticated
+  syncedAccountType:   AccountType | null;
+  syncedSectorTargets: SectorTargets | null;
+  syncLoading:         boolean;
+  isAuthenticated:     boolean;
+  onSavePositions:     (positions: PortfolioPosition[]) => Promise<void>;
+  onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets) => Promise<void>;
 }
 
 // ─── Account types ────────────────────────────────────────────────────────────
@@ -153,40 +165,34 @@ function MarkdownCard({ children }: { children: string }) {
   );
 }
 
-// ─── All known tickers (universe + common extras) ────────────────────────────
 
-const UNIVERSE_TICKERS = [
-  { ticker: 'RKLB', name: 'Rocket Lab' },
-  { ticker: 'PL',   name: 'Planet Labs' },
-  { ticker: 'RDW',  name: 'Redwire' },
-  { ticker: 'LUNR', name: 'Intuitive Machines' },
-  { ticker: 'ASTS', name: 'AST SpaceMobile' },
-  { ticker: 'KTOS', name: 'Kratos Defense' },
-  { ticker: 'BKSY', name: 'BlackSky' },
-  { ticker: 'FLY',  name: 'Firefly Aerospace' },
-  { ticker: 'SATS', name: 'EchoStar' },
-  { ticker: 'NVDA', name: 'NVIDIA' },
-  { ticker: 'PLTR', name: 'Palantir' },
-  { ticker: 'CRWV', name: 'CoreWeave' },
-  { ticker: 'IREN', name: 'Iris Energy' },
-  { ticker: 'NBIS', name: 'Nebius Group' },
-  { ticker: 'CIFR', name: 'Cipher Mining' },
-  { ticker: 'RIOT', name: 'Riot Platforms' },
-  { ticker: 'VRT',  name: 'Vertiv' },
-  { ticker: 'MOD',  name: 'Modine' },
-  { ticker: 'CEG',  name: 'Constellation Energy' },
-  { ticker: 'VST',  name: 'Vistra' },
-  { ticker: 'BWXT', name: 'BWX Technologies' },
-  { ticker: 'GEV',  name: 'GE Vernova' },
-  { ticker: 'BE',   name: 'Bloom Energy' },
-  { ticker: 'CCJ',  name: 'Cameco' },
-  { ticker: 'LEU',  name: 'Centrus Energy' },
-  { ticker: 'NXE',  name: 'NexGen Energy' },
-  { ticker: 'OKLO', name: 'Oklo' },
-  { ticker: 'NNE',  name: 'Nano Nuclear' },
-  { ticker: 'LHX',  name: 'L3Harris' },
-  { ticker: 'AVAV', name: 'AeroVironment' },
-];
+
+// ─── Yahoo Finance → GICS sector mapper ──────────────────────────────────────
+// Maps Yahoo's plain-English sector strings to our TopLevelSector keys.
+// Used to classify external tickers using live Yahoo data instead of fallback.
+
+const YAHOO_TO_GICS: Record<string, TopLevelSector> = {
+  'Technology': 'information_technology',
+  'Financial Services': 'financials',
+  'Financials': 'financials',
+  'Healthcare': 'health_care',
+  'Health Care': 'health_care',
+  'Consumer Cyclical': 'consumer_discretionary',
+  'Consumer Defensive': 'consumer_staples',
+  'Consumer Staples': 'consumer_staples',
+  'Communication Services': 'communication_services',
+  'Energy': 'energy',
+  'Industrials': 'industrials',
+  'Basic Materials': 'materials',
+  'Materials': 'materials',
+  'Real Estate': 'real_estate',
+  'Utilities': 'utilities',
+};
+
+function yahooSectorToGics(yahooSector?: string): TopLevelSector {
+  if (!yahooSector) return 'other';
+  return YAHOO_TO_GICS[yahooSector] ?? 'other';
+}
 
 // ─── TickerSearchInput ────────────────────────────────────────────────────────
 
@@ -198,55 +204,19 @@ interface TickerSearchInputProps {
   style?: React.CSSProperties;
 }
 
-function TickerSearchInput({ value, onChange, onEnter, placeholder = 'Search ticker…', style }: TickerSearchInputProps) {
-  const [open, setOpen] = useState(false);
+function TickerSearchInput({ value, onChange, onEnter, placeholder = 'Enter ticker…', style }: TickerSearchInputProps) {
   const [inputVal, setInputVal] = useState(value);
   const [validating, setValidating] = useState(false);
   const [validError, setValidError] = useState('');
-  const containerRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync controlled value → local input
   useEffect(() => { setInputVal(value); }, [value]);
-
-  // Close on outside click
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const query = inputVal.trim().toUpperCase();
-
-  // Filter universe matches first, then allow free-text for external tickers
-  const universeMatches = UNIVERSE_TICKERS.filter(t =>
-    query.length > 0 && (
-      t.ticker.startsWith(query) ||
-      t.name.toUpperCase().includes(query)
-    )
-  ).slice(0, 8);
-
-  function selectTicker(ticker: string) {
-    setInputVal(ticker);
-    setValidError('');
-    setOpen(false);
-    onChange(ticker);
-  }
 
   async function handleBlur() {
     const upper = inputVal.trim().toUpperCase();
     if (!upper) { setValidError(''); return; }
 
-    // If it is in our universe, no need to validate
-    if (UNIVERSE_TICKERS.some(t => t.ticker === upper)) {
-      onChange(upper);
-      setValidError('');
-      return;
-    }
-
-    // For external tickers, validate via price API
+    // Validate via price API
     setValidating(true);
     setValidError('');
     try {
@@ -273,13 +243,6 @@ function TickerSearchInput({ value, onChange, onEnter, placeholder = 'Search tic
     const upper = raw.toUpperCase();
     setInputVal(upper);
     setValidError('');
-    setOpen(upper.length > 0);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    // Only propagate upward if it exactly matches a universe ticker while typing
-    const exact = UNIVERSE_TICKERS.find(t => t.ticker === upper);
-    if (exact) {
-      onChange(upper);
-    }
   }
 
   const baseStyle: React.CSSProperties = {
@@ -297,16 +260,12 @@ function TickerSearchInput({ value, onChange, onEnter, placeholder = 'Search tic
   };
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', ...style }}>
+    <div style={{ position: 'relative', ...style }}>
       <input
         value={inputVal}
         onChange={e => handleInputChange(e.target.value)}
-        onFocus={() => inputVal.length > 0 && setOpen(true)}
         onBlur={handleBlur}
-        onKeyDown={e => {
-          if (e.key === 'Enter') { setOpen(false); onEnter?.(); }
-          if (e.key === 'Escape') setOpen(false);
-        }}
+        onKeyDown={e => { if (e.key === 'Enter') onEnter?.(); }}
         placeholder={placeholder}
         maxLength={8}
         style={baseStyle}
@@ -318,46 +277,6 @@ function TickerSearchInput({ value, onChange, onEnter, placeholder = 'Search tic
       )}
       {validError && (
         <div style={{ fontSize: 10, color: '#ff4b6e', marginTop: 3 }}>{validError}</div>
-      )}
-      {open && universeMatches.length > 0 && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
-          background: '#161922', border: '1px solid #1e2230', borderRadius: 6,
-          marginTop: 2, overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-        }}>
-          {universeMatches.map(t => (
-            <button
-              key={t.ticker}
-              onMouseDown={e => { e.preventDefault(); selectTicker(t.ticker); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                width: '100%', textAlign: 'left', background: 'none',
-                border: 'none', borderBottom: '1px solid #1e223055',
-                padding: '8px 12px', cursor: 'pointer', transition: 'background 0.1s',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#1e2230')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-            >
-              <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#e2e6f0', minWidth: 44 }}>{t.ticker}</span>
-              <span style={{ fontSize: 11, color: '#8b93a8' }}>{t.name}</span>
-            </button>
-          ))}
-          {query.length >= 1 && !UNIVERSE_TICKERS.some(t => t.ticker === query) && (
-            <button
-              onMouseDown={e => { e.preventDefault(); selectTicker(query); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                width: '100%', textAlign: 'left', background: 'none',
-                border: 'none', padding: '8px 12px', cursor: 'pointer',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#1e2230')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-            >
-              <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#8b93a8', minWidth: 44 }}>{query}</span>
-              <span style={{ fontSize: 11, color: '#4a4e63' }}>Use as external ticker</span>
-            </button>
-          )}
-        </div>
       )}
     </div>
   );
@@ -376,6 +295,8 @@ interface LiveData {
   price: number | null;
   loading: boolean;
   error: boolean;
+  yahooSector?: string;
+  yahooIndustry?: string;
 }
 
 interface ComputedPosition extends PortfolioPosition {
@@ -398,8 +319,20 @@ interface ExploreSuggestion {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function PortfolioTab() {
-  const _session = loadSession();
+export default function PortfolioTab({
+  syncedPositions     = null,
+  syncedAccountType   = null,
+  syncedSectorTargets = null,
+  syncLoading         = false,
+  isAuthenticated     = false,
+  onSavePositions     = async () => {},
+  onSavePreferences   = async () => {},
+}: Partial<PortfolioTabSyncProps> = {}) {
+  // When authenticated, Supabase data is source of truth; session is anonymous fallback
+  const _session = isAuthenticated ? {} : loadSession();
+
+  // Track whether we've seeded state from synced data yet (avoid double-init)
+  const syncSeeded = useRef(false);
 
   const [positions, setPositions] = useState<PortfolioPosition[]>(_session.positions ?? []);
   const [liveData, setLiveData] = useState<Record<string, LiveData>>(_session.liveData ?? {});
@@ -434,7 +367,7 @@ export default function PortfolioTab() {
 
   // Add simulation
   const [simTicker, setSimTicker] = useState('');
-  const [simAlloc, setSimAlloc] = useState(8);
+  const [simAlloc, setSimAlloc] = useState(0);
   const [simLive, setSimLive] = useState<LiveData>({ price: null, loading: false, error: false });
   const [trimResult, setTrimResult] = useState<string | null>(null);
   const [trimLoading, setTrimLoading] = useState(false);
@@ -452,28 +385,73 @@ export default function PortfolioTab() {
 
   const simFetchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-save session
+  // ─── Seed state from Supabase when sync data arrives (authenticated users) ──
   useEffect(() => {
-    if (positions.length === 0 && Object.keys(sectorTargets).length === 0) return;
-    saveSession({ positions, liveData, sectorTargets, accountType, savedAt: Date.now() });
-  }, [positions, liveData, sectorTargets, accountType]);
+    if (!isAuthenticated || syncSeeded.current) return;
+    if (syncedPositions === null) return; // still loading
+
+    syncSeeded.current = true;
+
+    if (syncedPositions.length > 0) {
+      setPositions(syncedPositions);
+      // Kick off live price fetches for each loaded position
+      syncedPositions.forEach(p => fetchLiveForPosition(p.id, p.ticker));
+    }
+    if (syncedAccountType) {
+      setAccountType(syncedAccountType);
+    }
+    if (syncedSectorTargets && Object.keys(syncedSectorTargets).length > 0) {
+      setSectorTargets(syncedSectorTargets);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, syncedPositions, syncedAccountType, syncedSectorTargets]);
+
+  // ─── Persist positions ────────────────────────────────────────────────────
+  // Authenticated: write to Supabase (debounced in hook)
+  // Anonymous: write to sessionStorage
+  useEffect(() => {
+    if (!syncSeeded.current && isAuthenticated) return; // don't write empty state before seed
+    if (isAuthenticated) {
+      onSavePositions(positions);
+    } else {
+      if (positions.length === 0 && Object.keys(sectorTargets).length === 0) return;
+      saveSession({ positions, liveData, sectorTargets, accountType, savedAt: Date.now() });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions]);
+
+  // ─── Persist preferences (account type + sector targets) ─────────────────
+  useEffect(() => {
+    if (!syncSeeded.current && isAuthenticated) return;
+    if (isAuthenticated) {
+      onSavePreferences(accountType, sectorTargets);
+    } else {
+      if (positions.length === 0 && Object.keys(sectorTargets).length === 0) return;
+      saveSession({ positions, liveData, sectorTargets, accountType, savedAt: Date.now() });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountType, sectorTargets]);
 
   // ─── Price fetching ───────────────────────────────────────────────────────
 
-  const fetchPrice = useCallback(async (ticker: string): Promise<number | null> => {
+  const fetchPrice = useCallback(async (ticker: string): Promise<{ price: number | null; yahooSector?: string; yahooIndustry?: string }> => {
     try {
       const res = await fetch(`/api/prices?tickers=${encodeURIComponent(ticker)}`);
-      if (!res.ok) return null;
+      if (!res.ok) return { price: null };
       const data = await res.json();
       const entry = Array.isArray(data) ? data.find((d: { ticker: string }) => d.ticker === ticker) : null;
-      return entry?.price ?? null;
-    } catch { return null; }
+      return {
+        price: entry?.price ?? null,
+        yahooSector: entry?.yahooSector,
+        yahooIndustry: entry?.yahooIndustry,
+      };
+    } catch { return { price: null }; }
   }, []);
 
   async function fetchLiveForPosition(id: string, ticker: string) {
     setLiveData(prev => ({ ...prev, [id]: { price: null, loading: true, error: false } }));
-    const price = await fetchPrice(ticker);
-    setLiveData(prev => ({ ...prev, [id]: { price, loading: false, error: price == null } }));
+    const result = await fetchPrice(ticker);
+    setLiveData(prev => ({ ...prev, [id]: { price: result.price, loading: false, error: result.price == null, yahooSector: result.yahooSector, yahooIndustry: result.yahooIndustry } }));
   }
 
   // ─── Computed positions ───────────────────────────────────────────────────
@@ -486,7 +464,11 @@ export default function PortfolioTab() {
       const costTotal = p.shares * p.costBasisPerShare;
       const unrealizedGainPct = currentValue != null && costTotal > 0
         ? ((currentValue - costTotal) / costTotal) * 100 : null;
-      const { sector, subSector } = classifyTicker(p.ticker);
+      // For external tickers, prefer Yahoo Finance sector classification
+      let { sector, subSector } = classifyTicker(p.ticker);
+      if (sector === 'other' && live?.yahooSector) {
+        sector = yahooSectorToGics(live.yahooSector);
+      }
       return { ...p, sector, subSector, inUniverse: isInUniverse(p.ticker), livePrice, currentValue, unrealizedGainPct, portfolioWeightPct: 0, liveLoading: live?.loading ?? false, liveError: live?.error ?? false };
     });
     const totalValue = raw.reduce((s, p) => s + (p.currentValue ?? 0), 0);
@@ -633,27 +615,61 @@ export default function PortfolioTab() {
     setTrimResult(null);
     setMemoResult(null);
     if (simFetchRef.current) clearTimeout(simFetchRef.current);
-    if (!ticker) return;
+    if (!ticker) { setSimAlloc(0); return; }
+    // Snap slider to current weight if ticker is already held
+    const existingPos = computed.find(p => p.ticker === ticker);
+    if (existingPos) {
+      setSimAlloc(Math.round(existingPos.portfolioWeightPct));
+    } else {
+      setSimAlloc(8);
+    }
     simFetchRef.current = setTimeout(async () => {
       setSimLive({ price: null, loading: true, error: false });
-      const price = await fetchPrice(ticker);
-      setSimLive({ price, loading: false, error: price == null });
+      const result = await fetchPrice(ticker);
+      setSimLive({ price: result.price, loading: false, error: result.price == null, yahooSector: result.yahooSector, yahooIndustry: result.yahooIndustry });
     }, 600);
   }
 
   function getSimSectorImpact(sectorActuals: SectorActuals) {
-    if (!simTicker || simAlloc <= 0) return null;
-    const { sector: simSector } = classifyTicker(simTicker);
-    const scaleFactor = (100 - simAlloc) / 100;
+    if (!simTicker) return null;
+    const _simBase = classifyTicker(simTicker);
+    const simSector: TopLevelSector = _simBase.sector === 'other' && simLive.yahooSector
+      ? yahooSectorToGics(simLive.yahooSector)
+      : _simBase.sector;
+
+    const existingPos = computed.find(p => p.ticker === simTicker);
+    const currentPct = existingPos ? existingPos.portfolioWeightPct : 0;
+    const newTargetPct = simAlloc;
+
     const newActuals: SectorActuals = {};
-    for (const sector of SECTOR_ORDER) newActuals[sector] = (sectorActuals[sector] ?? 0) * scaleFactor;
-    newActuals[simSector] = (newActuals[simSector] ?? 0) + simAlloc;
+
+    if (existingPos) {
+      // Adjusting an existing position: remove current weight, rescale remainder, add at new target
+      const remainingBase = 100 - currentPct;
+      const scaleFactor = remainingBase > 0 ? (100 - newTargetPct) / remainingBase : 0;
+      for (const sector of SECTOR_ORDER) {
+        const existing = sectorActuals[sector] ?? 0;
+        if (sector === simSector) {
+          // Remove the position's contribution from its sector, rescale, then add new target
+          const sectorWithoutPos = existing - currentPct;
+          newActuals[sector] = sectorWithoutPos * scaleFactor + newTargetPct;
+        } else {
+          newActuals[sector] = existing * scaleFactor;
+        }
+      }
+    } else {
+      // New position: scale everything down and inject at target
+      if (newTargetPct === 0) return null;
+      const scaleFactor = (100 - newTargetPct) / 100;
+      for (const sector of SECTOR_ORDER) newActuals[sector] = (sectorActuals[sector] ?? 0) * scaleFactor;
+      newActuals[simSector] = (newActuals[simSector] ?? 0) + newTargetPct;
+    }
 
     return SECTOR_ORDER
       .filter(s => (sectorActuals[s] ?? 0) > 0.1 || (newActuals[s] ?? 0) > 0.1)
       .map(sector => {
         const before = sectorActuals[sector] ?? 0;
-        const after = newActuals[sector] ?? 0;
+        const after = Math.max(0, newActuals[sector] ?? 0);
         const target = sectorTargets[sector] ?? null;
         const beforeGap = target != null ? Math.abs(before - target) : null;
         const afterGap = target != null ? Math.abs(after - target) : null;
@@ -662,7 +678,7 @@ export default function PortfolioTab() {
         if (beforeGap != null && afterGap != null && Math.abs(after - before) >= 0.5) {
           direction = afterGap < beforeGap ? 'toward' : 'away';
         } else if (target == null && Math.abs(after - before) >= 0.5) {
-          direction = sector === simSector ? 'toward' : 'neutral';
+          direction = sector === simSector ? (newTargetPct > currentPct ? 'toward' : 'away') : 'neutral';
         }
 
         return { sector, before, after, target, direction };
@@ -673,7 +689,14 @@ export default function PortfolioTab() {
     if (!simTicker) { setTrimError('Enter a candidate ticker first.'); return; }
     setTrimLoading(true); setTrimError('');
     try {
-      const { sector: candidateSector, subSector: candidateSubSector } = classifyTicker(simTicker);
+      const _trimBase = classifyTicker(simTicker);
+      const candidateSector: TopLevelSector = _trimBase.sector === 'other' && simLive.yahooSector
+        ? yahooSectorToGics(simLive.yahooSector)
+        : _trimBase.sector;
+      const candidateSubSector = _trimBase.subSector;
+      const existingPos = computed.find(p => p.ticker === simTicker);
+      const currentWeightPct = existingPos ? parseFloat(existingPos.portfolioWeightPct.toFixed(1)) : undefined;
+      const isTrimMode = existingPos != null && simAlloc < existingPos.portfolioWeightPct;
       const res = await fetch('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -688,7 +711,10 @@ export default function PortfolioTab() {
           candidate: {
             ticker: simTicker, sector: candidateSector,
             subSector: candidateSubSector ?? undefined,
-            targetWeightPct: simAlloc, inUniverse: isInUniverse(simTicker),
+            targetWeightPct: simAlloc,
+            currentWeightPct,
+            isTrimMode,
+            inUniverse: isInUniverse(simTicker),
           },
           accountType,
           accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
@@ -699,6 +725,19 @@ export default function PortfolioTab() {
       if (!res.ok) { const err = await res.json(); throw new Error(err.error ?? 'API error'); }
       const { result } = await res.json();
       setTrimResult(result);
+      // Auto-trigger sector explore when trimming to 0% (full exit) or reducing significantly
+      if (isTrimMode && simAlloc === 0 && hasTargets) {
+        const freedSector = candidateSector;
+        // Find the most underweight sector to explore for redeployment
+        const bestExplore = SECTOR_ORDER.find(s => {
+          const target = sectorTargets[s];
+          const actual = sectorActuals[s] ?? 0;
+          return target != null && actual < target - 2 && s !== freedSector;
+        });
+        if (bestExplore) {
+          runSectorExplore(bestExplore, computed);
+        }
+      }
     } catch (e: unknown) {
       setTrimError(e instanceof Error ? e.message : 'Unknown error');
     } finally { setTrimLoading(false); }
@@ -720,7 +759,14 @@ export default function PortfolioTab() {
     if (!simTicker) { setMemoError('Enter a candidate ticker first.'); return; }
     setMemoLoading(true); setMemoError('');
     try {
-      const { sector: candidateSector, subSector: candidateSubSector } = classifyTicker(simTicker);
+      const _trimBase = classifyTicker(simTicker);
+      const candidateSector: TopLevelSector = _trimBase.sector === 'other' && simLive.yahooSector
+        ? yahooSectorToGics(simLive.yahooSector)
+        : _trimBase.sector;
+      const candidateSubSector = _trimBase.subSector;
+      const existingPos = computed.find(p => p.ticker === simTicker);
+      const currentWeightPct = existingPos ? parseFloat(existingPos.portfolioWeightPct.toFixed(1)) : undefined;
+      const isTrimMode = existingPos != null && simAlloc < existingPos.portfolioWeightPct;
       const res = await fetch('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -740,6 +786,8 @@ export default function PortfolioTab() {
             sector: candidateSector,
             subSector: candidateSubSector ?? undefined,
             targetWeightPct: simAlloc,
+            currentWeightPct,
+            isTrimMode,
             inUniverse: isInUniverse(simTicker),
             keyMetrics: getKeyMetrics(simTicker),
           },
@@ -752,6 +800,18 @@ export default function PortfolioTab() {
       if (!res.ok) { const err = await res.json(); throw new Error(err.error ?? 'API error'); }
       const { result } = await res.json();
       setMemoResult(result);
+      // Auto-trigger sector explore for trim mode with targets set — show where to redeploy
+      if (isTrimMode && hasTargets) {
+        const freedSector = candidateSector;
+        const bestExplore = SECTOR_ORDER.find(s => {
+          const target = sectorTargets[s];
+          const actual = sectorActuals[s] ?? 0;
+          return target != null && actual < target - 2 && s !== freedSector;
+        });
+        if (bestExplore) {
+          runSectorExplore(bestExplore, computed);
+        }
+      }
     } catch (e: unknown) {
       setMemoError(e instanceof Error ? e.message : 'Unknown error');
     } finally { setMemoLoading(false); }
@@ -811,8 +871,24 @@ export default function PortfolioTab() {
   const hasPrices = computed.some(p => p.livePrice != null);
   const activeSectors = SECTOR_ORDER.filter(s => (sectorActuals[s] ?? 0) > 0.05);
   const maxActual = Math.max(...activeSectors.map(s => sectorActuals[s] ?? 0), 1);
-  const simClassified = simTicker ? classifyTicker(simTicker) : null;
+  const simClassifiedBase = simTicker ? classifyTicker(simTicker) : null;
+  const simClassified = simClassifiedBase
+    ? {
+        sector: simClassifiedBase.sector === 'other' && simLive.yahooSector
+          ? yahooSectorToGics(simLive.yahooSector)
+          : simClassifiedBase.sector,
+        subSector: simClassifiedBase.subSector,
+      }
+    : null;
   const acctCfg = ACCOUNT_TYPES[accountType];
+
+  // Sim mode detection — auto-detected from slider vs current weight
+  const simExistingPos = simTicker ? computed.find(p => p.ticker === simTicker) : null;
+  const simCurrentPct = simExistingPos ? simExistingPos.portfolioWeightPct : 0;
+  const simIsHeld = simExistingPos != null;
+  const simIsTrim = simIsHeld && simAlloc < simCurrentPct;
+  const simIsExit = simIsHeld && simAlloc === 0;
+  const simIsAdd = !simIsHeld || simAlloc > simCurrentPct;
 
   const underweightSectors = SECTOR_ORDER.filter(s => {
     const target = sectorTargets[s];
@@ -837,6 +913,20 @@ export default function PortfolioTab() {
 
   return (
     <div style={{ fontFamily: 'DM Sans, sans-serif', color: '#e2e6f0' }}>
+
+      {/* Supabase loading overlay — shown briefly while hydrating authenticated session */}
+      {syncLoading && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 50,
+          background: '#08090dcc', backdropFilter: 'blur(2px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column', gap: 12,
+        }}>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid #1e2230', borderTopColor: '#a259ff', animation: 'spin 0.7s linear infinite' }} />
+          <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, letterSpacing: '0.1em', color: '#8b93a8' }}>LOADING YOUR PORTFOLIO…</span>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
 
       {/* Targets panel */}
       <SectorTargetsPanel
@@ -905,13 +995,21 @@ export default function PortfolioTab() {
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,3fr)', gap: 20, alignItems: 'start' }}>
 
         {/* ══════════ LEFT COLUMN ══════════ */}
         <div>
           {/* Positions header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8b93a8' }}>Your positions</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8b93a8' }}>Your positions</span>
+              {isAuthenticated && (
+                <span style={{ fontSize: 10, color: '#00e676', fontFamily: 'Space Mono, monospace', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#00e676', display: 'inline-block' }} />
+                  SYNCED
+                </span>
+              )}
+            </div>
             <span style={{ fontSize: 11, color: '#8b93a8', fontFamily: 'Space Mono, monospace' }}>
               {positions.length} position{positions.length !== 1 ? 's' : ''}
               {hasPrices && totalValue > 0 && (
@@ -929,7 +1027,7 @@ export default function PortfolioTab() {
                 <thead>
                   <tr style={{ borderBottom: '1px solid #1e2230' }}>
                     {['Ticker', 'Sector', 'Price', 'Cost basis', 'Gain / loss', 'Allocation', ''].map(h => (
-                      <th key={h} style={{ textAlign: ['Allocation', 'Price', 'Cost basis', 'Gain / loss'].includes(h) ? 'right' : 'left', padding: '8px 12px', color: '#8b93a8', fontWeight: 400, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                      <th key={h} style={{ textAlign: ['Allocation', 'Price', 'Cost basis', 'Gain / loss'].includes(h) ? 'right' : 'left', padding: '6px 10px', color: '#8b93a8', fontWeight: 400, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -940,38 +1038,38 @@ export default function PortfolioTab() {
                     const gainColor = p.unrealizedGainPct == null ? '#8b93a8' : p.unrealizedGainPct >= 0 ? '#00e676' : '#ff4b6e';
                     return (
                       <tr key={p.id} style={{ borderBottom: '1px solid #1e2230' }}>
-                        <td style={{ padding: '10px 12px' }}>
-                          <span style={{ background: `${color}22`, color, fontFamily: 'Space Mono, monospace', fontSize: 11, fontWeight: 500, padding: '2px 7px', borderRadius: 4 }}>{p.ticker}</span>
+                        <td style={{ padding: '6px 10px' }}>
+                          <span style={{ background: `${color}22`, color, fontFamily: 'Space Mono, monospace', fontSize: 11, fontWeight: 500, padding: '2px 6px', borderRadius: 4 }}>{p.ticker}</span>
                           {!p.inUniverse && <span style={{ marginLeft: 5, fontSize: 9, color: '#8b93a8', border: '1px solid #1e2230', borderRadius: 3, padding: '1px 4px' }}>EXT</span>}
                         </td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                              <span style={{ fontSize: 11, color }}>{SECTOR_DISPLAY[p.sector].label}</span>
+                        <td style={{ padding: '6px 10px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                              <span style={{ fontSize: 10, color }}>{SECTOR_DISPLAY[p.sector].label}</span>
                             </span>
-                            {subLabel && <span style={{ fontSize: 10, color: '#6b7190', paddingLeft: 11 }}>{subLabel}</span>}
+                            {subLabel && <span style={{ fontSize: 9, color: '#6b7190', paddingLeft: 9 }}>{subLabel}</span>}
                           </div>
                         </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'Space Mono, monospace', color: '#e2e6f0' }}>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#e2e6f0' }}>
                           {p.liveLoading ? <span style={{ color: '#8b93a8' }}>…</span> : p.livePrice != null ? `$${p.livePrice.toFixed(2)}` : <span style={{ color: '#ff4b6e', fontSize: 10 }}>ERR</span>}
                         </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'Space Mono, monospace', color: '#8b93a8' }}>${p.costBasisPerShare.toFixed(2)}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'Space Mono, monospace', color: gainColor }}>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#8b93a8' }}>${p.costBasisPerShare.toFixed(2)}</td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: gainColor }}>
                           {p.unrealizedGainPct != null ? `${p.unrealizedGainPct >= 0 ? '+' : ''}${fmt(p.unrealizedGainPct)}%` : '—'}
                         </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
-                            <div style={{ width: 60, height: 4, background: '#1e2230', borderRadius: 2, flexShrink: 0 }}>
-                              <div style={{ height: 4, borderRadius: 2, background: color, width: `${Math.min(p.portfolioWeightPct * 2.5, 100)}%` }} />
+                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
+                            <div style={{ width: 48, height: 3, background: '#1e2230', borderRadius: 2, flexShrink: 0 }}>
+                              <div style={{ height: 3, borderRadius: 2, background: color, width: `${Math.min(p.portfolioWeightPct * 2.5, 100)}%` }} />
                             </div>
-                            <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#8b93a8', minWidth: 32 }}>
+                            <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#8b93a8', minWidth: 30 }}>
                               {hasPrices ? `${fmt(p.portfolioWeightPct)}%` : '—'}
                             </span>
                           </div>
                         </td>
-                        <td style={{ padding: '10px 8px' }}>
-                          <button onClick={() => handleRemovePosition(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 16, lineHeight: 1, padding: '2px 4px' }} title="Remove">×</button>
+                        <td style={{ padding: '6px 6px' }}>
+                          <button onClick={() => handleRemovePosition(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 14, lineHeight: 1, padding: '2px 4px' }} title="Remove">×</button>
                         </td>
                       </tr>
                     );
@@ -980,7 +1078,7 @@ export default function PortfolioTab() {
               </table>
             )}
             {/* Add row */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 12px', borderTop: positions.length > 0 ? '1px solid #1e2230' : 'none', background: '#0f1117' }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '8px 10px', borderTop: positions.length > 0 ? '1px solid #1e2230' : 'none', background: '#0f1117' }}>
               <TickerSearchInput
                 value={addTicker}
                 onChange={setAddTicker}
@@ -1119,12 +1217,22 @@ export default function PortfolioTab() {
 
         {/* ══════════ RIGHT COLUMN ══════════ */}
         <div>
-          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8b93a8', marginBottom: 12 }}>Add simulation</div>
+          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8b93a8', marginBottom: 12 }}>
+            {simIsTrim ? 'Trim simulation' : simIsAdd && simIsHeld ? 'Add simulation' : 'Add simulation'}
+          </div>
           <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, padding: '16px' }}>
-            <div style={{ fontSize: 12, color: '#8b93a8', marginBottom: 14, lineHeight: 1.5 }}>Simulate adding a position and see its impact on your sector alignment.</div>
+            <div style={{ fontSize: 12, color: '#8b93a8', marginBottom: 14, lineHeight: 1.5 }}>
+              {simIsTrim
+                ? simIsExit
+                  ? `Simulating full exit from ${simTicker}. Proceeds redeployment will be suggested automatically.`
+                  : `Simulating a trim — reducing ${simTicker} from ${fmt(simCurrentPct)}% to ${simAlloc}%.`
+                : 'Simulate adding a position and see its impact on your sector alignment.'}
+            </div>
 
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, color: '#8b93a8', marginBottom: 6 }}>Candidate stock</div>
+              <div style={{ fontSize: 11, color: '#8b93a8', marginBottom: 6 }}>
+                {simIsTrim ? 'Position to trim' : 'Candidate stock'}
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <TickerSearchInput
                   value={simTicker}
@@ -1150,17 +1258,37 @@ export default function PortfolioTab() {
 
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ fontSize: 11, color: '#8b93a8' }}>Target allocation</span>
-                <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', fontWeight: 500 }}>{simAlloc}%</span>
+                <span style={{ fontSize: 11, color: '#8b93a8' }}>
+                  {simIsHeld
+                    ? <>Target allocation <span style={{ color: '#4a4e63' }}>(currently {fmt(simCurrentPct)}%)</span></>
+                    : 'Target allocation'}
+                </span>
+                <span style={{
+                  fontSize: 14, fontFamily: 'Space Mono, monospace', fontWeight: 500,
+                  color: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : '#e2e6f0',
+                }}>
+                  {simIsExit ? 'EXIT' : `${simAlloc}%`}
+                </span>
               </div>
-              <input type="range" min={1} max={100} step={1} value={simAlloc} onChange={e => { setSimAlloc(parseInt(e.target.value)); setTrimResult(null); }} style={{ width: '100%', accentColor: '#e2e6f0' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#8b93a8', marginTop: 2 }}><span>1%</span><span>100%</span></div>
+              <input
+                type="range" min={0} max={100} step={1} value={simAlloc}
+                onChange={e => { setSimAlloc(parseInt(e.target.value)); setTrimResult(null); setMemoResult(null); }}
+                style={{ width: '100%', accentColor: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : '#e2e6f0' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#8b93a8', marginTop: 2 }}>
+                <span style={{ color: '#ff4b6e' }}>0% exit</span>
+                {simIsHeld && <span style={{ color: '#4a4e63' }}>▲ {fmt(simCurrentPct)}% now</span>}
+                <span>100%</span>
+              </div>
             </div>
 
             {simImpact && simTicker && (
               <>
                 <div style={{ fontSize: 11, color: '#8b93a8', marginBottom: 8 }}>
-                  Sector impact{hasTargets ? <span style={{ color: '#4a4e63', marginLeft: 6 }}>vs targets</span> : ''}
+                  {simIsTrim
+                    ? <span>Sector impact <span style={{ color: '#ffd166' }}>trimming {simIsExit ? 'full exit' : `→ ${simAlloc}%`}</span></span>
+                    : <>Sector impact{hasTargets ? <span style={{ color: '#4a4e63', marginLeft: 6 }}>vs targets</span> : ''}</>
+                  }
                 </div>
                 <div style={{ background: '#161922', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
                   {simImpact.map(row => {
@@ -1194,15 +1322,23 @@ export default function PortfolioTab() {
                 disabled={memoLoading || trimLoading || !simTicker}
                 style={{
                   width: '100%',
-                  background: memoLoading || trimLoading || !simTicker ? '#161922' : '#a259ff',
+                  background: memoLoading || trimLoading || !simTicker ? '#161922'
+                    : simIsTrim ? '#ffd166' : '#a259ff',
                   border: 'none', borderRadius: 8,
-                  color: memoLoading || trimLoading || !simTicker ? '#8b93a8' : '#fff',
+                  color: memoLoading || trimLoading || !simTicker ? '#8b93a8'
+                    : simIsTrim ? '#08090d' : '#fff',
                   fontSize: 12, fontWeight: 500, padding: '10px 0',
                   cursor: memoLoading || trimLoading || !simTicker ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}
               >
-                {memoLoading ? 'Writing memo…' : '✦ Should I? — get memo'}
+                {memoLoading
+                  ? 'Writing memo…'
+                  : simIsExit
+                    ? '✦ Full exit — where should proceeds go?'
+                    : simIsTrim
+                      ? '✦ Trim memo — should I reduce?'
+                      : '✦ Should I? — get memo'}
               </button>
               <button
                 onClick={() => runTrimSuggestion(computed, sectorActuals)}
@@ -1217,7 +1353,11 @@ export default function PortfolioTab() {
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}
               >
-                {trimLoading ? 'Analyzing…' : 'Quick trim suggestion'}
+                {trimLoading
+                  ? 'Analyzing…'
+                  : simIsTrim
+                    ? 'Where should proceeds go?'
+                    : 'Quick trim suggestion'}
               </button>
             </div>
             {memoError && <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 8 }}>{memoError}</div>}
@@ -1227,7 +1367,11 @@ export default function PortfolioTab() {
           {memoResult && (
             <div style={{ borderLeft: '3px solid #a259ff', padding: '16px 18px', background: '#a259ff0d', marginTop: 12, borderRadius: '0 8px 8px 0' }}>
               <div style={{ fontSize: 10, fontWeight: 500, color: '#a259ff', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                Should I? — {simTicker} at {simAlloc}%
+                {simIsTrim
+                  ? simIsExit
+                    ? `Exit memo — ${simTicker}`
+                    : `Trim memo — ${simTicker} ${fmt(simCurrentPct)}% → ${simAlloc}%`
+                  : `Should I? — ${simTicker} at ${simAlloc}%`}
                 {accountType !== 'unspecified' && (
                   <span style={{ color: acctCfg.color, background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}44`, borderRadius: 4, padding: '1px 6px', fontSize: 9, fontFamily: 'Space Mono, monospace' }}>{acctCfg.shortLabel}</span>
                 )}
