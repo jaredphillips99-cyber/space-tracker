@@ -1,0 +1,32 @@
+name: Daily Newswire
+
+on:
+  schedule:
+    # 7:30 AM ET = 11:30 UTC (accounts for ET = UTC-4 in summer / UTC-5 in winter)
+    # Using 11:30 UTC covers both EDT and EST overlap safely
+    - cron: '30 11 * * 1-5'
+  workflow_dispatch: # allows manual trigger from GitHub Actions tab
+
+jobs:
+  newswire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run newswire script
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/newswire.mjs
