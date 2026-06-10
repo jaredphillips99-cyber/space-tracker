@@ -19,9 +19,6 @@ interface UseNewswireResult {
   runDate: string | null;
 }
 
-function todayISODate(): string {
-  return new Date().toISOString().split('T')[0];
-}
 
 export function useNewswire(): UseNewswireResult {
   const [items, setItems]   = useState<NewswireItem[]>([]);
