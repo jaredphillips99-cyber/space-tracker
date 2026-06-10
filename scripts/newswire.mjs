@@ -112,7 +112,7 @@ Return ONLY the raw JSON array with no markdown fences, no preamble, no commenta
 If there is absolutely no significant news for any of the stocks in this batch, return an empty array: []`;
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1500,
     tools: [
       {
