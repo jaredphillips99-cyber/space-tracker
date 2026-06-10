@@ -11,6 +11,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { WebSocket } from 'ws';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,8 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY, // service role bypasses RLS for server writes
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { global: { fetch }, realtime: { transport: WebSocket } }
 );
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
