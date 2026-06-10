@@ -58,9 +58,13 @@ const DELAY_BETWEEN_BATCHES_MS = 3000; // avoid rate limit spikes
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// Disable realtime entirely — this script only does DB writes, never subscribes.
+// Without this, @supabase/realtime-js tries to init a WebSocket on startup,
+// which throws on Node 20 (no native WebSocket).
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { realtime: { enabled: false } }
 );
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
