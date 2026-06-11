@@ -8,6 +8,7 @@ export interface NewswireItem {
   headline: string;
   summary: string;
   sentiment: 'positive' | 'negative' | 'neutral';
+  url: string | null;
   run_date: string;
   created_at: string;
 }
@@ -21,9 +22,9 @@ interface UseNewswireResult {
 
 
 export function useNewswire(): UseNewswireResult {
-  const [items, setItems]   = useState<NewswireItem[]>([]);
+  const [items, setItems]     = useState<NewswireItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState<string | null>(null);
+  const [error, setError]     = useState<string | null>(null);
   const [runDate, setRunDate] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,15 +34,14 @@ export function useNewswire(): UseNewswireResult {
       setLoading(true);
       setError(null);
 
-      // Try today first; fall back to most recent run date if today has no data
-      // (covers weekends and the window before 7:30am runs)
-
+      // Fetch the most recent run's items across all tickers.
+      // We pull more rows now since one ticker can have several headlines per day.
       const { data, error: supaErr } = await supabase
         .from('newswire_items')
         .select('*')
         .order('run_date', { ascending: false })
-        .order('ticker', { ascending: true })
-        .limit(100); // plenty for 31 tickers
+        .order('ticker',   { ascending: true })
+        .limit(500); // up from 100 — multiple headlines per ticker per day
 
       if (cancelled) return;
 
@@ -60,7 +60,7 @@ export function useNewswire(): UseNewswireResult {
 
       // Use the most recent run_date available
       const latestDate = data[0].run_date;
-      const filtered = data.filter((item) => item.run_date === latestDate);
+      const filtered   = data.filter((item) => item.run_date === latestDate);
 
       setItems(filtered as NewswireItem[]);
       setRunDate(latestDate);

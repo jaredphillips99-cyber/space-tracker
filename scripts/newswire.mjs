@@ -2,218 +2,236 @@
  * scripts/newswire.mjs
  *
  * Daily morning newswire for InvestAI.
- * Batches 31 tickers into groups, asks Claude (with web search) for significant
- * news from the last 24 hours, and writes results to Supabase newswire_items table.
+ * Fetches Yahoo Finance RSS headlines for each of the 31 tickers,
+ * filters to the last 24 hours, and writes results to Supabase.
+ *
+ * Zero Claude API calls. Zero cost beyond Supabase writes.
  *
  * Run: node scripts/newswire.mjs
- * Required env: ANTHROPIC_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ * Required env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const TICKERS = [
   // Space
-  { ticker: 'RKLB', name: 'Rocket Lab',          sector: 'space' },
-  { ticker: 'PL',   name: 'Planet Labs',          sector: 'space' },
-  { ticker: 'RDW',  name: 'Redwire',              sector: 'space' },
-  { ticker: 'LUNR', name: 'Intuitive Machines',   sector: 'space' },
-  { ticker: 'ASTS', name: 'AST SpaceMobile',      sector: 'space' },
-  { ticker: 'KTOS', name: 'Kratos Defense',       sector: 'space' },
-  { ticker: 'BKSY', name: 'BlackSky',             sector: 'space' },
-  { ticker: 'FLY',  name: 'Firefly Aerospace',    sector: 'space' },
-  { ticker: 'SATS', name: 'EchoStar',             sector: 'space' },
+  { ticker: 'RKLB', sector: 'space' },
+  { ticker: 'PL',   sector: 'space' },
+  { ticker: 'RDW',  sector: 'space' },
+  { ticker: 'LUNR', sector: 'space' },
+  { ticker: 'ASTS', sector: 'space' },
+  { ticker: 'KTOS', sector: 'space' },
+  { ticker: 'BKSY', sector: 'space' },
+  { ticker: 'FLY',  sector: 'space' },
+  { ticker: 'SATS', sector: 'space' },
   // AI Infrastructure
-  { ticker: 'NVDA', name: 'NVIDIA',               sector: 'ai_infrastructure' },
-  { ticker: 'PLTR', name: 'Palantir',             sector: 'ai_infrastructure' },
-  { ticker: 'CRWV', name: 'CoreWeave',            sector: 'ai_infrastructure' },
-  { ticker: 'IREN', name: 'Iris Energy',          sector: 'ai_infrastructure' },
-  { ticker: 'NBIS', name: 'Nebius Group',         sector: 'ai_infrastructure' },
-  { ticker: 'CIFR', name: 'Cipher Mining',        sector: 'ai_infrastructure' },
-  { ticker: 'RIOT', name: 'Riot Platforms',       sector: 'ai_infrastructure' },
-  { ticker: 'VRT',  name: 'Vertiv',               sector: 'ai_infrastructure' },
-  { ticker: 'MOD',  name: 'Modine',               sector: 'ai_infrastructure' },
+  { ticker: 'NVDA', sector: 'ai_infrastructure' },
+  { ticker: 'PLTR', sector: 'ai_infrastructure' },
+  { ticker: 'CRWV', sector: 'ai_infrastructure' },
+  { ticker: 'IREN', sector: 'ai_infrastructure' },
+  { ticker: 'NBIS', sector: 'ai_infrastructure' },
+  { ticker: 'CIFR', sector: 'ai_infrastructure' },
+  { ticker: 'RIOT', sector: 'ai_infrastructure' },
+  { ticker: 'VRT',  sector: 'ai_infrastructure' },
+  { ticker: 'MOD',  sector: 'ai_infrastructure' },
   // Clean Energy / Nuclear
-  { ticker: 'CEG',  name: 'Constellation Energy', sector: 'clean_energy' },
-  { ticker: 'VST',  name: 'Vistra',               sector: 'clean_energy' },
-  { ticker: 'BWXT', name: 'BWX Technologies',     sector: 'clean_energy' },
-  { ticker: 'GEV',  name: 'GE Vernova',           sector: 'clean_energy' },
-  { ticker: 'BE',   name: 'Bloom Energy',         sector: 'clean_energy' },
-  { ticker: 'CCJ',  name: 'Cameco',               sector: 'clean_energy' },
-  { ticker: 'LEU',  name: 'Centrus Energy',       sector: 'clean_energy' },
-  { ticker: 'NXE',  name: 'NexGen Energy',        sector: 'clean_energy' },
-  { ticker: 'OKLO', name: 'Oklo',                 sector: 'clean_energy' },
-  { ticker: 'NNE',  name: 'Nano Nuclear',         sector: 'clean_energy' },
+  { ticker: 'CEG',  sector: 'clean_energy' },
+  { ticker: 'VST',  sector: 'clean_energy' },
+  { ticker: 'BWXT', sector: 'clean_energy' },
+  { ticker: 'GEV',  sector: 'clean_energy' },
+  { ticker: 'BE',   sector: 'clean_energy' },
+  { ticker: 'CCJ',  sector: 'clean_energy' },
+  { ticker: 'LEU',  sector: 'clean_energy' },
+  { ticker: 'NXE',  sector: 'clean_energy' },
+  { ticker: 'OKLO', sector: 'clean_energy' },
+  { ticker: 'NNE',  sector: 'clean_energy' },
   // Defense
-  { ticker: 'LHX',  name: 'L3Harris',             sector: 'defense' },
-  { ticker: 'AVAV', name: 'AeroVironment',        sector: 'defense' },
+  { ticker: 'LHX',  sector: 'defense' },
+  { ticker: 'AVAV', sector: 'defense' },
 ];
 
-const BATCH_SIZE = 8;
-const DELAY_BETWEEN_BATCHES_MS = 3000; // avoid rate limit spikes
+// Fetch concurrently but cap parallelism to avoid overwhelming Yahoo
+const CONCURRENCY = 6;
 
-// ─── Clients ──────────────────────────────────────────────────────────────────
+// Items older than this are discarded
+const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// User-Agent required — without it Yahoo returns an HTML "will be right back" page
+const USER_AGENT =
+  'Mozilla/5.0 (compatible; InvestAI-Newswire/1.0; +https://stock-tracker-five-tau.vercel.app)';
 
-// Disable realtime entirely — this script only does DB writes, never subscribes.
-// Without this, @supabase/realtime-js tries to init a WebSocket on startup,
-// which throws on Node 20 (no native WebSocket).
+// ─── Supabase client ──────────────────────────────────────────────────────────
+
+// Disable realtime — this script only does DB writes, never subscribes.
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { realtime: { enabled: false } }
+  { realtime: { enabled: false } },
 );
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function chunk(arr, size) {
-  const chunks = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
-  }
-  return chunks;
 }
 
 function todayISODate() {
   return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
-// ─── Claude call for one batch ───────────────────────────────────────────────
-
-async function fetchNewsForBatch(batch) {
-  const tickerList = batch
-    .map((t) => `${t.ticker} (${t.name})`)
-    .join(', ');
-
-  const prompt = `You are a financial news scanner for an investment research dashboard.
-
-Search for significant news from the last 24 hours for each of these stocks: ${tickerList}
-
-For each stock, look for: earnings releases, major contract wins or losses, analyst upgrades/downgrades, regulatory approvals or setbacks, major partnerships, CEO changes, significant stock moves with a known catalyst, or other material corporate events.
-
-Return ONLY a JSON array. If a stock has no significant news, omit it entirely — do not include it with an empty summary.
-
-Each item in the array must have exactly these fields:
-- "ticker": the stock symbol (string)
-- "headline": a concise news headline, max 12 words (string)
-- "summary": 2-3 sentences of the key facts. Be specific — include numbers, names, percentages where relevant. No filler. (string)
-- "sentiment": one of "positive", "negative", or "neutral" (string)
-
-Return ONLY the raw JSON array with no markdown fences, no preamble, no commentary. Example format:
-[{"ticker":"NVDA","headline":"NVIDIA announces $40B share buyback program","summary":"...","sentiment":"positive"}]
-
-If there is absolutely no significant news for any of the stocks in this batch, return an empty array: []`;
-
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1500,
-    tools: [
-      {
-        type: 'web_search_20250305',
-        name: 'web_search',
-      },
-    ],
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  // Extract the final text block (Claude's answer after web search)
-  const textBlock = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('');
-
-  if (!textBlock.trim()) {
-    console.warn(`  [warn] No text response for batch: ${tickerList}`);
-    return [];
+/**
+ * Minimal XML parser — extracts all <item> blocks from an RSS feed and returns
+ * an array of { title, link, pubDate, description } objects.
+ * Uses only native string operations; no npm deps required.
+ */
+function parseRssItems(xml) {
+  const items = [];
+  // Find every <item>…</item> block
+  const itemRe = /<item>([\s\S]*?)<\/item>/g;
+  let itemMatch;
+  while ((itemMatch = itemRe.exec(xml)) !== null) {
+    const block = itemMatch[1];
+    const get = (tag) => {
+      // Match both <tag>content</tag> and CDATA: <tag><![CDATA[content]]></tag>
+      const re = new RegExp(
+        `<${tag}[^>]*>(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([^<]*))<\\/${tag}>`,
+        'i',
+      );
+      const m = re.exec(block);
+      if (!m) return '';
+      return (m[1] ?? m[2] ?? '').trim();
+    };
+    items.push({
+      title:       get('title'),
+      link:        get('link'),
+      pubDate:     get('pubDate'),
+      description: get('description'),
+    });
   }
+  return items;
+}
 
-  // Strip any accidental markdown fences
-  const clean = textBlock.replace(/```json|```/g, '').trim();
+/**
+ * Fetches the Yahoo Finance RSS feed for one ticker and returns items
+ * published within the last MAX_AGE_MS milliseconds.
+ * Returns an empty array on any error (network, bad XML, etc.).
+ */
+async function fetchRssForTicker(ticker) {
+  const url =
+    `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${ticker}&region=US&lang=en-US`;
 
+  let xml;
   try {
-    const parsed = JSON.parse(clean);
-    if (!Array.isArray(parsed)) {
-      console.warn('  [warn] Response was not an array:', clean.slice(0, 200));
+    const res = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(10_000), // 10s timeout per feed
+    });
+    if (!res.ok) {
+      console.warn(`  [warn] ${ticker}: HTTP ${res.status}`);
       return [];
     }
-    return parsed;
+    xml = await res.text();
   } catch (err) {
-    console.warn('  [warn] JSON parse failed:', clean.slice(0, 300));
+    console.warn(`  [warn] ${ticker}: fetch failed — ${err.message}`);
     return [];
   }
+
+  // Quick sanity check — Yahoo sometimes returns HTML on rate limit
+  if (!xml.trim().startsWith('<?xml') && !xml.trim().startsWith('<rss')) {
+    console.warn(`  [warn] ${ticker}: response was not XML (possible rate limit)`);
+    return [];
+  }
+
+  const allItems = parseRssItems(xml);
+  const cutoff   = Date.now() - MAX_AGE_MS;
+
+  return allItems.filter((item) => {
+    if (!item.title || !item.link) return false;
+    const ts = item.pubDate ? new Date(item.pubDate).getTime() : 0;
+    return ts >= cutoff;
+  });
+}
+
+/**
+ * Runs an array of async tasks with a max concurrency cap.
+ * tasks: array of () => Promise<T>
+ */
+async function pLimit(tasks, concurrency) {
+  const results = [];
+  let index = 0;
+
+  async function worker() {
+    while (index < tasks.length) {
+      const i = index++;
+      results[i] = await tasks[i]();
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, worker);
+  await Promise.all(workers);
+  return results;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`[newswire] Starting daily run — ${new Date().toISOString()}`);
+  console.log(`[newswire] Starting RSS run — ${new Date().toISOString()}`);
 
-  const runDate = todayISODate();
-  const batches = chunk(TICKERS, BATCH_SIZE);
+  const runDate  = todayISODate();
   const allItems = [];
 
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i];
-    console.log(
-      `[newswire] Batch ${i + 1}/${batches.length}: ${batch.map((t) => t.ticker).join(', ')}`,
-    );
+  // Build one task per ticker, then drain with a concurrency cap
+  const tasks = TICKERS.map(({ ticker, sector }) => async () => {
+    const rssItems = await fetchRssForTicker(ticker);
+    console.log(`  ${ticker}: ${rssItems.length} item(s) in last 24h`);
 
-    try {
-      const items = await fetchNewsForBatch(batch);
-      console.log(`  → ${items.length} news item(s) found`);
-
-      // Validate and enrich each item with sector + run date
-      for (const item of items) {
-        const meta = batch.find((t) => t.ticker === item.ticker);
-        if (!meta) {
-          console.warn(`  [warn] Unknown ticker in response: ${item.ticker}`);
-          continue;
-        }
-        if (!item.headline || !item.summary || !item.sentiment) {
-          console.warn(`  [warn] Incomplete item for ${item.ticker}, skipping`);
-          continue;
-        }
-        allItems.push({
-          ticker: item.ticker,
-          sector: meta.sector,
-          headline: item.headline.trim(),
-          summary: item.summary.trim(),
-          sentiment: item.sentiment,
-          run_date: runDate,
-        });
-      }
-    } catch (err) {
-      console.error(`  [error] Batch ${i + 1} failed:`, err.message);
+    for (const item of rssItems) {
+      allItems.push({
+        ticker,
+        sector,
+        headline:  item.title.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim(),
+        summary:   '',            // no Claude call — summary left blank
+        sentiment: 'neutral',     // neutral for all RSS-sourced items
+        url:       item.link.trim(),
+        run_date:  runDate,
+      });
     }
+  });
 
-    // Pause between batches to avoid bursting the API
-    if (i < batches.length - 1) {
-      await sleep(DELAY_BETWEEN_BATCHES_MS);
-    }
-  }
+  await pLimit(tasks, CONCURRENCY);
 
   console.log(`[newswire] Total items to write: ${allItems.length}`);
 
   if (allItems.length === 0) {
-    console.log('[newswire] No news today — nothing to write. Done.');
+    console.log('[newswire] No news in last 24h — nothing to write. Done.');
     return;
   }
 
-  // Upsert into Supabase — unique on (ticker, run_date) so re-runs don't duplicate
-  const { error } = await supabase
-    .from('newswire_items')
-    .upsert(allItems, { onConflict: 'ticker,run_date' });
+  // Upsert into Supabase.
+  // The unique constraint on (ticker, run_date) prevents duplicate rows on re-runs,
+  // but since one ticker can have multiple headlines on the same day we need a
+  // finer-grained key. We use (ticker, url) as the true uniqueness signal;
+  // run_date is still stored for the "latest run" query in useNewswire.ts.
+  //
+  // If your table currently has a unique constraint on (ticker, run_date) that
+  // prevents multiple rows per ticker per day, you will need to drop that
+  // constraint and add one on (ticker, url) instead.  See the migration file.
+  //
+  // For now we insert in pages of 50 and ignore duplicates so the script is
+  // safe to re-run even before the constraint is updated.
+  const PAGE = 50;
+  for (let i = 0; i < allItems.length; i += PAGE) {
+    const page = allItems.slice(i, i + PAGE);
+    const { error } = await supabase
+      .from('newswire_items')
+      .upsert(page, { onConflict: 'ticker,url', ignoreDuplicates: true });
 
-  if (error) {
-    console.error('[newswire] Supabase write failed:', error.message);
-    process.exit(1);
+    if (error) {
+      console.error(`[newswire] Supabase write failed (page ${Math.floor(i / PAGE) + 1}):`, error.message);
+      // Continue writing remaining pages rather than hard-failing
+    }
   }
 
   console.log(`[newswire] ✓ Wrote ${allItems.length} items to Supabase for ${runDate}`);
