@@ -1013,7 +1013,7 @@ export default function PortfolioTab({
   const simIsHeld = simExistingPos != null;
   const simIsTrim = !cashMode && simIsHeld && simAlloc < simCurrentPct;
   const simIsExit = !cashMode && simIsHeld && simAlloc === 0;
-  const simIsAdd = cashMode || !simIsHeld || simAlloc > simCurrentPct;
+  // simIsAdd derived but not used directly in render — trim/cash modes cover all cases
 
   const underweightSectors = SECTOR_ORDER.filter(s => {
     const target = sectorTargets[s];
