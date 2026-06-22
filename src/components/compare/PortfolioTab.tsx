@@ -52,10 +52,11 @@ export interface PortfolioTabSyncProps {
   syncedPositions:     PortfolioPosition[] | null;  // null = not yet loaded / not authenticated
   syncedAccountType:   AccountType | null;
   syncedSectorTargets: SectorTargets | null;
+  syncedCashAmount:    number | null;               // NEW: persisted cash balance
   syncLoading:         boolean;
   isAuthenticated:     boolean;
   onSavePositions:     (positions: PortfolioPosition[]) => Promise<void>;
-  onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets) => Promise<void>;
+  onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number) => Promise<void>;
 }
 
 // ─── Account types ────────────────────────────────────────────────────────────
@@ -323,6 +324,7 @@ export default function PortfolioTab({
   syncedPositions     = null,
   syncedAccountType   = null,
   syncedSectorTargets = null,
+  syncedCashAmount    = null,
   syncLoading         = false,
   isAuthenticated     = false,
   onSavePositions     = async () => {},
@@ -385,6 +387,13 @@ export default function PortfolioTab({
 
   const simFetchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ─── Cash state ───────────────────────────────────────────────────────────
+  const [cashAmount, setCashAmount]     = useState<number>(0);
+  const [cashMode, setCashMode]         = useState<boolean>(false);   // $ mode vs % slider mode
+  const [cashResult, setCashResult]     = useState<string | null>(null);
+  const [cashLoading, setCashLoading]   = useState(false);
+  const [cashError, setCashError]       = useState('');
+
   // ─── Seed state from Supabase when sync data arrives (authenticated users) ──
   useEffect(() => {
     if (!isAuthenticated || syncSeeded.current) return;
@@ -403,6 +412,9 @@ export default function PortfolioTab({
     if (syncedSectorTargets && Object.keys(syncedSectorTargets).length > 0) {
       setSectorTargets(syncedSectorTargets);
     }
+    if (syncedCashAmount != null && syncedCashAmount > 0) {
+      setCashAmount(syncedCashAmount);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, syncedPositions, syncedAccountType, syncedSectorTargets]);
 
@@ -420,17 +432,17 @@ export default function PortfolioTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions]);
 
-  // ─── Persist preferences (account type + sector targets) ─────────────────
+  // ─── Persist preferences (account type + sector targets + cash) ─────────
   useEffect(() => {
     if (!syncSeeded.current && isAuthenticated) return;
     if (isAuthenticated) {
-      onSavePreferences(accountType, sectorTargets);
+      onSavePreferences(accountType, sectorTargets, cashAmount);
     } else {
       if (positions.length === 0 && Object.keys(sectorTargets).length === 0) return;
       saveSession({ positions, liveData, sectorTargets, accountType, savedAt: Date.now() });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountType, sectorTargets]);
+  }, [accountType, sectorTargets, cashAmount]);
 
   // ─── Price fetching ───────────────────────────────────────────────────────
 
@@ -471,8 +483,11 @@ export default function PortfolioTab({
       }
       return { ...p, sector, subSector, inUniverse: isInUniverse(p.ticker), livePrice, currentValue, unrealizedGainPct, portfolioWeightPct: 0, liveLoading: live?.loading ?? false, liveError: live?.error ?? false };
     });
-    const totalValue = raw.reduce((s, p) => s + (p.currentValue ?? 0), 0);
-    return raw.map(p => ({ ...p, portfolioWeightPct: totalValue > 0 && p.currentValue != null ? (p.currentValue / totalValue) * 100 : 0 }));
+    const positionsValue = raw.reduce((s, p) => s + (p.currentValue ?? 0), 0);
+    // When cash is set, weights are diluted across the expanded total (positions + cash)
+    const expandedTotal = positionsValue + (cashAmount > 0 ? cashAmount : 0);
+    const denominator = expandedTotal > 0 ? expandedTotal : positionsValue;
+    return raw.map(p => ({ ...p, portfolioWeightPct: denominator > 0 && p.currentValue != null ? (p.currentValue / denominator) * 100 : 0 }));
   }
 
   function getSectorActuals(computed: ComputedPosition[]): SectorActuals {
@@ -527,6 +542,8 @@ export default function PortfolioTab({
   async function runMacroRisk(computed: ComputedPosition[], sectorActuals: SectorActuals, subSectorActuals: SubSectorActuals) {
     setMacroLoading(true); setMacroError('');
     try {
+      const expandedTotal = totalValue + (cashAmount > 0 ? cashAmount : 0);
+      const cashCtx = cashAmount > 0 ? buildCashContext(cashAmount, totalValue) : undefined;
       const res = await fetch('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -534,7 +551,8 @@ export default function PortfolioTab({
           type: 'macro_risk',
           positions: computed.map(p => ({
             ticker: p.ticker, sector: p.sector, subSector: p.subSector ?? undefined,
-            weightPct: parseFloat(p.portfolioWeightPct.toFixed(1)),
+            // Send weights as % of expanded total (including cash) so everything adds to <100% when cash is present
+            weightPct: parseFloat((expandedTotal > 0 && p.currentValue != null ? (p.currentValue / expandedTotal * 100) : p.portfolioWeightPct).toFixed(1)),
             gainPct: parseFloat((p.unrealizedGainPct ?? 0).toFixed(1)),
             inUniverse: p.inUniverse,
           })),
@@ -543,6 +561,7 @@ export default function PortfolioTab({
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? sectorActuals : undefined,
           subSectorActuals: Object.keys(subSectorActuals).length > 0 ? subSectorActuals : undefined,
+          cashContext: cashCtx,
         }),
       });
       if (!res.ok) { const err = await res.json(); throw new Error(err.error ?? 'API error'); }
@@ -616,12 +635,14 @@ export default function PortfolioTab({
     setMemoResult(null);
     if (simFetchRef.current) clearTimeout(simFetchRef.current);
     if (!ticker) { setSimAlloc(0); return; }
-    // Snap slider to current weight if ticker is already held
-    const existingPos = computed.find(p => p.ticker === ticker);
-    if (existingPos) {
-      setSimAlloc(Math.round(existingPos.portfolioWeightPct));
-    } else {
-      setSimAlloc(8);
+    if (!cashMode) {
+      // % mode: snap slider to current weight if ticker is already held
+      const existingPos = computed.find(p => p.ticker === ticker);
+      if (existingPos) {
+        setSimAlloc(Math.round(existingPos.portfolioWeightPct));
+      } else {
+        setSimAlloc(8);
+      }
     }
     simFetchRef.current = setTimeout(async () => {
       setSimLive({ price: null, loading: true, error: false });
@@ -639,18 +660,27 @@ export default function PortfolioTab({
 
     const existingPos = computed.find(p => p.ticker === simTicker);
     const currentPct = existingPos ? existingPos.portfolioWeightPct : 0;
-    const newTargetPct = simAlloc;
+    const newTargetPct = cashMode
+      ? (cashAmount > 0 && totalValue > 0
+          ? (cashAmount / (totalValue + cashAmount)) * 100   // effective weight of cash injection
+          : 0)
+      : simAlloc;
 
     const newActuals: SectorActuals = {};
 
-    if (existingPos) {
-      // Adjusting an existing position: remove current weight, rescale remainder, add at new target
+    if (cashMode && !existingPos) {
+      // Cash-funded new position: all existing weights dilute, new sector grows
+      if (newTargetPct === 0) return null;
+      const scaleFactor = (100 - newTargetPct) / 100;
+      for (const sector of SECTOR_ORDER) newActuals[sector] = (sectorActuals[sector] ?? 0) * scaleFactor;
+      newActuals[simSector] = (newActuals[simSector] ?? 0) + newTargetPct;
+    } else if (existingPos) {
+      // Adjusting an existing position (trim or add): remove current weight, rescale remainder, add at new target
       const remainingBase = 100 - currentPct;
       const scaleFactor = remainingBase > 0 ? (100 - newTargetPct) / remainingBase : 0;
       for (const sector of SECTOR_ORDER) {
         const existing = sectorActuals[sector] ?? 0;
         if (sector === simSector) {
-          // Remove the position's contribution from its sector, rescale, then add new target
           const sectorWithoutPos = existing - currentPct;
           newActuals[sector] = sectorWithoutPos * scaleFactor + newTargetPct;
         } else {
@@ -658,7 +688,7 @@ export default function PortfolioTab({
         }
       }
     } else {
-      // New position: scale everything down and inject at target
+      // % mode, new position: scale everything down and inject at target
       if (newTargetPct === 0) return null;
       const scaleFactor = (100 - newTargetPct) / 100;
       for (const sector of SECTOR_ORDER) newActuals[sector] = (sectorActuals[sector] ?? 0) * scaleFactor;
@@ -696,7 +726,16 @@ export default function PortfolioTab({
       const candidateSubSector = _trimBase.subSector;
       const existingPos = computed.find(p => p.ticker === simTicker);
       const currentWeightPct = existingPos ? parseFloat(existingPos.portfolioWeightPct.toFixed(1)) : undefined;
-      const isTrimMode = existingPos != null && simAlloc < existingPos.portfolioWeightPct;
+      const isTrimMode = existingPos != null && simAlloc < existingPos.portfolioWeightPct && !cashMode;
+      const isCashFunded = cashMode && !existingPos;
+
+      // Effective target weight: in cash mode, computed from cash share of expanded portfolio
+      const effectiveTargetPct = cashMode && cashAmount > 0 && totalValue > 0
+        ? parseFloat(((cashAmount / (totalValue + cashAmount)) * 100).toFixed(1))
+        : simAlloc;
+
+      const cashCtx = isCashFunded ? buildCashContext(cashAmount, totalValue, [simTicker]) : undefined;
+
       const res = await fetch('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -711,15 +750,17 @@ export default function PortfolioTab({
           candidate: {
             ticker: simTicker, sector: candidateSector,
             subSector: candidateSubSector ?? undefined,
-            targetWeightPct: simAlloc,
+            targetWeightPct: effectiveTargetPct,
             currentWeightPct,
             isTrimMode,
+            isCashFunded,
             inUniverse: isInUniverse(simTicker),
           },
           accountType,
           accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? sectorActuals : undefined,
+          cashContext: cashCtx,
         }),
       });
       if (!res.ok) { const err = await res.json(); throw new Error(err.error ?? 'API error'); }
@@ -766,7 +807,15 @@ export default function PortfolioTab({
       const candidateSubSector = _trimBase.subSector;
       const existingPos = computed.find(p => p.ticker === simTicker);
       const currentWeightPct = existingPos ? parseFloat(existingPos.portfolioWeightPct.toFixed(1)) : undefined;
-      const isTrimMode = existingPos != null && simAlloc < existingPos.portfolioWeightPct;
+      const isTrimMode = existingPos != null && simAlloc < existingPos.portfolioWeightPct && !cashMode;
+      const isCashFunded = cashMode && !existingPos;
+
+      const effectiveTargetPct = cashMode && cashAmount > 0 && totalValue > 0
+        ? parseFloat(((cashAmount / (totalValue + cashAmount)) * 100).toFixed(1))
+        : simAlloc;
+
+      const cashCtx = isCashFunded ? buildCashContext(cashAmount, totalValue, [simTicker]) : undefined;
+
       const res = await fetch('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -785,9 +834,10 @@ export default function PortfolioTab({
             ticker: simTicker,
             sector: candidateSector,
             subSector: candidateSubSector ?? undefined,
-            targetWeightPct: simAlloc,
+            targetWeightPct: effectiveTargetPct,
             currentWeightPct,
             isTrimMode,
+            isCashFunded,
             inUniverse: isInUniverse(simTicker),
             keyMetrics: getKeyMetrics(simTicker),
           },
@@ -795,6 +845,7 @@ export default function PortfolioTab({
           accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? sectorActuals : undefined,
+          cashContext: cashCtx,
         }),
       });
       if (!res.ok) { const err = await res.json(); throw new Error(err.error ?? 'API error'); }
@@ -815,6 +866,69 @@ export default function PortfolioTab({
     } catch (e: unknown) {
       setMemoError(e instanceof Error ? e.message : 'Unknown error');
     } finally { setMemoLoading(false); }
+  }
+
+  // ─── Cash context builder ─────────────────────────────────────────────────
+  // Computes cashWeightPct and share-count estimates for up to 3 tickers.
+  // Called client-side so no dollar amounts are ever sent to the API.
+
+  function buildCashContext(
+    cashDollars: number,
+    totalPositionValue: number,
+    tickers?: string[],
+  ) {
+    if (cashDollars <= 0) return undefined;
+    const expandedTotal = totalPositionValue + cashDollars;
+    const cashWeightPct = expandedTotal > 0 ? (cashDollars / expandedTotal) * 100 : 0;
+
+    const shareExamples = (tickers ?? [])
+      .filter(t => {
+        const price = simTicker === t ? simLive.price : (liveData[positions.find(p => p.ticker === t)?.id ?? '']?.price ?? null);
+        return price != null && price > 0;
+      })
+      .slice(0, 4)
+      .map(t => {
+        const price = simTicker === t ? simLive.price! : liveData[positions.find(p => p.ticker === t)!.id]!.price!;
+        const shares = Math.floor(cashDollars / price);
+        const leftover = parseFloat((cashDollars - shares * price).toFixed(2));
+        return { ticker: t, shares, leftover };
+      });
+
+    return { cashWeightPct, shareExamples };
+  }
+
+  // ─── Cash deploy memo ─────────────────────────────────────────────────────
+
+  async function runCashDeploy(computed: ComputedPosition[], sectorActuals: SectorActuals) {
+    if (cashAmount <= 0) { setCashError('Enter a cash amount first.'); return; }
+    setCashLoading(true); setCashError('');
+    const expandedTotal = totalValue + cashAmount;
+    const cashCtx = buildCashContext(cashAmount, totalValue);
+    try {
+      const res = await fetch('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'cash_deploy',
+          positions: computed.map(p => ({
+            ticker: p.ticker, sector: p.sector, subSector: p.subSector ?? undefined,
+            weightPct: parseFloat(((p.currentValue ?? 0) / expandedTotal * 100).toFixed(1)),
+            gainPct: parseFloat((p.unrealizedGainPct ?? 0).toFixed(1)),
+            inUniverse: p.inUniverse,
+          })),
+          accountType,
+          accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
+          sectorTargets: hasTargets ? sectorTargets : undefined,
+          sectorActuals: hasTargets ? sectorActuals : undefined,
+          cashContext: cashCtx,
+        }),
+      });
+      if (!res.ok) { const err = await res.json(); throw new Error(err.error ?? 'API error'); }
+      const { result } = await res.json();
+      setCashResult(result);
+    } catch (e: unknown) {
+      setCashError(e instanceof Error ? e.message : 'Unknown error');
+    } finally { setCashLoading(false); }
   }
 
   // ─── Sector Explore ───────────────────────────────────────────────────────
@@ -867,7 +981,18 @@ export default function PortfolioTab({
   const sectorActuals = getSectorActuals(computed);
   const subSectorActuals = getSubSectorActuals(computed);
   const simImpact = getSimSectorImpact(sectorActuals);
+  // totalValue = positions market value only (not including cash)
   const totalValue = computed.reduce((s, p) => s + (p.currentValue ?? 0), 0);
+  const effectiveTotalValue = totalValue + (cashAmount > 0 ? cashAmount : 0);
+  // cashWeightPct = cash as % of the expanded portfolio
+  const cashWeightPct = effectiveTotalValue > 0 && cashAmount > 0
+    ? (cashAmount / effectiveTotalValue) * 100 : 0;
+  // Share count estimate for sim ticker in cash mode
+  const cashSimShares = cashMode && simLive.price != null && simLive.price > 0 && cashAmount > 0
+    ? Math.floor(cashAmount / simLive.price) : null;
+  const cashSimLeftover = cashSimShares != null && simLive.price != null
+    ? parseFloat((cashAmount - cashSimShares * simLive.price).toFixed(2)) : null;
+
   const hasPrices = computed.some(p => p.livePrice != null);
   const activeSectors = SECTOR_ORDER.filter(s => (sectorActuals[s] ?? 0) > 0.05);
   const maxActual = Math.max(...activeSectors.map(s => sectorActuals[s] ?? 0), 1);
@@ -882,13 +1007,13 @@ export default function PortfolioTab({
     : null;
   const acctCfg = ACCOUNT_TYPES[accountType];
 
-  // Sim mode detection — auto-detected from slider vs current weight
+  // Sim mode detection — auto-detected from slider vs current weight (% mode only)
   const simExistingPos = simTicker ? computed.find(p => p.ticker === simTicker) : null;
   const simCurrentPct = simExistingPos ? simExistingPos.portfolioWeightPct : 0;
   const simIsHeld = simExistingPos != null;
-  const simIsTrim = simIsHeld && simAlloc < simCurrentPct;
-  const simIsExit = simIsHeld && simAlloc === 0;
-  const simIsAdd = !simIsHeld || simAlloc > simCurrentPct;
+  const simIsTrim = !cashMode && simIsHeld && simAlloc < simCurrentPct;
+  const simIsExit = !cashMode && simIsHeld && simAlloc === 0;
+  const simIsAdd = cashMode || !simIsHeld || simAlloc > simCurrentPct;
 
   const underweightSectors = SECTOR_ORDER.filter(s => {
     const target = sectorTargets[s];
@@ -1010,12 +1135,50 @@ export default function PortfolioTab({
                 </span>
               )}
             </div>
-            <span style={{ fontSize: 11, color: '#8b93a8', fontFamily: 'Space Mono, monospace' }}>
-              {positions.length} position{positions.length !== 1 ? 's' : ''}
-              {hasPrices && totalValue > 0 && (
-                <> · ${totalValue >= 1_000_000 ? `${(totalValue / 1_000_000).toFixed(2)}M` : totalValue >= 1_000 ? `${(totalValue / 1_000).toFixed(1)}K` : totalValue.toFixed(0)} total</>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {cashAmount > 0 && hasPrices && (
+                <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#00e676' }}>
+                  + ${cashAmount >= 1_000_000 ? `${(cashAmount / 1_000_000).toFixed(2)}M` : cashAmount >= 1_000 ? `${(cashAmount / 1_000).toFixed(1)}K` : cashAmount.toFixed(0)} cash
+                </span>
               )}
-            </span>
+              <span style={{ fontSize: 11, color: '#8b93a8', fontFamily: 'Space Mono, monospace' }}>
+                {positions.length} position{positions.length !== 1 ? 's' : ''}
+                {hasPrices && effectiveTotalValue > 0 && (
+                  <> · ${effectiveTotalValue >= 1_000_000 ? `${(effectiveTotalValue / 1_000_000).toFixed(2)}M` : effectiveTotalValue >= 1_000 ? `${(effectiveTotalValue / 1_000).toFixed(1)}K` : effectiveTotalValue.toFixed(0)} total</>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* Cash balance row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', background: cashAmount > 0 ? '#00e67608' : '#0f1117', border: `1px solid ${cashAmount > 0 ? '#00e67633' : '#1e2230'}`, borderRadius: 8, transition: 'all 0.2s' }}>
+            <span style={{ fontSize: 11, color: '#8b93a8', whiteSpace: 'nowrap', letterSpacing: '0.03em' }}>Cash available</span>
+            <span style={{ fontSize: 13, color: '#8b93a8' }}>$</span>
+            <input
+              type="number"
+              min={0}
+              step={100}
+              value={cashAmount || ''}
+              onChange={e => {
+                const v = parseFloat(e.target.value);
+                setCashAmount(isNaN(v) || v < 0 ? 0 : v);
+                setCashResult(null);
+              }}
+              placeholder="0"
+              style={{ ...inputStyle, width: 120, fontFamily: 'Space Mono, monospace', fontSize: 13, color: cashAmount > 0 ? '#00e676' : '#e2e6f0' }}
+            />
+            {cashAmount > 0 && hasPrices && totalValue > 0 && (
+              <span style={{ fontSize: 10, color: '#00e676', fontFamily: 'Space Mono, monospace', marginLeft: 4 }}>
+                ≈ {cashWeightPct.toFixed(1)}% of portfolio
+              </span>
+            )}
+            {cashAmount > 0 && (
+              <button
+                onClick={() => { setCashAmount(0); setCashResult(null); setCashMode(false); }}
+                style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 13, lineHeight: 1, padding: '2px 4px' }}
+                title="Clear cash"
+              >×</button>
+            )}
           </div>
 
           {/* Positions table */}
@@ -1184,7 +1347,7 @@ export default function PortfolioTab({
             <>
               {!macroRisk && !macroLoading && (
                 <button onClick={() => runMacroRisk(computed, sectorActuals, subSectorActuals)} style={{ background: 'none', border: '1px solid #1e2230', borderRadius: 8, color: '#e2e6f0', fontSize: 12, padding: '8px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  ✦ Run macro risk analysis
+                  ✦ Run macro risk analysis{cashAmount > 0 ? ' · includes cash' : ''}
                 </button>
               )}
               {macroLoading && <div style={{ fontSize: 12, color: '#8b93a8', padding: '12px 0' }}>Analyzing portfolio…</div>}
@@ -1194,6 +1357,7 @@ export default function PortfolioTab({
                   <div style={{ borderLeft: '3px solid #ff4b6e', padding: '16px 18px', background: '#ff4b6e0d', marginBottom: 8, borderRadius: '0 8px 8px 0' }}>
                     <div style={{ fontSize: 10, fontWeight: 500, color: '#ff4b6e', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
                       Macro Risk
+                      {cashAmount > 0 && <span style={{ color: '#00e676', border: '1px solid #00e67633', borderRadius: 4, padding: '1px 6px', fontSize: 9, fontFamily: 'Space Mono, monospace' }}>+ CASH</span>}
                       {accountType !== 'unspecified' && (
                         <span style={{ color: acctCfg.color, background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}44`, borderRadius: 4, padding: '1px 6px', fontSize: 9, fontFamily: 'Space Mono, monospace' }}>{acctCfg.shortLabel}</span>
                       )}
@@ -1208,7 +1372,30 @@ export default function PortfolioTab({
                     >
                       <span style={{ fontSize: 12 }}>⟳</span> Run scenario analysis
                     </button>
+                    {cashAmount > 0 && (
+                      <button
+                        onClick={() => runCashDeploy(computed, sectorActuals)}
+                        disabled={cashLoading}
+                        style={{ background: 'none', border: '1px solid #00e67633', borderRadius: 6, color: '#00e676', fontSize: 11, padding: '4px 10px', cursor: cashLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                      >
+                        <span style={{ fontSize: 12 }}>$</span> {cashLoading ? 'Analyzing…' : 'Where to deploy cash?'}
+                      </button>
+                    )}
                   </div>
+                  {cashError && <div style={{ fontSize: 11, color: '#ff4b6e', marginBottom: 8 }}>{cashError}</div>}
+                  {cashResult && (
+                    <div style={{ borderLeft: '3px solid #00e676', padding: '16px 18px', background: '#00e6760d', marginBottom: 16, borderRadius: '0 8px 8px 0' }}>
+                      <div style={{ fontSize: 10, fontWeight: 500, color: '#00e676', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        Cash Deployment
+                        <span style={{ color: '#8b93a8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· {cashWeightPct.toFixed(1)}% of portfolio</span>
+                        {accountType !== 'unspecified' && (
+                          <span style={{ color: acctCfg.color, background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}44`, borderRadius: 4, padding: '1px 6px', fontSize: 9, fontFamily: 'Space Mono, monospace' }}>{acctCfg.shortLabel}</span>
+                        )}
+                      </div>
+                      <MarkdownCard>{cashResult}</MarkdownCard>
+                      <button onClick={() => runCashDeploy(computed, sectorActuals)} disabled={cashLoading} style={{ marginTop: 10, background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
+                    </div>
+                  )}
                 </>
               )}
             </>
@@ -1217,21 +1404,35 @@ export default function PortfolioTab({
 
         {/* ══════════ RIGHT COLUMN ══════════ */}
         <div>
-          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8b93a8', marginBottom: 12 }}>
-            {simIsTrim ? 'Trim simulation' : simIsAdd && simIsHeld ? 'Add simulation' : 'Add simulation'}
+          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8b93a8', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>{cashMode ? 'Cash injection' : simIsTrim ? 'Trim simulation' : 'Add simulation'}</span>
+            <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #1e2230', marginLeft: 'auto' }}>
+              <button
+                onClick={() => { setCashMode(false); setTrimResult(null); setMemoResult(null); }}
+                style={{ background: !cashMode ? '#e2e6f0' : '#0f1117', border: 'none', cursor: 'pointer', color: !cashMode ? '#08090d' : '#8b93a8', fontSize: 10, fontFamily: 'Space Mono, monospace', padding: '4px 10px', letterSpacing: '0.06em' }}
+              >% MODE</button>
+              <button
+                onClick={() => { setCashMode(true); setTrimResult(null); setMemoResult(null); }}
+                style={{ background: cashMode ? '#00e676' : '#0f1117', border: 'none', cursor: 'pointer', color: cashMode ? '#08090d' : (cashAmount > 0 ? '#00e676' : '#8b93a8'), fontSize: 10, fontFamily: 'Space Mono, monospace', padding: '4px 10px', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}
+              >$ CASH{cashAmount > 0 && !cashMode && <span style={{ opacity: 0.7 }}>·{cashWeightPct.toFixed(0)}%</span>}</button>
+            </div>
           </div>
           <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, padding: '16px' }}>
             <div style={{ fontSize: 12, color: '#8b93a8', marginBottom: 14, lineHeight: 1.5 }}>
-              {simIsTrim
-                ? simIsExit
-                  ? `Simulating full exit from ${simTicker}. Proceeds redeployment will be suggested automatically.`
-                  : `Simulating a trim — reducing ${simTicker} from ${fmt(simCurrentPct)}% to ${simAlloc}%.`
-                : 'Simulate adding a position and see its impact on your sector alignment.'}
+              {cashMode
+                ? cashAmount > 0
+                  ? `Simulating deployment of ${cashWeightPct.toFixed(1)}% cash into a new position. No existing position needs to be sold.`
+                  : 'Enter a cash amount in the left column, then pick a stock to see how deploying it changes your sector weights.'
+                : simIsTrim
+                  ? simIsExit
+                    ? `Simulating full exit from ${simTicker}. Proceeds redeployment will be suggested automatically.`
+                    : `Simulating a trim — reducing ${simTicker} from ${fmt(simCurrentPct)}% to ${simAlloc}%.`
+                  : 'Simulate adding a position and see its impact on your sector alignment.'}
             </div>
 
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, color: '#8b93a8', marginBottom: 6 }}>
-                {simIsTrim ? 'Position to trim' : 'Candidate stock'}
+                {cashMode ? 'Stock to buy with cash' : simIsTrim ? 'Position to trim' : 'Candidate stock'}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <TickerSearchInput
@@ -1254,40 +1455,64 @@ export default function PortfolioTab({
                   {simClassified.subSector && <div style={{ fontSize: 10, color: '#6b7190', paddingLeft: 11, marginTop: 2 }}>{SUBSECTOR_DISPLAY[simClassified.subSector]?.label}</div>}
                 </div>
               )}
+              {cashMode && cashAmount > 0 && simLive.price != null && cashSimShares != null && (
+                <div style={{ marginTop: 8, padding: '8px 10px', background: '#00e67610', border: '1px solid #00e67630', borderRadius: 6 }}>
+                  <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#00e676' }}>
+                    ~{cashSimShares} share{cashSimShares !== 1 ? 's' : ''}
+                  </span>
+                  {cashSimLeftover != null && cashSimLeftover > 0 && (
+                    <span style={{ fontSize: 10, color: '#8b93a8', marginLeft: 8 }}>· ${cashSimLeftover.toFixed(2)} leftover</span>
+                  )}
+                  {cashSimLeftover === 0 && (
+                    <span style={{ fontSize: 10, color: '#8b93a8', marginLeft: 8 }}>· uses cash fully</span>
+                  )}
+                  <span style={{ fontSize: 10, color: '#4a4e63', marginLeft: 8 }}>at ${simLive.price.toFixed(2)}/share</span>
+                </div>
+              )}
             </div>
 
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ fontSize: 11, color: '#8b93a8' }}>
-                  {simIsHeld
-                    ? <>Target allocation <span style={{ color: '#4a4e63' }}>(currently {fmt(simCurrentPct)}%)</span></>
-                    : 'Target allocation'}
-                </span>
-                <span style={{
-                  fontSize: 14, fontFamily: 'Space Mono, monospace', fontWeight: 500,
-                  color: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : '#e2e6f0',
-                }}>
-                  {simIsExit ? 'EXIT' : `${simAlloc}%`}
+            {!cashMode && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: '#8b93a8' }}>
+                    {simIsHeld
+                      ? <>Target allocation <span style={{ color: '#4a4e63' }}>(currently {fmt(simCurrentPct)}%)</span></>
+                      : 'Target allocation'}
+                  </span>
+                  <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', fontWeight: 500, color: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : '#e2e6f0' }}>
+                    {simIsExit ? 'EXIT' : `${simAlloc}%`}
+                  </span>
+                </div>
+                <input
+                  type="range" min={0} max={100} step={1} value={simAlloc}
+                  onChange={e => { setSimAlloc(parseInt(e.target.value)); setTrimResult(null); setMemoResult(null); }}
+                  style={{ width: '100%', accentColor: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : '#e2e6f0' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#8b93a8', marginTop: 2 }}>
+                  <span style={{ color: '#ff4b6e' }}>0% exit</span>
+                  {simIsHeld && <span style={{ color: '#4a4e63' }}>▲ {fmt(simCurrentPct)}% now</span>}
+                  <span>100%</span>
+                </div>
+              </div>
+            )}
+
+            {cashMode && cashAmount > 0 && totalValue > 0 && (
+              <div style={{ marginBottom: 16, padding: '8px 12px', background: '#161922', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#8b93a8' }}>Effective weight after injection</span>
+                <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', fontWeight: 500, color: '#00e676' }}>
+                  ≈ {cashWeightPct.toFixed(1)}%
                 </span>
               </div>
-              <input
-                type="range" min={0} max={100} step={1} value={simAlloc}
-                onChange={e => { setSimAlloc(parseInt(e.target.value)); setTrimResult(null); setMemoResult(null); }}
-                style={{ width: '100%', accentColor: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : '#e2e6f0' }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#8b93a8', marginTop: 2 }}>
-                <span style={{ color: '#ff4b6e' }}>0% exit</span>
-                {simIsHeld && <span style={{ color: '#4a4e63' }}>▲ {fmt(simCurrentPct)}% now</span>}
-                <span>100%</span>
-              </div>
-            </div>
+            )}
 
             {simImpact && simTicker && (
               <>
                 <div style={{ fontSize: 11, color: '#8b93a8', marginBottom: 8 }}>
-                  {simIsTrim
-                    ? <span>Sector impact <span style={{ color: '#ffd166' }}>trimming {simIsExit ? 'full exit' : `→ ${simAlloc}%`}</span></span>
-                    : <>Sector impact{hasTargets ? <span style={{ color: '#4a4e63', marginLeft: 6 }}>vs targets</span> : ''}</>
+                  {cashMode
+                    ? <span>Sector impact <span style={{ color: '#00e676' }}>deploying cash → {simTicker}</span></span>
+                    : simIsTrim
+                      ? <span>Sector impact <span style={{ color: '#ffd166' }}>trimming {simIsExit ? 'full exit' : `→ ${simAlloc}%`}</span></span>
+                      : <>Sector impact{hasTargets ? <span style={{ color: '#4a4e63', marginLeft: 6 }}>vs targets</span> : ''}</>
                   }
                 </div>
                 <div style={{ background: '#161922', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
@@ -1299,12 +1524,7 @@ export default function PortfolioTab({
                         <span style={{ flex: 1, color: '#e2e6f0' }}>{SECTOR_DISPLAY[row.sector].label}</span>
                         <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#8b93a8' }}>{fmt(row.before)}% → {fmt(row.after)}%</span>
                         {targetDelta != null && (
-                          <span style={{
-                            fontFamily: 'Space Mono, monospace', fontSize: 10,
-                            color: Math.abs(targetDelta) < 1 ? '#00e676' : targetDelta > 0 ? '#ff4b6e' : '#ffd166',
-                            background: Math.abs(targetDelta) < 1 ? '#00e67618' : targetDelta > 0 ? '#ff4b6e18' : '#ffd16618',
-                            borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap',
-                          }}>
+                          <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, color: Math.abs(targetDelta) < 1 ? '#00e676' : targetDelta > 0 ? '#ff4b6e' : '#ffd166', background: Math.abs(targetDelta) < 1 ? '#00e67618' : targetDelta > 0 ? '#ff4b6e18' : '#ffd16618', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
                             {Math.abs(targetDelta) < 1 ? '✓' : `${targetDelta > 0 ? '+' : ''}${targetDelta.toFixed(1)}pp`}
                           </span>
                         )}
@@ -1319,50 +1539,46 @@ export default function PortfolioTab({
             <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
               <button
                 onClick={() => runTrimMemo(computed, sectorActuals)}
-                disabled={memoLoading || trimLoading || !simTicker}
+                disabled={memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0)}
                 style={{
                   width: '100%',
-                  background: memoLoading || trimLoading || !simTicker ? '#161922'
-                    : simIsTrim ? '#ffd166' : '#a259ff',
+                  background: memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0) ? '#161922' : cashMode ? '#00e676' : simIsTrim ? '#ffd166' : '#a259ff',
                   border: 'none', borderRadius: 8,
-                  color: memoLoading || trimLoading || !simTicker ? '#8b93a8'
-                    : simIsTrim ? '#08090d' : '#fff',
+                  color: memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0) ? '#8b93a8' : cashMode ? '#08090d' : simIsTrim ? '#08090d' : '#fff',
                   fontSize: 12, fontWeight: 500, padding: '10px 0',
-                  cursor: memoLoading || trimLoading || !simTicker ? 'not-allowed' : 'pointer',
+                  cursor: memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0) ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}
               >
                 {memoLoading
                   ? 'Writing memo…'
-                  : simIsExit
-                    ? '✦ Full exit — where should proceeds go?'
-                    : simIsTrim
-                      ? '✦ Trim memo — should I reduce?'
-                      : '✦ Should I? — get memo'}
+                  : cashMode
+                    ? `✦ Deploy cash into ${simTicker || '…'} — get memo`
+                    : simIsExit
+                      ? '✦ Full exit — where should proceeds go?'
+                      : simIsTrim
+                        ? '✦ Trim memo — should I reduce?'
+                        : '✦ Should I? — get memo'}
               </button>
               <button
                 onClick={() => runTrimSuggestion(computed, sectorActuals)}
-                disabled={trimLoading || memoLoading || !simTicker}
+                disabled={trimLoading || memoLoading || !simTicker || (cashMode && cashAmount <= 0)}
                 style={{
-                  width: '100%',
-                  background: 'none',
+                  width: '100%', background: 'none',
                   border: '1px solid #1e2230', borderRadius: 8,
-                  color: trimLoading || memoLoading || !simTicker ? '#4a4e63' : '#8b93a8',
+                  color: trimLoading || memoLoading || !simTicker || (cashMode && cashAmount <= 0) ? '#4a4e63' : '#8b93a8',
                   fontSize: 12, padding: '8px 0',
-                  cursor: trimLoading || memoLoading || !simTicker ? 'not-allowed' : 'pointer',
+                  cursor: trimLoading || memoLoading || !simTicker || (cashMode && cashAmount <= 0) ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}
               >
-                {trimLoading
-                  ? 'Analyzing…'
-                  : simIsTrim
-                    ? 'Where should proceeds go?'
-                    : 'Quick trim suggestion'}
+                {trimLoading ? 'Analyzing…' : cashMode ? 'Cash deployment plan' : simIsTrim ? 'Where should proceeds go?' : 'Quick trim suggestion'}
               </button>
             </div>
             {memoError && <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 8 }}>{memoError}</div>}
             {trimError && <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 8 }}>{trimError}</div>}
           </div>
+
 
           {memoResult && (
             <div style={{ borderLeft: '3px solid #a259ff', padding: '16px 18px', background: '#a259ff0d', marginTop: 12, borderRadius: '0 8px 8px 0' }}>
@@ -1371,7 +1587,9 @@ export default function PortfolioTab({
                   ? simIsExit
                     ? `Exit memo — ${simTicker}`
                     : `Trim memo — ${simTicker} ${fmt(simCurrentPct)}% → ${simAlloc}%`
-                  : `Should I? — ${simTicker} at ${simAlloc}%`}
+                  : cashMode
+                    ? `Cash deploy — ${simTicker} (~${cashSimShares ?? '?'} shares)`
+                    : `Should I? — ${simTicker} at ${simAlloc}%`}
                 {accountType !== 'unspecified' && (
                   <span style={{ color: acctCfg.color, background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}44`, borderRadius: 4, padding: '1px 6px', fontSize: 9, fontFamily: 'Space Mono, monospace' }}>{acctCfg.shortLabel}</span>
                 )}

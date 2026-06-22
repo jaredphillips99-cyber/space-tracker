@@ -65,6 +65,7 @@ export function Portfolio() {
       syncedPositions={sync.savedPositions}
       syncedAccountType={sync.savedAccountType}
       syncedSectorTargets={sync.savedSectorTargets}
+      syncedCashAmount={sync.savedCashAmount}
       syncLoading={sync.loading && authStatus === 'authenticated'}
       isAuthenticated={sync.isAuthenticated}
       onSavePositions={sync.savePositions}

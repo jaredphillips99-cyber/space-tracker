@@ -17,6 +17,7 @@ interface PrefsRow {
   user_id: string;
   account_type: string;
   sector_targets: SectorTargets;
+  cash_amount?: number;   // NEW: persisted uninvested cash balance
 }
 
 // ─── Hook return shape ─────────────────────────────────────────────────────────
@@ -26,10 +27,11 @@ export interface PortfolioSyncReturn {
   savedPositions:    PortfolioPosition[] | null;
   savedAccountType:  AccountType | null;
   savedSectorTargets: SectorTargets | null;
+  savedCashAmount:   number | null;    // NEW
   loading:           boolean;
   // Write helpers — called by PortfolioTab after every mutation
   savePositions:     (positions: PortfolioPosition[]) => Promise<void>;
-  savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets) => Promise<void>;
+  savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number) => Promise<void>;
   // Whether we have an authenticated user (and therefore can persist)
   isAuthenticated:   boolean;
 }
@@ -40,6 +42,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   const [savedPositions,     setSavedPositions]     = useState<PortfolioPosition[] | null>(null);
   const [savedAccountType,   setSavedAccountType]   = useState<AccountType | null>(null);
   const [savedSectorTargets, setSavedSectorTargets] = useState<SectorTargets | null>(null);
+  const [savedCashAmount,    setSavedCashAmount]    = useState<number | null>(null);   // NEW
   const [loading,            setLoading]            = useState(true);
   const [userId,             setUserId]             = useState<string | null>(null);
 
@@ -107,6 +110,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
           const row = prefRow as PrefsRow;
           setSavedAccountType(row.account_type as AccountType);
           setSavedSectorTargets(row.sector_targets ?? {});
+          setSavedCashAmount(row.cash_amount ?? 0);   // NEW
         }
       } finally {
         setLoading(false);
@@ -152,11 +156,12 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   }, [userId]);
 
   // ── Write: preferences ────────────────────────────────────────────────────
-  // Upsert single row. Debounced 800ms.
+  // Upsert single row. Debounced 800ms. Now includes cashAmount.
 
   const savePreferences = useCallback(async (
     accountType:   AccountType,
     sectorTargets: SectorTargets,
+    cashAmount:    number,          // NEW
   ) => {
     if (!userId) return;
 
@@ -168,6 +173,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
           user_id:        userId,
           account_type:   accountType,
           sector_targets: sectorTargets,
+          cash_amount:    cashAmount,    // NEW
           updated_at:     new Date().toISOString(),
         }, { onConflict: 'user_id' });
 
@@ -179,6 +185,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
     savedPositions,
     savedAccountType,
     savedSectorTargets,
+    savedCashAmount,     // NEW
     loading,
     savePositions,
     savePreferences,
