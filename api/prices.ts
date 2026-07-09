@@ -27,28 +27,57 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Primary quote for price/market data
       const quote = await yahooFinance.quote(ticker);
 
-      // ── Analyst consensus data ──────────────────────────────────────────
-      // quote() does not reliably return targetMeanPrice / recommendationMean
-      // in all environments. quoteSummary with the 'financialData' module is
-      // the authoritative source — it always includes both fields when available.
+      // quoteType tells us whether this is a stock, ETF, or mutual fund —
+      // stocks-only modules (financialData/assetProfile) return empty for
+      // funds, so we branch to fundProfile instead.
+      const isFund = quote.quoteType === 'ETF' || quote.quoteType === 'MUTUALFUND';
+
+      // ── Analyst consensus data (stocks) / fund classification (funds) ────
       let analystTargetPrice: number | undefined;
       let recommendationMean: number | undefined;
+      let yahooSector: string | undefined;
+      let yahooIndustry: string | undefined;
+      let fundCategory: string | undefined;
+      let expenseRatio: number | undefined;
 
       try {
-        const summary = await yahooFinance.quoteSummary(ticker, {
-          modules: ['financialData'],
-        });
-        const fd = summary?.financialData;
-        if (fd) {
-          analystTargetPrice = (fd as any).targetMeanPrice?.raw
-            ?? (fd as any).targetMeanPrice
-            ?? undefined;
-          recommendationMean = (fd as any).recommendationMean?.raw
-            ?? (fd as any).recommendationMean
-            ?? undefined;
+        if (isFund) {
+          // fundProfile works for both ETFs and mutual funds — confirmed
+          // against ICLN, ITA, VFIAX, VTSAX, FXAIX. categoryName is a
+          // Morningstar-style label (e.g. "Large Blend", "Industrials"),
+          // not a GICS sector — mapped downstream in PortfolioTab.tsx.
+          const summary = await yahooFinance.quoteSummary(ticker, {
+            modules: ['fundProfile'],
+          });
+          const fp = summary?.fundProfile;
+          if (fp) {
+            fundCategory = (fp as any).categoryName ?? undefined;
+            expenseRatio = (fp as any).feesExpensesInvestment?.netExpRatio ?? undefined;
+          }
+        } else {
+          // quote() does not reliably return targetMeanPrice / recommendationMean
+          // in all environments. quoteSummary with the 'financialData' module is
+          // the authoritative source — it always includes both fields when available.
+          const summary = await yahooFinance.quoteSummary(ticker, {
+            modules: ['financialData', 'assetProfile'],
+          });
+          const fd = summary?.financialData;
+          if (fd) {
+            analystTargetPrice = (fd as any).targetMeanPrice?.raw
+              ?? (fd as any).targetMeanPrice
+              ?? undefined;
+            recommendationMean = (fd as any).recommendationMean?.raw
+              ?? (fd as any).recommendationMean
+              ?? undefined;
+          }
+          const ap = summary?.assetProfile;
+          if (ap) {
+            yahooSector = (ap as any).sector ?? undefined;
+            yahooIndustry = (ap as any).industry ?? undefined;
+          }
         }
       } catch {
-        // Analyst data is optional — fall back to whatever quote() has
+        // Analyst/fund data is optional — fall back to whatever quote() has
         analystTargetPrice = (quote as any).targetMeanPrice ?? undefined;
         recommendationMean = (quote as any).recommendationMean ?? undefined;
       }
@@ -75,6 +104,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       return {
         ticker,
+        quoteType: quote.quoteType, // NEW — 'EQUITY' | 'ETF' | 'MUTUALFUND' etc.
         price: quote.regularMarketPrice ?? 0,
         change: quote.regularMarketChange ?? 0,
         changePercent: quote.regularMarketChangePercent ?? 0,
@@ -84,9 +114,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         regularMarketOpen: quote.regularMarketOpen,
         fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh,
         fiftyTwoWeekLow: quote.fiftyTwoWeekLow,
-        // Analyst consensus — sourced from quoteSummary.financialData
+        // Analyst consensus — sourced from quoteSummary.financialData (stocks only)
         analystTargetPrice,
         recommendationMean,
+        // Sector/industry — sourced from quoteSummary.assetProfile (stocks only)
+        yahooSector,
+        yahooIndustry,
+        // Fund classification — sourced from quoteSummary.fundProfile (ETFs + mutual funds)
+        fundCategory,
+        expenseRatio,
         fetchError: false,
         fetchedAt,
       };

@@ -91,7 +91,7 @@ export const ACCOUNT_TYPES: Record<AccountType, AccountTypeConfig> = {
 const SECTOR_ORDER: TopLevelSector[] = [
   'information_technology', 'industrials', 'energy', 'communication_services',
   'financials', 'consumer_discretionary', 'consumer_staples', 'health_care',
-  'materials', 'real_estate', 'utilities', 'other',
+  'materials', 'real_estate', 'utilities', 'diversified', 'other',
 ];
 
 function fmt(n: number, decimals = 1) { return n.toFixed(decimals); }
@@ -193,6 +193,47 @@ const YAHOO_TO_GICS: Record<string, TopLevelSector> = {
 function yahooSectorToGics(yahooSector?: string): TopLevelSector {
   if (!yahooSector) return 'other';
   return YAHOO_TO_GICS[yahooSector] ?? 'other';
+}
+
+// ─── Fund category (Morningstar-style) → GICS mapper ─────────────────────────
+// Sparse and honest — only categories that genuinely map to ONE sector get
+// mapped. Everything else (Large Blend, Target-Date, World/Moderate
+// Allocation, Foreign Large Blend, etc.) falls through to 'diversified'
+// rather than guessing a sector a broad fund doesn't really have.
+const FUND_CATEGORY_TO_GICS: Record<string, TopLevelSector> = {
+  'Industrials':    'industrials',
+  'Real Estate':    'real_estate',
+  'Utilities':      'utilities',
+  'Equity Energy':  'energy',
+  'Technology':     'information_technology',
+  'Financial':      'financials',
+  'Health':         'health_care',
+  'Communications': 'communication_services',
+};
+
+function fundCategoryToGics(category?: string): TopLevelSector {
+  if (!category) return 'diversified';
+  return FUND_CATEGORY_TO_GICS[category] ?? 'diversified';
+}
+
+// ─── Single source of truth for ticker → sector resolution ───────────────────
+// Replaces the previously-duplicated inline "sector === 'other' && live?.yahooSector
+// ? yahooSectorToGics(...) : ..." checks scattered across this file. Order:
+// 1. Known universe/KNOWN_TICKERS classification (classifyTicker)
+// 2. If unclassified and it's a fund (ETF/mutual fund) → fund category mapper
+// 3. If unclassified and it's a stock → live Yahoo sector fallback
+// 4. Otherwise 'other'
+function resolveSector(
+  ticker: string,
+  live?: { yahooSector?: string; fundCategory?: string; quoteType?: string },
+): { sector: TopLevelSector; subSector: SubSector | null } {
+  const base = classifyTicker(ticker);
+  if (base.sector !== 'other') return base;
+
+  const isFund = live?.quoteType === 'ETF' || live?.quoteType === 'MUTUALFUND';
+  if (isFund) return { sector: fundCategoryToGics(live?.fundCategory), subSector: null };
+  if (live?.yahooSector) return { sector: yahooSectorToGics(live.yahooSector), subSector: null };
+  return base;
 }
 
 // ─── TickerSearchInput ────────────────────────────────────────────────────────
@@ -298,6 +339,8 @@ interface LiveData {
   error: boolean;
   yahooSector?: string;
   yahooIndustry?: string;
+  fundCategory?: string;
+  quoteType?: string;
 }
 
 interface ComputedPosition extends PortfolioPosition {
@@ -446,7 +489,7 @@ export default function PortfolioTab({
 
   // ─── Price fetching ───────────────────────────────────────────────────────
 
-  const fetchPrice = useCallback(async (ticker: string): Promise<{ price: number | null; yahooSector?: string; yahooIndustry?: string }> => {
+  const fetchPrice = useCallback(async (ticker: string): Promise<{ price: number | null; yahooSector?: string; yahooIndustry?: string; fundCategory?: string; quoteType?: string }> => {
     try {
       const res = await fetch(`/api/prices?tickers=${encodeURIComponent(ticker)}`);
       if (!res.ok) return { price: null };
@@ -456,6 +499,8 @@ export default function PortfolioTab({
         price: entry?.price ?? null,
         yahooSector: entry?.yahooSector,
         yahooIndustry: entry?.yahooIndustry,
+        fundCategory: entry?.fundCategory,
+        quoteType: entry?.quoteType,
       };
     } catch { return { price: null }; }
   }, []);
@@ -463,7 +508,7 @@ export default function PortfolioTab({
   async function fetchLiveForPosition(id: string, ticker: string) {
     setLiveData(prev => ({ ...prev, [id]: { price: null, loading: true, error: false } }));
     const result = await fetchPrice(ticker);
-    setLiveData(prev => ({ ...prev, [id]: { price: result.price, loading: false, error: result.price == null, yahooSector: result.yahooSector, yahooIndustry: result.yahooIndustry } }));
+    setLiveData(prev => ({ ...prev, [id]: { price: result.price, loading: false, error: result.price == null, yahooSector: result.yahooSector, yahooIndustry: result.yahooIndustry, fundCategory: result.fundCategory, quoteType: result.quoteType } }));
   }
 
   // ─── Computed positions ───────────────────────────────────────────────────
@@ -476,11 +521,9 @@ export default function PortfolioTab({
       const costTotal = p.shares * p.costBasisPerShare;
       const unrealizedGainPct = currentValue != null && costTotal > 0
         ? ((currentValue - costTotal) / costTotal) * 100 : null;
-      // For external tickers, prefer Yahoo Finance sector classification
-      let { sector, subSector } = classifyTicker(p.ticker);
-      if (sector === 'other' && live?.yahooSector) {
-        sector = yahooSectorToGics(live.yahooSector);
-      }
+      // For external tickers, prefer Yahoo Finance sector classification —
+      // resolveSector() branches to fund-category mapping for ETFs/mutual funds.
+      const { sector, subSector } = resolveSector(p.ticker, live);
       return { ...p, sector, subSector, inUniverse: isInUniverse(p.ticker), livePrice, currentValue, unrealizedGainPct, portfolioWeightPct: 0, liveLoading: live?.loading ?? false, liveError: live?.error ?? false };
     });
     const positionsValue = raw.reduce((s, p) => s + (p.currentValue ?? 0), 0);
@@ -653,17 +696,14 @@ export default function PortfolioTab({
 
   function getSimSectorImpact(sectorActuals: SectorActuals) {
     if (!simTicker) return null;
-    const _simBase = classifyTicker(simTicker);
-    const simSector: TopLevelSector = _simBase.sector === 'other' && simLive.yahooSector
-      ? yahooSectorToGics(simLive.yahooSector)
-      : _simBase.sector;
+    const { sector: simSector } = resolveSector(simTicker, simLive);
 
     const existingPos = computed.find(p => p.ticker === simTicker);
     const currentPct = existingPos ? existingPos.portfolioWeightPct : 0;
+    // In cash mode use the render-scope cashWeightPct so math is consistent;
+    // fall back to 0 if prices not yet loaded (prevents divide-by-zero crash)
     const newTargetPct = cashMode
-      ? (cashAmount > 0 && totalValue > 0
-          ? (cashAmount / (totalValue + cashAmount)) * 100   // effective weight of cash injection
-          : 0)
+      ? cashWeightPct   // already guarded: 0 when totalValue === 0 or cashAmount === 0
       : simAlloc;
 
     const newActuals: SectorActuals = {};
@@ -719,11 +759,7 @@ export default function PortfolioTab({
     if (!simTicker) { setTrimError('Enter a candidate ticker first.'); return; }
     setTrimLoading(true); setTrimError('');
     try {
-      const _trimBase = classifyTicker(simTicker);
-      const candidateSector: TopLevelSector = _trimBase.sector === 'other' && simLive.yahooSector
-        ? yahooSectorToGics(simLive.yahooSector)
-        : _trimBase.sector;
-      const candidateSubSector = _trimBase.subSector;
+      const { sector: candidateSector, subSector: candidateSubSector } = resolveSector(simTicker, simLive);
       const existingPos = computed.find(p => p.ticker === simTicker);
       const currentWeightPct = existingPos ? parseFloat(existingPos.portfolioWeightPct.toFixed(1)) : undefined;
       const isTrimMode = existingPos != null && simAlloc < existingPos.portfolioWeightPct && !cashMode;
@@ -770,10 +806,12 @@ export default function PortfolioTab({
       if (isTrimMode && simAlloc === 0 && hasTargets) {
         const freedSector = candidateSector;
         // Find the most underweight sector to explore for redeployment
+        // 'diversified' is excluded — suggesting stocks to fill a broad-fund gap
+        // is incoherent; the natural action there is "buy more of the fund."
         const bestExplore = SECTOR_ORDER.find(s => {
           const target = sectorTargets[s];
           const actual = sectorActuals[s] ?? 0;
-          return target != null && actual < target - 2 && s !== freedSector;
+          return target != null && actual < target - 2 && s !== freedSector && s !== 'diversified';
         });
         if (bestExplore) {
           runSectorExplore(bestExplore, computed);
@@ -800,11 +838,7 @@ export default function PortfolioTab({
     if (!simTicker) { setMemoError('Enter a candidate ticker first.'); return; }
     setMemoLoading(true); setMemoError('');
     try {
-      const _trimBase = classifyTicker(simTicker);
-      const candidateSector: TopLevelSector = _trimBase.sector === 'other' && simLive.yahooSector
-        ? yahooSectorToGics(simLive.yahooSector)
-        : _trimBase.sector;
-      const candidateSubSector = _trimBase.subSector;
+      const { sector: candidateSector, subSector: candidateSubSector } = resolveSector(simTicker, simLive);
       const existingPos = computed.find(p => p.ticker === simTicker);
       const currentWeightPct = existingPos ? parseFloat(existingPos.portfolioWeightPct.toFixed(1)) : undefined;
       const isTrimMode = existingPos != null && simAlloc < existingPos.portfolioWeightPct && !cashMode;
@@ -854,10 +888,12 @@ export default function PortfolioTab({
       // Auto-trigger sector explore for trim mode with targets set — show where to redeploy
       if (isTrimMode && hasTargets) {
         const freedSector = candidateSector;
+        // 'diversified' is excluded — suggesting stocks to fill a broad-fund gap
+        // is incoherent; the natural action there is "buy more of the fund."
         const bestExplore = SECTOR_ORDER.find(s => {
           const target = sectorTargets[s];
           const actual = sectorActuals[s] ?? 0;
-          return target != null && actual < target - 2 && s !== freedSector;
+          return target != null && actual < target - 2 && s !== freedSector && s !== 'diversified';
         });
         if (bestExplore) {
           runSectorExplore(bestExplore, computed);
@@ -883,16 +919,27 @@ export default function PortfolioTab({
 
     const shareExamples = (tickers ?? [])
       .filter(t => {
-        const price = simTicker === t ? simLive.price : (liveData[positions.find(p => p.ticker === t)?.id ?? '']?.price ?? null);
-        return price != null && price > 0;
+        if (simTicker === t) return simLive.price != null && simLive.price > 0;
+        const pos = positions.find(p => p.ticker === t);
+        if (!pos) return false;
+        const ld = liveData[pos.id];
+        return ld?.price != null && ld.price > 0;
       })
       .slice(0, 4)
       .map(t => {
-        const price = simTicker === t ? simLive.price! : liveData[positions.find(p => p.ticker === t)!.id]!.price!;
+        let price: number;
+        if (simTicker === t && simLive.price != null) {
+          price = simLive.price;
+        } else {
+          const pos = positions.find(p => p.ticker === t);
+          price = (pos ? liveData[pos.id]?.price : null) ?? 0;
+        }
+        if (price <= 0) return null;
         const shares = Math.floor(cashDollars / price);
         const leftover = parseFloat((cashDollars - shares * price).toFixed(2));
         return { ticker: t, shares, leftover };
-      });
+      })
+      .filter((e): e is { ticker: string; shares: number; leftover: number } => e !== null);
 
     return { cashWeightPct, shareExamples };
   }
@@ -996,15 +1043,7 @@ export default function PortfolioTab({
   const hasPrices = computed.some(p => p.livePrice != null);
   const activeSectors = SECTOR_ORDER.filter(s => (sectorActuals[s] ?? 0) > 0.05);
   const maxActual = Math.max(...activeSectors.map(s => sectorActuals[s] ?? 0), 1);
-  const simClassifiedBase = simTicker ? classifyTicker(simTicker) : null;
-  const simClassified = simClassifiedBase
-    ? {
-        sector: simClassifiedBase.sector === 'other' && simLive.yahooSector
-          ? yahooSectorToGics(simLive.yahooSector)
-          : simClassifiedBase.sector,
-        subSector: simClassifiedBase.subSector,
-      }
-    : null;
+  const simClassified = simTicker ? resolveSector(simTicker, simLive) : null;
   const acctCfg = ACCOUNT_TYPES[accountType];
 
   // Sim mode detection — auto-detected from slider vs current weight (% mode only)
@@ -1015,10 +1054,12 @@ export default function PortfolioTab({
   const simIsExit = !cashMode && simIsHeld && simAlloc === 0;
   // simIsAdd derived but not used directly in render — trim/cash modes cover all cases
 
+  // 'diversified' is excluded from gap-fill suggestions for the same reason —
+  // no single stock closes a "not enough index fund" gap.
   const underweightSectors = SECTOR_ORDER.filter(s => {
     const target = sectorTargets[s];
     const actual = sectorActuals[s] ?? 0;
-    return target != null && actual < target - 2;
+    return target != null && actual < target - 2 && s !== 'diversified';
   });
 
   function renderDirectionArrow(d: 'toward' | 'away' | 'neutral', hasTarget: boolean) {
@@ -1644,7 +1685,7 @@ interface ScenarioPanelProps {
 const SECTOR_ORDER_LOCAL: TopLevelSector[] = [
   'information_technology', 'industrials', 'energy', 'communication_services',
   'financials', 'consumer_discretionary', 'consumer_staples', 'health_care',
-  'materials', 'real_estate', 'utilities', 'other',
+  'materials', 'real_estate', 'utilities', 'diversified', 'other',
 ];
 
 function ScenarioPanel({

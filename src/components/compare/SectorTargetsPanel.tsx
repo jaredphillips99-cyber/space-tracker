@@ -35,6 +35,7 @@ const ALL_SECTORS: TopLevelSector[] = [
   'materials',
   'real_estate',
   'utilities',
+  'diversified',
   'other',
 ];
 
@@ -67,14 +68,8 @@ export default function SectorTargetsPanel({
 
   if (!open) return null;
 
-  const visibleSectors = ALL_SECTORS.filter(
-    s => (actuals[s] ?? 0) > 0.05 || draft[s] != null,
-  );
-
-  const sectorsToShow =
-    visibleSectors.length >= 5
-      ? visibleSectors
-      : ALL_SECTORS.slice(0, Math.max(5, visibleSectors.length));
+  // Always show all sectors so users can set targets for sectors they don't yet hold
+  const sectorsToShow = ALL_SECTORS;
 
   const total = sectorsToShow.reduce((sum, s) => sum + (draft[s] ?? 0), 0);
   const totalOk = total === 100;

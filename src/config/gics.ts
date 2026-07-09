@@ -20,6 +20,7 @@ export type TopLevelSector =
   | 'materials'
   | 'real_estate'
   | 'utilities'
+  | 'diversified'
   | 'other';
 
 export type SubSector =
@@ -132,6 +133,7 @@ export const SECTOR_DISPLAY: Record<TopLevelSector, { label: string; color: stri
   materials:               { label: 'Materials',          color: '#a78bfa' },
   real_estate:             { label: 'Real Estate',        color: '#fb923c' },
   utilities:               { label: 'Utilities',          color: '#34d399' },
+  diversified:             { label: 'Diversified Fund',   color: '#94a3b8' },
   other:                   { label: 'Other',              color: '#8b93a8' },
 };
 
