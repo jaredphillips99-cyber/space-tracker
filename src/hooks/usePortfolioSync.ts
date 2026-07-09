@@ -127,40 +127,68 @@ export function usePortfolioSync(): PortfolioSyncReturn {
 
   // ── Write: positions ──────────────────────────────────────────────────────
   // Strategy: delete all rows for user, then re-insert current snapshot.
-  // Simple and correct for a small portfolio. Debounced 800ms.
+  // Simple and correct for a small portfolio. Debounced 800ms, with the same
+  // pending-ref + flush-on-leave treatment as preferences below.
+
+  const pendingPositionsWrite = useRef<PortfolioPosition[] | null>(null);
+
+  const writePositionsNow = useCallback(async (uid: string, positions: PortfolioPosition[]) => {
+    await supabase.from('portfolio_positions').delete().eq('user_id', uid);
+    if (positions.length === 0) return { error: null };
+
+    const rows: PositionRow[] = positions.map(p => ({
+      id:                   p.id,
+      user_id:              uid,
+      ticker:               p.ticker,
+      shares:               p.shares,
+      cost_basis_per_share: p.costBasisPerShare,
+    }));
+
+    return supabase.from('portfolio_positions').insert(rows);
+  }, []);
 
   const savePositions = useCallback(async (positions: PortfolioPosition[]) => {
     if (!userId) return;
 
+    pendingPositionsWrite.current = positions;
+
     if (positionsTimer.current) clearTimeout(positionsTimer.current);
     positionsTimer.current = setTimeout(async () => {
-      // Delete existing rows
-      await supabase
-        .from('portfolio_positions')
-        .delete()
-        .eq('user_id', userId);
-
-      if (positions.length === 0) return;
-
-      // Insert fresh snapshot
-      const rows: PositionRow[] = positions.map(p => ({
-        id:                   p.id,
-        user_id:              userId,
-        ticker:               p.ticker,
-        shares:               p.shares,
-        cost_basis_per_share: p.costBasisPerShare,
-      }));
-
-      const { error } = await supabase
-        .from('portfolio_positions')
-        .insert(rows);
-
+      const payload = pendingPositionsWrite.current;
+      pendingPositionsWrite.current = null;
+      if (payload === null) return;
+      const { error } = await writePositionsNow(userId, payload);
       if (error) console.warn('[portfolio-sync] positions save failed:', error.message);
     }, 800);
-  }, [userId]);
+  }, [userId, writePositionsNow]);
 
   // ── Write: preferences ────────────────────────────────────────────────────
-  // Upsert single row. Debounced 800ms. Now includes cashAmount + investor preferences.
+  // Upsert single row. Debounced 800ms under normal typing, but the debounce
+  // alone means a change made right before closing the tab can be lost — the
+  // setTimeout never gets a chance to fire once the page is gone. To fix that,
+  // every call also stashes its payload in a ref, and a separate effect below
+  // flushes that ref immediately (bypassing the debounce) when the tab is
+  // hidden, navigated away from, or closed.
+
+  const pendingPrefsWrite = useRef<{
+    accountType: AccountType;
+    sectorTargets: SectorTargets;
+    cashAmount: number;
+    preferences: InvestorPreferences;
+  } | null>(null);
+
+  const writePrefsNow = useCallback((uid: string, payload: NonNullable<typeof pendingPrefsWrite.current>) => {
+    return supabase
+      .from('user_preferences')
+      .upsert({
+        user_id:        uid,
+        account_type:   payload.accountType,
+        sector_targets: payload.sectorTargets,
+        cash_amount:    payload.cashAmount,
+        preferences:    payload.preferences,
+        updated_at:     new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+  }, []);
 
   const savePreferences = useCallback(async (
     accountType:   AccountType,
@@ -170,22 +198,59 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   ) => {
     if (!userId) return;
 
+    pendingPrefsWrite.current = { accountType, sectorTargets, cashAmount, preferences };
+
     if (prefsTimer.current) clearTimeout(prefsTimer.current);
     prefsTimer.current = setTimeout(async () => {
-      const { error } = await supabase
-        .from('user_preferences')
-        .upsert({
-          user_id:        userId,
-          account_type:   accountType,
-          sector_targets: sectorTargets,
-          cash_amount:    cashAmount,     // NEW
-          preferences:    preferences,    // NEW
-          updated_at:     new Date().toISOString(),
-        }, { onConflict: 'user_id' });
-
+      const payload = pendingPrefsWrite.current;
+      pendingPrefsWrite.current = null;
+      if (!payload) return;
+      const { error } = await writePrefsNow(userId, payload);
       if (error) console.warn('[portfolio-sync] prefs save failed:', error.message);
     }, 800);
-  }, [userId]);
+  }, [userId, writePrefsNow]);
+
+  // ── Flush pending writes when the tab is hidden, navigated away from, or
+  // closed — 'visibilitychange' fires reliably for tab switches, minimizing,
+  // and most navigations; 'pagehide' catches the remaining close/unload cases.
+  // Best-effort: an instantly-killed browser process can still outrace any
+  // client-side handler, but this closes the ~800ms debounce window that was
+  // the main source of lost cash-amount updates.
+  useEffect(() => {
+    function flush() {
+      if (!userId) return;
+
+      if (pendingPositionsWrite.current !== null) {
+        if (positionsTimer.current) clearTimeout(positionsTimer.current);
+        const payload = pendingPositionsWrite.current;
+        pendingPositionsWrite.current = null;
+        writePositionsNow(userId, payload).then(({ error }) => {
+          if (error) console.warn('[portfolio-sync] positions flush failed:', error.message);
+        });
+      }
+
+      if (pendingPrefsWrite.current) {
+        if (prefsTimer.current) clearTimeout(prefsTimer.current);
+        const payload = pendingPrefsWrite.current;
+        pendingPrefsWrite.current = null;
+        writePrefsNow(userId, payload).then(({ error }) => {
+          if (error) console.warn('[portfolio-sync] prefs flush failed:', error.message);
+        });
+      }
+    }
+
+    function handleVisibility() {
+      if (document.visibilityState === 'hidden') flush();
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', flush);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [userId, writePrefsNow, writePositionsNow]);
 
   return {
     savedPositions,
