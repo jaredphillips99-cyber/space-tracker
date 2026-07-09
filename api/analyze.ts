@@ -151,6 +151,29 @@ Focus your analysis on: the post-emergence capital structure and debt reduction,
 Starlink/competitors, cash runway and burn rate, and any strategic options (partnerships, asset sales,
 spectrum monetization). Treat this like a distressed/turnaround analysis, not a growth story.
 Be explicit about data limitations where your training knowledge is uncertain.`,
+
+  NBIS: `NBIS (Nebius Group N.V.) is a Dutch foreign private issuer — formerly the international
+(non-Russia) assets of Yandex N.V., rebranded as Nebius Group after Yandex's Russia operations
+were sold in 2024. It trades on NASDAQ but files 6-K forms on EDGAR rather than 8-K earnings
+releases, so no automated filing fetch is available. You are working from training knowledge.
+Focus your analysis on: the AI cloud infrastructure buildout (GPU clusters, data centers),
+the $27B Meta deal and other major customer wins, revenue trajectory from near-zero to scale,
+cash runway and capex requirements, competitive positioning vs. CoreWeave and other GPU clouds,
+and the company's European/international expansion strategy. This is a high-growth, pre-profitability
+infrastructure story — treat it accordingly. Be explicit about data limitations where your
+training knowledge may be incomplete or outdated.`,
+
+  CCJ: `CCJ (Cameco Corp) is a Canadian foreign private issuer — the world's largest publicly listed
+uranium producer, headquartered in Saskatoon, Saskatchewan. It trades on NYSE and TSX but files
+6-K forms on EDGAR rather than 8-K earnings releases, so no automated filing fetch is available.
+You are working from training knowledge.
+Focus your analysis on: uranium production volumes at Cigar Lake and McArthur River/Key Lake,
+realized price per pound vs. spot and long-term contract prices, the contracting book (committed
+volumes, average contract price, delivery schedule), cash cost of production, the Westinghouse
+stake (via Brookfield partnership) and its contribution, and the macro uranium supply/demand
+outlook (utility contracting cycles, SMR/reactor restarts as demand drivers). This is a commodity
+producer with significant leverage to uranium price — frame the bull/bear cases accordingly.
+Be explicit about data limitations where your training knowledge may be incomplete or outdated.`,
 };
 
 function getSystemPrompt(ticker: string): string | undefined {

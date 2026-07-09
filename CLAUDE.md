@@ -10,12 +10,12 @@ InvestAI — displayed in the header as INVEST (cyan #00c8ff) + AI (white #e2e4e
 in Space Mono font.
 
 ## Current Build Stage
-Stage 1: React app with on-demand Claude analysis, live prices from Yahoo
-Finance, localStorage caching for stock analyses, sessionStorage for portfolio.
-No backend, no auth, no scheduled automation.
+Stage 1.5 (active): React app with on-demand Claude analysis, live prices from
+Yahoo Finance, Supabase persistence for shared analyses, admin magic-link auth,
+sessionStorage for portfolio. No scheduled automation.
 
 Stage 2 (not started): Python backend, SEC EDGAR monitoring, scheduled
-analysis pipeline, Supabase persistence.
+analysis pipeline.
 
 ## Stack — Do Not Deviate Without Discussion
 - React + Vite + TypeScript
@@ -23,9 +23,10 @@ analysis pipeline, Supabase persistence.
 - Zustand for global state
 - React Router v6
 - Vercel serverless functions in /api/ for all external API calls
-- localStorage for stock analysis cache (Stage 1)
+- localStorage for stock analysis cache (Stage 1 fallback)
+- Supabase for shared analysis persistence (Stage 1.5)
 - sessionStorage for portfolio data (privacy — clears on browser close)
-- No auth in Stage 1
+- Supabase magic-link auth for admin access (admin-only write, public read)
 - react-markdown + remark-gfm for rendering all AI output cards
 
 ## Production URL
@@ -90,8 +91,10 @@ Yahoo Finance → /api/prices.ts (Vercel serverless)
   Cache 5 minutes. On error: fetchError: true, UI shows last cached values.
   Returns: price, change, changePercent, weekChangePercent, marketCap,
            volume, regularMarketOpen, fiftyTwoWeekHigh, fiftyTwoWeekLow,
-           analystTargetPrice, recommendationMean
+           analystTargetPrice, recommendationMean, yahooSector, yahooIndustry
   Works for ANY ticker symbol — used by Portfolio for external positions too.
+  yahooSector/yahooIndustry sourced from assetProfile module — used to classify
+  external tickers that fall outside the GICS KNOWN_TICKERS map.
 
 Anthropic API → /api/analyze.ts (stock analysis, streaming SSE)
   Rate limit: 10 calls per IP per hour.
@@ -105,9 +108,10 @@ Anthropic API → /api/analyze.ts (stock analysis, streaming SSE)
 Anthropic API → /api/portfolio.ts (portfolio features, non-streaming)
   Rate limit: 20 calls per IP per hour (separate bucket from analyze.ts).
   Model: claude-sonnet-4-6
-  Request types: "macro_risk" | "macro_scenario" | "trim" | "sector_explore"
-  max_tokens: 1200 (macro_risk) · 1000 (macro_scenario) · 800 (trim) · 600 (sector_explore)
+  Request types: "macro_risk" | "macro_scenario" | "trim" | "trim_memo" | "sector_explore"
+  max_tokens: 1200 (macro_risk) · 1000 (macro_scenario) · 800 (trim) · 800 (trim_memo) · 600 (sector_explore)
   No vercel.json maxDuration needed — all calls complete in <10s.
+  trim_memo takes 10-15s due to web search round-trip — expected, within 60s limit.
 
 SEC EDGAR → fetched browser-side in StockDetail.tsx
   CORS proxy at /api/edgar-proxy.ts for /Archives/ URLs.
@@ -209,6 +213,8 @@ Card color coding:
   Macro Risk card     — red left border (#ff4b6e), red tint background
   Trim Suggestion     — amber left border (#ffd166), amber tint background
   Scenario Analysis   — purple left border (#a259ff), purple tint background
+  Should I? memo      — purple left border (#a259ff), purple tint background
+  Trim/Exit memo      — purple left border (#a259ff), purple tint background
 
 Prompts must NOT include a top-level ## heading — the card header already
 labels the section. Prompts use ### for internal section headings.
@@ -232,7 +238,9 @@ Always route sidebar snippets through extractSnippet().
 ---
 
 ## Environment Variables Required
-ANTHROPIC_API_KEY   → Vercel dashboard → Settings → Environment Variables
+ANTHROPIC_API_KEY       → Vercel dashboard → Settings → Environment Variables
+VITE_SUPABASE_URL       → Vercel dashboard → Settings → Environment Variables
+VITE_SUPABASE_ANON_KEY  → Vercel dashboard → Settings → Environment Variables
 (Yahoo Finance requires no key — uses yahoo-finance2 npm package)
 
 ---
@@ -242,7 +250,7 @@ src/types/index.ts                             canonical data schema + SECTOR_CO
 src/config/tickers.ts                          31-stock universe, sector assignments
 src/config/gics.ts                             GICS two-tier taxonomy + classifyTicker()
 src/store/useStore.ts                          Zustand store, all global state
-src/App.tsx                                    router — routes: / · /stock/:ticker · /portfolio
+src/App.tsx                                    router — routes: / · /stock/:ticker · /portfolio · /admin
 src/components/Layout/index.tsx                top nav, brand, sector filter bar (dashboard-only)
 src/pages/Dashboard.tsx                        dashboard page
 src/pages/Portfolio.tsx                        portfolio page (thin wrapper over PortfolioTab)
@@ -257,7 +265,10 @@ src/components/compare/SectorTargetsPanel.tsx  sector target weights slide-in pa
 api/prices.ts                                  Yahoo Finance proxy
 api/analyze.ts                                 Anthropic streaming proxy, stock analysis
 api/edgar-proxy.ts                             CORS proxy for SEC /Archives/ URLs
-api/portfolio.ts                               portfolio API — macro_risk · macro_scenario · trim · sector_explore
+api/portfolio.ts                               portfolio API — macro_risk · macro_scenario · trim · trim_memo · sector_explore
+src/lib/supabase.ts                            Supabase client singleton + sendMagicLink() + signOut()
+src/hooks/useSupabaseSync.ts                   hydrates Zustand from Supabase on mount; pushAnalysis() after run
+src/components/AuthGate.tsx                    admin magic-link login screen (/admin route)
 
 Deleted — do not recreate:
   src/pages/Compare.tsx
@@ -272,10 +283,11 @@ Deleted — do not recreate:
 Four connected workflows on one page:
   1. Portfolio view — positions, live values, unrealized gains, sector
      concentration chart with target dual-bars, macro risk narrative.
-  2. Add simulation — candidate ticker, target allocation %, target-aware
-     sector impact table, trim suggestion.
+  2. Simulation panel — candidate ticker or existing position, target allocation
+     slider (0–100%), auto-detected add vs. trim mode, sector impact table,
+     trim/exit/add memo and redeployment suggestions.
   3. Sector explore — Claude suggests 3-4 stocks for any underweight sector,
-     each with a "Simulate →" button that pre-fills the Add Simulation panel.
+     each with a "Simulate →" button that pre-fills the simulation panel.
   4. Scenario analysis — investor proposes new sector target weightings,
      Claude analyzes how the shift fits the current macro environment.
 
@@ -312,8 +324,9 @@ Account type bar (above everything):
   - Colored account type button → opens AccountTypePanel slide-in
   - Constraint pills from ACCOUNT_TYPES config
 
-Left column:
+Left column (2fr):
   1. Positions table — TICKER · SECTOR · PRICE · COST BASIS · GAIN/LOSS · ALLOCATION · ×
+     Tighter row padding (6px 10px) and smaller fonts than original.
   2. Sector concentration chart
      - ▶/▼ expand for sub-sectors
      - Dual bars when targets set (solid actual, outline target)
@@ -324,16 +337,71 @@ Left column:
   3. Macro risk — red left-border card, MarkdownCard rendering, account type badge,
      re-run button, "⟳ Run scenario analysis" button (purple, appears after macro runs)
 
-Right column (320px):
-  1. Add simulation panel
-     - Ticker input, debounced price fetch (600ms)
-     - Target allocation slider: 1–30%
-     - Sector impact table: before% → after% + target delta badge + direction arrow
-       · Green ✓ badge = within 1pp of target
-       · Amber badge = moving toward but still off
-       · Red +Xpp badge = worsening overweight
-  2. Trim suggestion — amber left-border card, MarkdownCard rendering,
-     account type badge, re-run button
+Right column (3fr):
+  1. Simulation panel (was "Add simulation" — now covers add AND trim/exit)
+     See "Simulation Panel — Full Spec" section below.
+  2. Should I? / Trim memo card — purple left-border, MarkdownCard rendering,
+     re-run button. Header shows context: "Should I? — META at 20%" or
+     "Trim memo — NVDA 17.0% → 8%" or "Exit memo — NVDA".
+  3. Trim suggestion card — amber left-border card, MarkdownCard rendering,
+     account type badge, re-run button.
+
+Grid: `minmax(0,2fr) minmax(0,3fr)` — left column narrower, right column wider.
+This replaced the old fixed `minmax(0,1fr) 320px` layout.
+
+### Simulation Panel — Full Spec
+
+The simulation panel handles both adding new positions AND trimming/exiting
+existing ones. Mode is auto-detected — no toggle needed.
+
+**Mode detection (derived at render, never stored):**
+  simExistingPos  — computed.find(p => p.ticker === simTicker) or null
+  simCurrentPct   — existingPos.portfolioWeightPct or 0
+  simIsHeld       — simExistingPos != null
+  simIsTrim       — simIsHeld && simAlloc < simCurrentPct
+  simIsExit       — simIsHeld && simAlloc === 0
+  simIsAdd        — !simIsHeld || simAlloc > simCurrentPct
+
+**Slider behavior:**
+  - Range: 0–100% (0% = full exit)
+  - When ticker entered that IS already held: slider snaps to current weight
+  - When ticker entered that is NOT held: slider defaults to 8%
+  - Slider accent color: red at 0% exit, amber when trimming, white when adding
+  - Labels: "0% exit" on left, "▲ X% now" marker when ticker is held, "100%" on right
+  - Target allocation label shows "(currently X.X%)" when ticker is held
+
+**Sector impact math:**
+  For NEW positions (not held):
+    scaleFactor = (100 - targetPct) / 100
+    newWeight[sector] = existing * scaleFactor
+    newWeight[simSector] += targetPct
+
+  For EXISTING positions (already held):
+    // Removes current weight, rescales remainder, applies new target
+    remainingBase = 100 - currentPct
+    scaleFactor = (100 - newTargetPct) / remainingBase
+    newWeight[simSector] = (existing[simSector] - currentPct) * scaleFactor + newTargetPct
+    newWeight[otherSectors] = existing * scaleFactor
+
+  This prevents double-counting when simulating an existing position.
+  Full exit (0%) correctly removes the position entirely.
+
+**Action buttons — labels change by mode:**
+  Primary (purple in add mode, amber in trim mode):
+    Add mode:   "✦ Should I? — get memo"
+    Trim mode:  "✦ Trim memo — should I reduce?"
+    Exit mode:  "✦ Full exit — where should proceeds go?"
+
+  Secondary (subtle):
+    Add mode:   "Quick trim suggestion"
+    Trim mode:  "Where should proceeds go?"
+
+**Auto sector explore on trim/exit:**
+  After running either button in trim mode, the code automatically finds the
+  most underweight sector (≥2pp gap vs target, different from trimmed sector)
+  and opens SectorExplorePanel. This surfaces redeployment candidates without
+  an extra click.
+  Only fires when hasTargets is true (sector targets have been set).
 
 ### SectorTargetsPanel
 Width: 460px. Grid: 24px 1fr 60px 80px 64px.
@@ -342,12 +410,18 @@ Number spinners hidden. Must sum to exactly 100% to enable Save.
 Columns: ▶/▼ · SECTOR · ACTUAL · TARGET · DELTA
 Sub-sectors: collapsible, show actual only, no target input.
 
+ALL 12 GICS sectors are always shown — not filtered to only sectors currently
+held. This allows setting targets for sectors you don't yet own (e.g. setting
+a 10% health_care target before adding any healthcare stocks).
+Previously the panel only showed sectors where actuals > 0.05% — this was a
+bug that prevented setting targets for unowned sectors. Fixed June 4, 2026.
+
 ### Sector Explore Panel
 Slide-in from right (same style as AccountTypePanel and SectorTargetsPanel).
 Shows the underweight gap (e.g. "You're 8pp underweight vs 15% target").
 Claude returns a JSON array of { ticker, rationale, marketCapRange }.
 Each card has a "Simulate →" button that closes the panel and pre-fills
-the Add Simulation ticker input.
+the simulation ticker input.
 API call type: "sector_explore" in api/portfolio.ts.
 Claude is instructed to skip tickers already held, growth-style framing,
 target gap context when available.
@@ -376,17 +450,33 @@ rounded actuals for sectors without a current target).
 
 POST body shape:
 {
-  type: "macro_risk" | "macro_scenario" | "trim" | "sector_explore"
-  positions: PositionPayload[]
+  type: "macro_risk" | "macro_scenario" | "trim" | "trim_memo" | "sector_explore"
+  positions: PositionPayload[]       // includes keyMetrics?: string
   accountType?: string
   accountContext?: string
   sectorTargets?: Record<string, number | null>
   sectorActuals?: Record<string, number>
   subSectorActuals?: Record<string, number>
   projectedTargets?: Record<string, number | null>  // macro_scenario only
-  candidate?: CandidatePayload                       // trim only
+  candidate?: CandidatePayload                       // trim + trim_memo; includes keyMetrics?: string
   exploreSector?: string                             // sector_explore only
 }
+
+CandidatePayload shape:
+{
+  ticker: string
+  sector: string
+  subSector?: string
+  targetWeightPct: number        // desired new weight (0 = full exit)
+  currentWeightPct?: number      // current weight if already held
+  isTrimMode?: boolean           // true when reducing an existing position
+  inUniverse: boolean
+  keyMetrics?: string
+}
+
+PositionPayload includes keyMetrics?: string — populated from localStorage
+(space-tracker-analyses → state.analyses[ticker].keyMetrics).
+getKeyMetrics(ticker) helper in PortfolioTab.tsx reads this at call time.
 
 macro_risk prompt structure (### sections, no top-level ##):
   ### Concentration Risks
@@ -403,9 +493,31 @@ macro_scenario prompt structure (### sections, no top-level ##):
   ### Execution Path
   ### Risks of This Shift
 
-trim prompt structure (### sections, no top-level ##):
-  ### Trim Plan to Fund {ticker} ({pct}%)
-  ### Post-Rebalance Sector Weights  (markdown table)
+trim prompt structure — BRANCHES on isTrimMode:
+  Add mode (isTrimMode false):
+    ### Trim Plan to Fund {ticker} ({pct}%)
+    ### Post-Rebalance Sector Weights  (markdown table)
+
+  Trim/exit mode (isTrimMode true):
+    ### Exit Plan — {ticker}  OR  ### Trim Plan — {ticker} (X% → Y%)
+    ### Redeployment Suggestions   (2-3 sectors/tickers for freed capital)
+    ### Post-Rebalance Sector Weights  (markdown table)
+
+trim_memo prompt structure — BRANCHES on isTrimMode:
+  Add mode:
+    ### The Case For
+    ### The Case Against
+    ### Verdict  (Buy / Pass / Watch)
+
+  Trim/exit mode:
+    ### The Case For Exiting/Trimming
+    ### The Case Against
+    ### Verdict  (Exit / Hold  OR  Trim / Hold)
+    — suggests redeployment target for freed pp
+
+  Under 200 words. Opinionated — one clear verdict sentence.
+  References keyMetrics from localStorage for candidate and existing positions.
+  Card color: purple left border (#a259ff), purple tint background.
 
 sector_explore response is validated as JSON before returning to client.
 Returns { error } if Claude output is not parseable.
@@ -418,6 +530,8 @@ Defined in src/config/gics.ts. SEPARATE from dashboard filter pill sectors.
 Do NOT conflate them.
 
 classifyTicker(ticker): priority → UNIVERSE_SECTOR_MAP → KNOWN_TICKERS → 'other'
+For any ticker where classifyTicker returns 'other', PortfolioTab falls back to
+yahooSector from the live prices response via YAHOO_TO_GICS mapper.
 
 ### Top-Level Sectors (12)
   information_technology  #a259ff  violet
@@ -467,7 +581,7 @@ NNE  → energy / advanced_reactors
 
 ---
 
-## Known Issues (as of June 3, 2026)
+## Known Issues (as of June 4, 2026)
 
 - Stocks analyzed in old 5-section format (IREN, MOD) lack snapshot block.
   Re-run to upgrade to current 4-section + snapshot format.
@@ -477,124 +591,176 @@ NNE  → energy / advanced_reactors
 - FLY (Firefly Aerospace) — IPO'd Aug 8 2025, CIK 0001860160. Verify EDGAR
   pipeline pulls filings correctly when analyzed.
 
+- isAdmin flag persists in localStorage — cosmetically anyone can set it via
+  devtools, but Supabase RLS blocks all unauthorized writes. Not a real security
+  risk given single-user allowlist in Supabase Authentication settings.
+
 ---
 
 ## Next Session Priorities (in order)
 
-1. Stage 1.5 evaluation — Supabase auth + storage to enable sharing with
-   trusted users without full Stage 2 backend
+1. Thesis tracking — per-position notes with status (intact/weakening/broken),
+   key catalyst to watch, and timestamped notes log after each earnings.
+   Storage: Supabase alongside analyses. UI: expandable row in positions table,
+   "Review thesis" button on StockDetail for owned positions, thesis status dot
+   on dashboard PriceTable rows.
+
+2. Congressional trading tracker — display government buy/sell disclosures
+   as sentiment indicators on the dashboard. Source: housestockwatcher.com
+   and senatestockwatcher.com APIs (free, no key required).
+
+3. Toast notifications — success/error feedback on analysis run completion.
+
+4. Earnings calendar — surface upcoming earnings dates for the 31-stock
+   universe using earningsDate from Yahoo Finance (already in API response
+   but unused). Show "stale soon" indicator on dashboard rows.
+
+5. **Financial Overview tab (idea captured, not scoped) — new top-level tab
+   for whole-picture net worth, separate from the Portfolio tab's stock/fund
+   tracking.** A central hub for asset types the app doesn't currently touch:
+   crypto holdings, 401k balance, cash on hand (checking/savings, separate
+   from the Portfolio tab's "dry powder" cash), and other asset categories
+   TBD. Roth IRA / brokerage holdings would pull from the existing Portfolio
+   tab rather than being re-entered.
+   Architectural note: this is the same underlying question raised during
+   the investor-preferences work — the app currently models "one portfolio"
+   per user, not "multiple accounts." A real net-worth hub needs a proper
+   accounts concept (an `accounts` or `asset_holdings` table scoped to
+   user_id, with type/category/value fields) rather than extending the
+   existing single-portfolio schema. Scope as its own project before
+   starting — likely bigger than it looks from the UI description alone.
+
+---
+
+## Claude Behavior Rules
+
+### After every file delivery
+Whenever Claude produces modified files for this project (whether via
+present_files, artifacts, or inline code blocks), it must automatically
+append deploy commands at the end of its response without being asked.
+
+Format:
+  **Deploy commands:**
+  cd "/Users/jared/Downloads/Claude Projects/space-tracker"
+  cp ~/Downloads/<filename> <destination/path>   # repeat for each file
+  npm run build
+
+  If build passes:
+  git add <changed files>
+  git commit -m "<description of what changed>"
+  git push origin main
+  vercel --prod
+
+Claude must fill in the actual filenames, destination paths, and a meaningful
+commit message based on what was just built. Never use placeholder text — always
+use the real paths from the session.
 
 ---
 
 ## Session Log
 
-### June 3, 2026 — Color System Unification + Sidebar Snippet Fix
+---
 
-**Problem solved (1): Sidebar snippets showed raw markdown headings**
-  Every "Recently Analyzed" entry in the SidePanel displayed
-  "## What Happened Vertiv…" instead of the first prose sentence.
-  Root cause: a.summary stores the entire narrative string starting with
-  the ## What Happened heading. The old code did a.summary.slice(0, 80)
-  which grabbed that heading text verbatim.
+### July 9, 2026 — Fund Classification, Investor Preferences, Cash Fixes, Freshness Grounding
 
-**src/components/SidePanel/index.tsx** — updated
-  - Added extractSnippet() helper function:
-    · Splits narrative on newlines, filters all lines starting with #
-    · Collapses blank lines, takes first non-empty paragraph
-    · Strips **bold** markers for clean plain-text display
-    · Truncates to 90 chars with ellipsis
-  - Added SECTOR_COLORS import from types
-  - Replaced a.summary.slice(0, 80) with extractSnippet(a.summary)
-  - Replaced t.color ?? '#e2e4ef' with SECTOR_COLORS[t.sectors[0]] in
-    both "Recently Analyzed" and "Upcoming Earnings" ticker labels
+**New: Diversified-fund sector classification**
+  ETFs/mutual funds (e.g. VOO, VFIAX) previously fell into the same "Other"
+  sector bucket as genuinely unclassified tickers. api/prices.ts now checks
+  quote.quoteType and, for ETF/MUTUALFUND, fetches the fundProfile module
+  (categoryName + expense ratio) instead of stock-only modules. New
+  'diversified' TopLevelSector added to gics.ts/PortfolioTab.tsx/
+  SectorTargetsPanel.tsx — broad funds get their own chart row and settable
+  target, distinct from "Other." Excluded from sector-explore gap-fill logic
+  (suggesting stocks to fill a fund gap is incoherent).
 
-**Problem solved (2): Ticker name/accent colors did not match sector colors**
-  PL (Space) was showing violet (#a259ff — AI color), RDW (Space+Defense)
-  was showing orange (#ff6b35) — these were hardcoded per-ticker overrides
-  that conflicted with the sector color system.
+**New: Investor preferences**
+  Single risk/style profile per user, separate from account type. New
+  `PreferencesPanel` (PortfolioTab.tsx) — risk tolerance, time horizon,
+  income/growth tilt, stock-vs-fund tilt, max position size, new-money
+  cadence, exclusions. Persisted via user_preferences.preferences (jsonb,
+  migration: supabase_migration_preferences.sql). buildPreferenceBlock() in
+  api/portfolio.ts injects the profile into all 6 request types. Exclusions
+  are a prompt instruction, not a code-level filter — best-effort, not
+  airtight; noted as a possible follow-up if that ever needs to be hard.
 
-**src/config/tickers.ts** — updated
-  - Removed all hardcoded color overrides (RKLB #00c8ff, PL #a259ff,
-    RDW #ff6b35 — the only 3 tickers that had them)
-  - The color field on TickerConfig is now effectively unused/deprecated
-  - All color now derives from SECTOR_COLORS[sectors[0]] at render time
+**Bug fixed: cash amount / positions lost on tab close**
+  usePortfolioSync's debounced writes (800ms) could be dropped entirely if
+  the tab closed before the timer fired. Fixed by tracking the latest
+  pending write in a ref and flushing it immediately on 'visibilitychange'
+  (hidden) and 'pagehide', instead of only relying on the debounce timer.
+  Applied to both savePreferences (cash amount, account type, sector
+  targets, investor preferences) and savePositions.
 
-**src/components/PriceTable/index.tsx** — updated
-  - accentColor now derived from SECTOR_COLORS[ticker.sectors[0]] instead
-    of cfg.color ?? '#8b8fa8'
-  - Removed unused cfg variable (was only used for the color lookup)
-  - Removed unused TICKER_MAP import (was only imported for cfg)
-  - Result: every ticker's left accent bar and name text now uses its
-    primary sector color consistently across the entire dashboard
+**Bug fixed: cash deployment used a hypothetical dollar figure**
+  The app deliberately never sends the real cash dollar total to Claude
+  (privacy — only cashWeightPct % and pre-computed share/leftover examples
+  are sent). With no real total to anchor to, Claude would sometimes
+  illustrate with an invented round number (e.g. "$10,000"). Added
+  CASH_GROUNDING_RULE to api/portfolio.ts, injected into all 5 cash-related
+  prompt paths — explicitly forbids inventing a hypothetical total, restricts
+  Claude to the real % and share/leftover figures provided.
 
-**Color system rule established:**
-  SECTOR_COLORS in src/types/index.ts is the single source of truth for
-  all dashboard coloring. Per-ticker color overrides are banned. Any new
-  ticker added to tickers.ts must NOT include a color field — sector
-  assignment drives color automatically.
+**UX fixed: "Where to deploy cash?" required running macro analysis first**
+  Button was rendered inside the `{macroRisk && (...)}` block despite firing
+  an independent `cash_deploy` API call. Moved to a standalone section
+  directly under the cash input — usable the moment cash is entered, no
+  macro risk run required. Removed the now-duplicate copy that lived inside
+  the macro risk card.
 
-### June 3, 2026 — Portfolio AI Output Formatting + Scenario Analysis
+**Bug fixed: AI responses citing stale/outdated dates**
+  Portfolio-level calls (macro risk, trim/add memos, sector explore, cash
+  deploy) and the earnings analysis calls (api/analyze.ts) have no live web
+  access, so Claude was filling timing/context gaps from training data and
+  stating specifics (e.g. a 2025 reference) as if current. Added
+  buildFreshnessBlock() to both api/portfolio.ts and api/analyze.ts —
+  injects today's actual date plus an explicit instruction not to assert
+  unverified current events/dates. Computed fresh per request (not a
+  module-level constant), so it's correct even on a warm serverless instance.
 
-**Problem solved:** AI output in Macro Risk and Trim Suggestion cards was
-rendering as raw markdown text (literal **, ##, --- visible to user).
+**Files modified:** api/prices.ts · api/portfolio.ts · api/analyze.ts ·
+  src/config/gics.ts · src/components/compare/PortfolioTab.tsx ·
+  src/components/compare/SectorTargetsPanel.tsx · src/hooks/usePortfolioSync.ts ·
+  src/pages/Portfolio.tsx · supabase_migration_preferences.sql (new)
 
-**src/components/compare/PortfolioTab.tsx** — updated
-  - Added ReactMarkdown + remark-gfm imports
-  - New shared <MarkdownCard> component with full dark-theme styled overrides
-  - Macro Risk and Trim Suggestion cards now render via <MarkdownCard>
-  - Scenario Analysis feature added (ScenarioPanel slide-in, 500px wide)
-  - New state: scenarioOpen, projectedTargets, scenarioResult,
-    scenarioLoading, scenarioError
-  - New functions: initProjectedTargets(), projectedTotal(),
-    runScenarioAnalysis()
+---
 
-**api/portfolio.ts** — updated
-  - Added "macro_scenario" request type + projectedTargets field
-  - buildMacroScenarioPrompt(): 4-section structured prompt
-  - buildMacroRiskPrompt() rewritten to use 5 ### sections
-  - buildTrimPrompt() rewritten to use ### sections
-  - max_tokens raised to 1200 for macro_risk
+### June 10, 2026 — Portfolio Persistence: Supabase Sync for Authenticated Users
 
-**package.json** — updated
-  - Added remark-gfm: ^4.0.1
+**Architecture change: Portfolio state persisted to Supabase per user**
+  Previously all portfolio data (positions, account type, sector targets) lived
+  in sessionStorage with a 60-min TTL, wiped on tab close. Now authenticated
+  users get full cross-session persistence via Supabase.
 
-### June 2, 2026 — Navigation, Portfolio Integration, Sector Explore
+**New tables (run supabase_migration.sql in Supabase SQL Editor):**
+  - portfolio_positions: one row per position per user, RLS user-scoped
+  - user_preferences: one row per user, stores account_type + sector_targets jsonb
 
-**Site renamed:** Space Tracker → InvestAI
+**New files:**
+  - src/hooks/usePortfolioSync.ts — loads positions + prefs from Supabase on mount,
+    exposes savePositions() and savePreferences() with 800ms debounce writes
+  - src/components/PortfolioAuthGate.tsx — soft sign-in prompt shown to unauthenticated
+    visitors with "Continue without saving" escape hatch; dismissed state stored in
+    sessionStorage so it only shows once per session
 
-**Compare page removed:**
-  - Deleted: src/pages/Compare.tsx
-  - Deleted: src/components/compare/ResearchCompare.tsx
-  - Deleted: src/components/compare/StockPicker.tsx
-  - Portfolio promoted to first-class route at /portfolio
+**Modified files:**
+  - src/pages/Portfolio.tsx — checks auth state on mount; shows PortfolioAuthGate
+    if no session and gate not yet dismissed; passes sync props to PortfolioTab
+  - src/components/compare/PortfolioTab.tsx — accepts PortfolioTabSyncProps; seeds
+    state from Supabase data when authenticated; falls back to sessionStorage for
+    anonymous users; shows SYNCED badge in positions header when authenticated;
+    shows loading overlay while Supabase data hydrates
 
-**src/App.tsx** — removed Compare, added Portfolio route
+**Privacy rule unchanged:** Dollar amounts and share counts are persisted to Supabase
+  (raw inputs), but all API calls still only receive weightPct and gainPct computed
+  at call time. Shares/cost-basis never leave the browser toward Claude API.
 
-**src/components/Layout/index.tsx** — updated brand + nav links + sector
-  filter bar gating with useLocation()
+**Auth flow:**
+  - Unauthenticated → PortfolioAuthGate shows magic-link prompt + "Continue without saving"
+  - Magic link clicked → Supabase session established → Portfolio.tsx detects auth
+    change → PortfolioTab reloads with Supabase data
+  - Authenticated → positions/prefs load on mount, save on every mutation (debounced)
+  - Dashboard is unaffected — fully public, no auth required
 
-**src/components/compare/SectorTargetsPanel.tsx** — panel width 460px,
-  grid columns updated, % symbol moved outside input
-
-**src/components/compare/PortfolioTab.tsx** — target-aware sector impact
-  table, Sector Explore feature added (SectorExplorePanel slide-in)
-
-**api/portfolio.ts** — added sector_explore request type, JSON validation
-
-### June 2, 2026 — GICS Taxonomy + Portfolio Enhancements (earlier session)
-
-**src/config/gics.ts** — new file, full GICS two-tier taxonomy
-**src/components/compare/SectorTargetsPanel.tsx** — initial build
-**src/components/compare/PortfolioTab.tsx** — initial build with
-  sessionStorage cache, account type selector, sector concentration chart
-**api/portfolio.ts** — initial build, macro_risk and trim request types
-
-### May 28, 2026 — StockDetail Rewrite + Full Pipeline
-
-- New StockDetail layout: Yahoo stats strip, snapshot block, 4-section narrative
-- Re-run confirmation modal
-- EDGAR pipeline: fetch → JSON extraction → narrative stream → UI
-- localStorage cache for analyses
-- api/edgar.ts, api/edgar-proxy.ts, api/analyze.ts, api/prices.ts
-- Confirmed working: NXE, KTOS, RDW, PL, AVAV
-- Old format (needs re-run): IREN, MOD
+**Next: add "Sign out" to nav header for portfolio users (currently only admin sees it)**
+  Supabase auth.users are open to any email now (not just admin allowlist).
+  Recommend adding a visible sign-in/sign-out state to the Portfolio nav area.
