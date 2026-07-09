@@ -53,10 +53,11 @@ export interface PortfolioTabSyncProps {
   syncedAccountType:   AccountType | null;
   syncedSectorTargets: SectorTargets | null;
   syncedCashAmount:    number | null;               // NEW: persisted cash balance
+  syncedPreferences:   InvestorPreferences | null;   // NEW: persisted investor preferences
   syncLoading:         boolean;
   isAuthenticated:     boolean;
   onSavePositions:     (positions: PortfolioPosition[]) => Promise<void>;
-  onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number) => Promise<void>;
+  onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences) => Promise<void>;
 }
 
 // ─── Account types ────────────────────────────────────────────────────────────
@@ -85,6 +86,57 @@ export const ACCOUNT_TYPES: Record<AccountType, AccountTypeConfig> = {
   custodial: { label: 'Custodial (UGMA/UTMA)', shortLabel: 'Custodial', color: '#f59e0b', constraints: ['Taxable account rules apply', 'Kiddie tax may apply for minors', 'Assets transfer to beneficiary at 18–21', 'Long horizon typical'], taxTreatment: 'Custodial account (UGMA/UTMA): taxable, long investment horizon. Kiddie tax rules may apply for minors. Favor long-term growth positions.' },
   trust: { label: 'Trust account', shortLabel: 'Trust', color: '#8b93a8', constraints: ['Tax rules depend on trust type', 'May have distribution requirements', 'Consult trust documents for constraints'], taxTreatment: 'Trust account: tax treatment depends on trust type (revocable vs irrevocable). Note that specific tax implications depend on the trust structure.' },
 };
+
+// ─── Investor preferences ──────────────────────────────────────────────────────
+// Standing risk/style profile — separate from account type (which is about tax
+// rules and trading constraints). Preferences shape *what* Claude recommends;
+// account type shapes how it's framed. Single profile per user for now — see
+// note in CLAUDE.md re: multi-account being a separate, larger feature.
+
+export type RiskTolerance = 'conservative' | 'moderate' | 'aggressive';
+export type TimeHorizon = 'short' | 'medium' | 'long';
+export type NewMoneyCadence = 'lump_sum' | 'dca';
+export type ExclusionFlag = 'defense' | 'fossil_fuels' | 'tobacco_gambling';
+
+export interface InvestorPreferences {
+  riskTolerance: RiskTolerance;
+  timeHorizon: TimeHorizon;
+  incomeGrowthTilt: number;          // 0 = income-focused, 100 = growth-focused
+  diversificationPreference: number; // 0 = individual stocks, 100 = prefer funds
+  maxPositionSizePct: number;        // 5 | 10 | 15 | 25
+  newMoneyCadence: NewMoneyCadence;
+  exclusions: ExclusionFlag[];
+}
+
+export const DEFAULT_PREFERENCES: InvestorPreferences = {
+  riskTolerance: 'moderate',
+  timeHorizon: 'medium',
+  incomeGrowthTilt: 70,
+  diversificationPreference: 30,
+  maxPositionSizePct: 15,
+  newMoneyCadence: 'lump_sum',
+  exclusions: [],
+};
+
+const RISK_LABELS: Record<RiskTolerance, { label: string; desc: string }> = {
+  conservative: { label: 'Conservative', desc: 'Avoid speculative/pre-revenue names' },
+  moderate:     { label: 'Moderate',     desc: 'Some speculative exposure is fine' },
+  aggressive:   { label: 'Aggressive',   desc: 'Growth and upside over volatility' },
+};
+
+const HORIZON_LABELS: Record<TimeHorizon, { label: string; desc: string }> = {
+  short:  { label: 'Short',  desc: '< 2 years' },
+  medium: { label: 'Medium', desc: '2–7 years' },
+  long:   { label: 'Long',   desc: '7+ years' },
+};
+
+const EXCLUSION_LABELS: Record<ExclusionFlag, string> = {
+  defense: 'Defense',
+  fossil_fuels: 'Fossil Fuels',
+  tobacco_gambling: 'Tobacco & Gambling',
+};
+
+const MAX_POSITION_OPTIONS = [5, 10, 15, 25];
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -368,6 +420,7 @@ export default function PortfolioTab({
   syncedAccountType   = null,
   syncedSectorTargets = null,
   syncedCashAmount    = null,
+  syncedPreferences   = null,
   syncLoading         = false,
   isAuthenticated     = false,
   onSavePositions     = async () => {},
@@ -383,6 +436,8 @@ export default function PortfolioTab({
   const [liveData, setLiveData] = useState<Record<string, LiveData>>(_session.liveData ?? {});
   const [accountType, setAccountType] = useState<AccountType>(_session.accountType ?? 'unspecified');
   const [acctPanelOpen, setAcctPanelOpen] = useState(false);
+  const [investorPreferences, setInvestorPreferences] = useState<InvestorPreferences>(DEFAULT_PREFERENCES);
+  const [prefsPanelOpen, setPrefsPanelOpen] = useState(false);
 
   // Add form
   const [addTicker, setAddTicker] = useState('');
@@ -458,8 +513,11 @@ export default function PortfolioTab({
     if (syncedCashAmount != null && syncedCashAmount > 0) {
       setCashAmount(syncedCashAmount);
     }
+    if (syncedPreferences) {
+      setInvestorPreferences(syncedPreferences);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, syncedPositions, syncedAccountType, syncedSectorTargets]);
+  }, [isAuthenticated, syncedPositions, syncedAccountType, syncedSectorTargets, syncedPreferences]);
 
   // ─── Persist positions ────────────────────────────────────────────────────
   // Authenticated: write to Supabase (debounced in hook)
@@ -475,17 +533,17 @@ export default function PortfolioTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions]);
 
-  // ─── Persist preferences (account type + sector targets + cash) ─────────
+  // ─── Persist preferences (account type + sector targets + cash + investor prefs) ─
   useEffect(() => {
     if (!syncSeeded.current && isAuthenticated) return;
     if (isAuthenticated) {
-      onSavePreferences(accountType, sectorTargets, cashAmount);
+      onSavePreferences(accountType, sectorTargets, cashAmount, investorPreferences);
     } else {
       if (positions.length === 0 && Object.keys(sectorTargets).length === 0) return;
       saveSession({ positions, liveData, sectorTargets, accountType, savedAt: Date.now() });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountType, sectorTargets, cashAmount]);
+  }, [accountType, sectorTargets, cashAmount, investorPreferences]);
 
   // ─── Price fetching ───────────────────────────────────────────────────────
 
@@ -601,6 +659,7 @@ export default function PortfolioTab({
           })),
           accountType,
           accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
+          preferences: investorPreferences,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? sectorActuals : undefined,
           subSectorActuals: Object.keys(subSectorActuals).length > 0 ? subSectorActuals : undefined,
@@ -655,6 +714,7 @@ export default function PortfolioTab({
           })),
           accountType,
           accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
+          preferences: investorPreferences,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals,
           projectedTargets,
@@ -794,6 +854,7 @@ export default function PortfolioTab({
           },
           accountType,
           accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
+          preferences: investorPreferences,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? sectorActuals : undefined,
           cashContext: cashCtx,
@@ -877,6 +938,7 @@ export default function PortfolioTab({
           },
           accountType,
           accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
+          preferences: investorPreferences,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? sectorActuals : undefined,
           cashContext: cashCtx,
@@ -965,6 +1027,7 @@ export default function PortfolioTab({
           })),
           accountType,
           accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
+          preferences: investorPreferences,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? sectorActuals : undefined,
           cashContext: cashCtx,
@@ -1002,6 +1065,7 @@ export default function PortfolioTab({
           })),
           accountType,
           accountContext: ACCOUNT_TYPES[accountType].taxTreatment,
+          preferences: investorPreferences,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? getSectorActuals(computed) : undefined,
         }),
@@ -1111,6 +1175,15 @@ export default function PortfolioTab({
         />
       )}
 
+      {/* Investor preferences panel */}
+      {prefsPanelOpen && (
+        <PreferencesPanel
+          value={investorPreferences}
+          onChange={p => { setInvestorPreferences(p); setMacroRisk(null); setTrimResult(null); }}
+          onClose={() => setPrefsPanelOpen(false)}
+        />
+      )}
+
       {/* Sector Explore panel */}
       {exploreOpen && exploreSector && (
         <SectorExplorePanel
@@ -1149,6 +1222,9 @@ export default function PortfolioTab({
         <span style={{ fontSize: 11, color: '#8b93a8', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Account type</span>
         <button onClick={() => setAcctPanelOpen(true)} style={{ background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}55`, borderRadius: 6, cursor: 'pointer', color: acctCfg.color, fontSize: 12, fontFamily: 'Space Mono, monospace', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
           {acctCfg.label}<span style={{ fontSize: 10, opacity: 0.7 }}>▾</span>
+        </button>
+        <button onClick={() => setPrefsPanelOpen(true)} style={{ background: '#a259ff18', border: '1px solid #a259ff55', borderRadius: 6, cursor: 'pointer', color: '#a259ff', fontSize: 12, fontFamily: 'Space Mono, monospace', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          Preferences <span style={{ fontSize: 10, opacity: 0.7 }}>▾</span>
         </button>
         {acctCfg.constraints.length > 0 && (
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flex: 1 }}>
@@ -1958,6 +2034,172 @@ function AccountTypePanel({ value, onChange, onClose }: AccountTypePanelProps) {
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid #1e2230' }}>
           <div style={{ fontSize: 11, color: '#8b93a8', lineHeight: 1.6 }}>Account context is passed to Claude with every macro risk and trim suggestion call. It is not stored anywhere outside your browser session.</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── PreferencesPanel ───────────────────────────────────────────────────────
+
+interface PreferencesPanelProps {
+  value: InvestorPreferences;
+  onChange: (p: InvestorPreferences) => void;
+  onClose: () => void;
+}
+
+function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
+  const [draft, setDraft] = useState<InvestorPreferences>(value);
+
+  function patch(p: Partial<InvestorPreferences>) {
+    setDraft(prev => ({ ...prev, ...p }));
+  }
+
+  function toggleExclusion(flag: ExclusionFlag) {
+    setDraft(prev => ({
+      ...prev,
+      exclusions: prev.exclusions.includes(flag)
+        ? prev.exclusions.filter(f => f !== flag)
+        : [...prev.exclusions, flag],
+    }));
+  }
+
+  function save() {
+    onChange(draft);
+    onClose();
+  }
+
+  const segButtonStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1,
+    background: active ? '#a259ff18' : 'none',
+    border: `1px solid ${active ? '#a259ff' : '#1e2230'}`,
+    borderRadius: 6,
+    color: active ? '#a259ff' : '#8b93a8',
+    fontSize: 12,
+    padding: '8px 6px',
+    cursor: 'pointer',
+    textAlign: 'center',
+  });
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.55)' }} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50, width: 420, background: '#0f1117', borderLeft: '1px solid #1e2230', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #1e2230', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 500, color: '#e2e6f0', marginBottom: 4 }}>Investor preferences</div>
+            <div style={{ fontSize: 12, color: '#8b93a8', lineHeight: 1.5 }}>Shapes what Claude recommends — not just how it's phrased. Applies to macro risk, trim/add memos, sector explore, and cash deployment.</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 20, lineHeight: 1, padding: 4, marginLeft: 12 }}>×</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 22 }}>
+
+          {/* Risk tolerance */}
+          <div>
+            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 8 }}>Risk tolerance</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(Object.keys(RISK_LABELS) as RiskTolerance[]).map(key => (
+                <button key={key} onClick={() => patch({ riskTolerance: key })} style={segButtonStyle(draft.riskTolerance === key)}>
+                  <div>{RISK_LABELS[key].label}</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: '#6b7190', marginTop: 6 }}>{RISK_LABELS[draft.riskTolerance].desc}</div>
+          </div>
+
+          {/* Time horizon */}
+          <div>
+            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 8 }}>Time horizon</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(Object.keys(HORIZON_LABELS) as TimeHorizon[]).map(key => (
+                <button key={key} onClick={() => patch({ timeHorizon: key })} style={segButtonStyle(draft.timeHorizon === key)}>
+                  <div>{HORIZON_LABELS[key].label}</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: '#6b7190', marginTop: 6 }}>{HORIZON_LABELS[draft.timeHorizon].desc}</div>
+          </div>
+
+          {/* Income vs growth */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: '#e2e6f0' }}>Income ↔ Growth</span>
+              <span style={{ fontSize: 11, color: '#a259ff', fontFamily: 'Space Mono, monospace' }}>{draft.incomeGrowthTilt}%</span>
+            </div>
+            <input
+              type="range" min={0} max={100} step={5}
+              value={draft.incomeGrowthTilt}
+              onChange={e => patch({ incomeGrowthTilt: Number(e.target.value) })}
+              style={{ width: '100%', accentColor: '#a259ff' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6b7190', marginTop: 4 }}>
+              <span>Income</span><span>Growth</span>
+            </div>
+          </div>
+
+          {/* Diversification preference */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: '#e2e6f0' }}>Stock picking ↔ Funds</span>
+              <span style={{ fontSize: 11, color: '#a259ff', fontFamily: 'Space Mono, monospace' }}>{draft.diversificationPreference}%</span>
+            </div>
+            <input
+              type="range" min={0} max={100} step={5}
+              value={draft.diversificationPreference}
+              onChange={e => patch({ diversificationPreference: Number(e.target.value) })}
+              style={{ width: '100%', accentColor: '#a259ff' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6b7190', marginTop: 4 }}>
+              <span>Individual stocks</span><span>Prefer funds</span>
+            </div>
+          </div>
+
+          {/* Max position size */}
+          <div>
+            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 8 }}>Max single-position size</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {MAX_POSITION_OPTIONS.map(pct => (
+                <button key={pct} onClick={() => patch({ maxPositionSizePct: pct })} style={segButtonStyle(draft.maxPositionSizePct === pct)}>
+                  {pct}%
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* New money cadence */}
+          <div>
+            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 8 }}>New money</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => patch({ newMoneyCadence: 'lump_sum' })} style={segButtonStyle(draft.newMoneyCadence === 'lump_sum')}>Lump sum</button>
+              <button onClick={() => patch({ newMoneyCadence: 'dca' })} style={segButtonStyle(draft.newMoneyCadence === 'dca')}>Dollar-cost avg</button>
+            </div>
+          </div>
+
+          {/* Exclusions */}
+          <div>
+            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 4 }}>Exclusions</div>
+            <div style={{ fontSize: 10, color: '#6b7190', marginBottom: 8 }}>Best-effort — Claude is instructed to avoid these, not code-filtered yet.</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {(Object.keys(EXCLUSION_LABELS) as ExclusionFlag[]).map(flag => {
+                const active = draft.exclusions.includes(flag);
+                return (
+                  <button
+                    key={flag}
+                    onClick={() => toggleExclusion(flag)}
+                    style={{ background: active ? '#ff4b6e18' : 'none', border: `1px solid ${active ? '#ff4b6e' : '#1e2230'}`, borderRadius: 6, color: active ? '#ff4b6e' : '#8b93a8', fontSize: 11, padding: '6px 10px', cursor: 'pointer' }}
+                  >
+                    {active ? '✕ ' : ''}{EXCLUSION_LABELS[flag]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding: '14px 24px', borderTop: '1px solid #1e2230', display: 'flex', gap: 10 }}>
+          <button onClick={() => { setDraft(DEFAULT_PREFERENCES); }} style={{ background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 12, padding: '8px 14px', cursor: 'pointer' }}>Reset</button>
+          <button onClick={save} style={{ flex: 1, background: '#a259ff', border: 'none', borderRadius: 6, color: '#08090d', fontSize: 12, fontWeight: 600, padding: '8px 14px', cursor: 'pointer' }}>Save preferences</button>
         </div>
       </div>
     </>

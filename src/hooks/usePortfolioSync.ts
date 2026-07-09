@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import type { PortfolioPosition, AccountType } from '../components/compare/PortfolioTab';
+import type { PortfolioPosition, AccountType, InvestorPreferences } from '../components/compare/PortfolioTab';
 import type { SectorTargets } from '../components/compare/SectorTargetsPanel';
 
 // ─── DB row shapes ─────────────────────────────────────────────────────────────
@@ -17,7 +17,8 @@ interface PrefsRow {
   user_id: string;
   account_type: string;
   sector_targets: SectorTargets;
-  cash_amount?: number;   // NEW: persisted uninvested cash balance
+  cash_amount?: number;                    // NEW: persisted uninvested cash balance
+  preferences?: InvestorPreferences | null; // NEW: standing risk/style profile
 }
 
 // ─── Hook return shape ─────────────────────────────────────────────────────────
@@ -28,10 +29,11 @@ export interface PortfolioSyncReturn {
   savedAccountType:  AccountType | null;
   savedSectorTargets: SectorTargets | null;
   savedCashAmount:   number | null;    // NEW
+  savedPreferences:  InvestorPreferences | null;  // NEW
   loading:           boolean;
   // Write helpers — called by PortfolioTab after every mutation
   savePositions:     (positions: PortfolioPosition[]) => Promise<void>;
-  savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number) => Promise<void>;
+  savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences) => Promise<void>;
   // Whether we have an authenticated user (and therefore can persist)
   isAuthenticated:   boolean;
 }
@@ -43,6 +45,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   const [savedAccountType,   setSavedAccountType]   = useState<AccountType | null>(null);
   const [savedSectorTargets, setSavedSectorTargets] = useState<SectorTargets | null>(null);
   const [savedCashAmount,    setSavedCashAmount]    = useState<number | null>(null);   // NEW
+  const [savedPreferences,   setSavedPreferences]   = useState<InvestorPreferences | null>(null);  // NEW
   const [loading,            setLoading]            = useState(true);
   const [userId,             setUserId]             = useState<string | null>(null);
 
@@ -111,6 +114,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
           setSavedAccountType(row.account_type as AccountType);
           setSavedSectorTargets(row.sector_targets ?? {});
           setSavedCashAmount(row.cash_amount ?? 0);   // NEW
+          setSavedPreferences(row.preferences ?? null);  // NEW
         }
       } finally {
         setLoading(false);
@@ -156,12 +160,13 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   }, [userId]);
 
   // ── Write: preferences ────────────────────────────────────────────────────
-  // Upsert single row. Debounced 800ms. Now includes cashAmount.
+  // Upsert single row. Debounced 800ms. Now includes cashAmount + investor preferences.
 
   const savePreferences = useCallback(async (
     accountType:   AccountType,
     sectorTargets: SectorTargets,
-    cashAmount:    number,          // NEW
+    cashAmount:    number,               // NEW
+    preferences:   InvestorPreferences,  // NEW
   ) => {
     if (!userId) return;
 
@@ -173,7 +178,8 @@ export function usePortfolioSync(): PortfolioSyncReturn {
           user_id:        userId,
           account_type:   accountType,
           sector_targets: sectorTargets,
-          cash_amount:    cashAmount,    // NEW
+          cash_amount:    cashAmount,     // NEW
+          preferences:    preferences,    // NEW
           updated_at:     new Date().toISOString(),
         }, { onConflict: 'user_id' });
 
@@ -186,6 +192,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
     savedAccountType,
     savedSectorTargets,
     savedCashAmount,     // NEW
+    savedPreferences,    // NEW
     loading,
     savePositions,
     savePreferences,
