@@ -1298,6 +1298,35 @@ export default function PortfolioTab({
             )}
           </div>
 
+          {/* Cash deployment — standalone, no macro risk run required first */}
+          {cashAmount > 0 && computed.length > 0 && hasPrices && (
+            <div style={{ marginBottom: 16 }}>
+              {!cashResult && !cashLoading && (
+                <button
+                  onClick={() => runCashDeploy(computed, sectorActuals)}
+                  style={{ background: 'none', border: '1px solid #00e67644', borderRadius: 8, color: '#00e676', fontSize: 12, padding: '8px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <span style={{ fontSize: 13 }}>$</span> Where to deploy cash?
+                </button>
+              )}
+              {cashLoading && <div style={{ fontSize: 12, color: '#8b93a8', padding: '12px 0' }}>Analyzing…</div>}
+              {cashError && <div style={{ fontSize: 11, color: '#ff4b6e', padding: '8px 0' }}>{cashError}</div>}
+              {cashResult && (
+                <div style={{ borderLeft: '3px solid #00e676', padding: '16px 18px', background: '#00e6760d', borderRadius: '0 8px 8px 0' }}>
+                  <div style={{ fontSize: 10, fontWeight: 500, color: '#00e676', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Cash Deployment
+                    <span style={{ color: '#8b93a8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· {cashWeightPct.toFixed(1)}% of portfolio</span>
+                    {accountType !== 'unspecified' && (
+                      <span style={{ color: acctCfg.color, background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}44`, borderRadius: 4, padding: '1px 6px', fontSize: 9, fontFamily: 'Space Mono, monospace' }}>{acctCfg.shortLabel}</span>
+                    )}
+                  </div>
+                  <MarkdownCard>{cashResult}</MarkdownCard>
+                  <button onClick={() => runCashDeploy(computed, sectorActuals)} disabled={cashLoading} style={{ marginTop: 10, background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Positions table */}
           <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, overflow: 'hidden', marginBottom: 24 }}>
             {positions.length === 0 ? (
@@ -1489,30 +1518,7 @@ export default function PortfolioTab({
                     >
                       <span style={{ fontSize: 12 }}>⟳</span> Run scenario analysis
                     </button>
-                    {cashAmount > 0 && (
-                      <button
-                        onClick={() => runCashDeploy(computed, sectorActuals)}
-                        disabled={cashLoading}
-                        style={{ background: 'none', border: '1px solid #00e67633', borderRadius: 6, color: '#00e676', fontSize: 11, padding: '4px 10px', cursor: cashLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
-                      >
-                        <span style={{ fontSize: 12 }}>$</span> {cashLoading ? 'Analyzing…' : 'Where to deploy cash?'}
-                      </button>
-                    )}
                   </div>
-                  {cashError && <div style={{ fontSize: 11, color: '#ff4b6e', marginBottom: 8 }}>{cashError}</div>}
-                  {cashResult && (
-                    <div style={{ borderLeft: '3px solid #00e676', padding: '16px 18px', background: '#00e6760d', marginBottom: 16, borderRadius: '0 8px 8px 0' }}>
-                      <div style={{ fontSize: 10, fontWeight: 500, color: '#00e676', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        Cash Deployment
-                        <span style={{ color: '#8b93a8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· {cashWeightPct.toFixed(1)}% of portfolio</span>
-                        {accountType !== 'unspecified' && (
-                          <span style={{ color: acctCfg.color, background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}44`, borderRadius: 4, padding: '1px 6px', fontSize: 9, fontFamily: 'Space Mono, monospace' }}>{acctCfg.shortLabel}</span>
-                        )}
-                      </div>
-                      <MarkdownCard>{cashResult}</MarkdownCard>
-                      <button onClick={() => runCashDeploy(computed, sectorActuals)} disabled={cashLoading} style={{ marginTop: 10, background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
-                    </div>
-                  )}
                 </>
               )}
             </>
