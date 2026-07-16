@@ -71,6 +71,7 @@ export function Portfolio() {
       isAuthenticated={sync.isAuthenticated}
       onSavePositions={sync.savePositions}
       onSavePreferences={sync.savePreferences}
+      syncError={sync.syncError}
     />
   );
 }

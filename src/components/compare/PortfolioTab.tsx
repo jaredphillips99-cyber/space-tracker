@@ -58,6 +58,7 @@ export interface PortfolioTabSyncProps {
   isAuthenticated:     boolean;
   onSavePositions:     (positions: PortfolioPosition[]) => Promise<void>;
   onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences) => Promise<void>;
+  syncError?:          string | null;  // NEW: surfaced when a Supabase write/load fails
 }
 
 // ─── Account types ────────────────────────────────────────────────────────────
@@ -481,6 +482,7 @@ export default function PortfolioTab({
   isAuthenticated     = false,
   onSavePositions     = async () => {},
   onSavePreferences   = async () => {},
+  syncError           = null,
 }: Partial<PortfolioTabSyncProps> = {}) {
   // When authenticated, Supabase data is source of truth; session is anonymous fallback
   const _session = isAuthenticated ? {} : loadSession();
@@ -1275,6 +1277,14 @@ export default function PortfolioTab({
           onRun={() => runScenarioAnalysis(computed, sectorActuals)}
           onClose={() => setScenarioOpen(false)}
         />
+      )}
+
+      {/* Sync error banner — surfaces failed Supabase saves/loads instead of a silent console.warn */}
+      {syncError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 14px', background: '#ff4b6e14', border: '1px solid #ff4b6e44', borderRadius: 8, color: '#ff4b6e', fontSize: 12 }}>
+          <span style={{ fontSize: 14 }}>⚠</span>
+          <span style={{ flex: 1 }}>{syncError} — your change is only saved in this browser tab until this is resolved.</span>
+        </div>
       )}
 
       {/* Account type bar */}

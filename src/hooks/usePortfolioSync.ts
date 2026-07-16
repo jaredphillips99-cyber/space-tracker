@@ -36,6 +36,10 @@ export interface PortfolioSyncReturn {
   savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences) => Promise<void>;
   // Whether we have an authenticated user (and therefore can persist)
   isAuthenticated:   boolean;
+  // Set (non-null) whenever the most recent Supabase write failed — e.g. a
+  // missing column from an un-run migration. Surfaced in the UI so a failed
+  // save is never silent again; cleared automatically on the next successful write.
+  syncError:         string | null;
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────────
@@ -48,6 +52,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   const [savedPreferences,   setSavedPreferences]   = useState<InvestorPreferences | null>(null);  // NEW
   const [loading,            setLoading]            = useState(true);
   const [userId,             setUserId]             = useState<string | null>(null);
+  const [syncError,          setSyncError]          = useState<string | null>(null);
 
   // Debounce refs so rapid UI changes don't hammer Supabase
   const positionsTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -89,6 +94,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
 
         if (posErr) {
           console.warn('[portfolio-sync] positions load failed:', posErr.message);
+          setSyncError(`Positions failed to load: ${posErr.message}`);
         } else if (posRows) {
           setSavedPositions(
             (posRows as PositionRow[]).map(r => ({
@@ -109,6 +115,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
 
         if (prefErr) {
           console.warn('[portfolio-sync] prefs load failed:', prefErr.message);
+          setSyncError(`Preferences failed to load: ${prefErr.message}`);
         } else if (prefRow) {
           const row = prefRow as PrefsRow;
           setSavedAccountType(row.account_type as AccountType);
@@ -158,7 +165,12 @@ export function usePortfolioSync(): PortfolioSyncReturn {
       pendingPositionsWrite.current = null;
       if (payload === null) return;
       const { error } = await writePositionsNow(userId, payload);
-      if (error) console.warn('[portfolio-sync] positions save failed:', error.message);
+      if (error) {
+        console.warn('[portfolio-sync] positions save failed:', error.message);
+        setSyncError(`Positions failed to save: ${error.message}`);
+      } else {
+        setSyncError(null);
+      }
     }, 800);
   }, [userId, writePositionsNow]);
 
@@ -206,7 +218,12 @@ export function usePortfolioSync(): PortfolioSyncReturn {
       pendingPrefsWrite.current = null;
       if (!payload) return;
       const { error } = await writePrefsNow(userId, payload);
-      if (error) console.warn('[portfolio-sync] prefs save failed:', error.message);
+      if (error) {
+        console.warn('[portfolio-sync] prefs save failed:', error.message);
+        setSyncError(`Preferences failed to save: ${error.message}`);
+      } else {
+        setSyncError(null);
+      }
     }, 800);
   }, [userId, writePrefsNow]);
 
@@ -225,7 +242,10 @@ export function usePortfolioSync(): PortfolioSyncReturn {
         const payload = pendingPositionsWrite.current;
         pendingPositionsWrite.current = null;
         writePositionsNow(userId, payload).then(({ error }) => {
-          if (error) console.warn('[portfolio-sync] positions flush failed:', error.message);
+          if (error) {
+            console.warn('[portfolio-sync] positions flush failed:', error.message);
+            setSyncError(`Positions failed to save: ${error.message}`);
+          }
         });
       }
 
@@ -234,7 +254,10 @@ export function usePortfolioSync(): PortfolioSyncReturn {
         const payload = pendingPrefsWrite.current;
         pendingPrefsWrite.current = null;
         writePrefsNow(userId, payload).then(({ error }) => {
-          if (error) console.warn('[portfolio-sync] prefs flush failed:', error.message);
+          if (error) {
+            console.warn('[portfolio-sync] prefs flush failed:', error.message);
+            setSyncError(`Preferences failed to save: ${error.message}`);
+          }
         });
       }
     }
@@ -262,5 +285,6 @@ export function usePortfolioSync(): PortfolioSyncReturn {
     savePositions,
     savePreferences,
     isAuthenticated: !!userId,
+    syncError,
   };
 }
