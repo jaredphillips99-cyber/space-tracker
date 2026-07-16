@@ -610,13 +610,21 @@ export default function PortfolioTab({
       const res = await fetch(`/api/prices?tickers=${encodeURIComponent(ticker)}`);
       if (!res.ok) return { price: null };
       const data = await res.json();
-      const entry = Array.isArray(data) ? data.find((d: { ticker: string }) => d.ticker === ticker) : null;
+      const entry = Array.isArray(data) ? data.find((d: { ticker: string; fetchError?: boolean }) => d.ticker === ticker) : null;
+      // A failed lookup on the server comes back as { fetchError: true, price: 0 } so
+      // the dashboard table still renders — but 0 is a valid-looking number, and
+      // `?? null` only catches null/undefined. Left unchecked, a failed lookup here
+      // silently became a $0 price, which then produced Infinity/NaN in downstream
+      // math (e.g. cash ÷ price) instead of being treated as "not found."
+      if (!entry || entry.fetchError) {
+        return { price: null };
+      }
       return {
-        price: entry?.price ?? null,
-        yahooSector: entry?.yahooSector,
-        yahooIndustry: entry?.yahooIndustry,
-        fundCategory: entry?.fundCategory,
-        quoteType: entry?.quoteType,
+        price: entry.price ?? null,
+        yahooSector: entry.yahooSector,
+        yahooIndustry: entry.yahooIndustry,
+        fundCategory: entry.fundCategory,
+        quoteType: entry.quoteType,
       };
     } catch { return { price: null }; }
   }, []);

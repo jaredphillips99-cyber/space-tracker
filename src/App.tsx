@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { StockDetail } from './pages/StockDetail';
 import { Portfolio } from './pages/Portfolio';
 import { AuthGate } from './components/AuthGate';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { supabase } from './lib/supabase';
 import { useStore } from './store/useStore';
 import { useSupabaseSync } from './hooks/useSupabaseSync';
@@ -36,7 +37,7 @@ function AppInner() {
         <Routes>
           <Route path="/"              element={<Dashboard />} />
           <Route path="/stock/:ticker" element={<StockDetail />} />
-          <Route path="/portfolio"     element={<Portfolio />} />
+          <Route path="/portfolio"     element={<ErrorBoundary label="Portfolio"><Portfolio /></ErrorBoundary>} />
           <Route path="/admin"         element={<AuthGate />} />
         </Routes>
       </Layout>
