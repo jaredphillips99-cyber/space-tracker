@@ -1307,7 +1307,7 @@ export default function PortfolioTab({
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,3fr)', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,13fr) minmax(0,7fr)', gap: 20, alignItems: 'start' }}>
 
         {/* ══════════ LEFT COLUMN ══════════ */}
         <div>
@@ -1403,13 +1403,24 @@ export default function PortfolioTab({
               <div style={{ padding: '32px 20px', textAlign: 'center', color: '#8b93a8', fontSize: 13 }}>Add your first position below to get started.</div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
+              <table style={{ width: '100%', minWidth: 600, borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: 80 }} />
+                  <col style={{ width: 'auto' }} />
+                  <col style={{ width: 56 }} />
+                  <col style={{ width: 72 }} />
+                  <col style={{ width: 68 }} />
+                  <col style={{ width: 64 }} />
+                  <col style={{ width: 92 }} />
+                  <col style={{ width: 32 }} />
+                </colgroup>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #1e2230' }}>
                     {['Ticker', 'Sector', 'Shares', 'Avg price', 'Price', 'Gain / loss', 'Allocation', ''].map(h => (
                       <th key={h} style={{
                         textAlign: ['Allocation', 'Shares', 'Avg price', 'Price', 'Gain / loss'].includes(h) ? 'right' : 'left',
-                        padding: '6px 10px', color: '#8b93a8', fontWeight: 400, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+                        padding: '6px 8px', color: '#8b93a8', fontWeight: 400, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+                        overflow: 'hidden', textOverflow: 'ellipsis',
                         ...(h === '' ? { position: 'sticky' as const, right: 0, background: '#0f1117' } : {}),
                       }}>{h}</th>
                     ))}
@@ -1422,27 +1433,27 @@ export default function PortfolioTab({
                     const gainColor = p.unrealizedGainPct == null ? '#8b93a8' : p.unrealizedGainPct >= 0 ? '#00e676' : '#ff4b6e';
                     return (
                       <tr key={p.id} style={{ borderBottom: '1px solid #1e2230' }}>
-                        <td style={{ padding: '6px 10px' }}>
+                        <td style={{ padding: '6px 8px' }}>
                           <span style={{ background: `${color}22`, color, fontFamily: 'Space Mono, monospace', fontSize: 11, fontWeight: 500, padding: '2px 6px', borderRadius: 4 }}>{p.ticker}</span>
                           {!p.inUniverse && <span style={{ marginLeft: 5, fontSize: 9, color: '#8b93a8', border: '1px solid #1e2230', borderRadius: 3, padding: '1px 4px' }}>EXT</span>}
                         </td>
-                        <td style={{ padding: '6px 10px' }}>
+                        <td style={{ padding: '6px 8px', overflow: 'hidden' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                               <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, flexShrink: 0 }} />
                               <span style={{ fontSize: 10, color }}>{SECTOR_DISPLAY[p.sector].label}</span>
                             </span>
-                            {subLabel && <span style={{ fontSize: 9, color: '#6b7190', paddingLeft: 9 }}>{subLabel}</span>}
+                            {subLabel && <span style={{ fontSize: 9, color: '#6b7190', paddingLeft: 9, wordBreak: 'break-word' }}>{subLabel}</span>}
                           </div>
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'right' }}>
                           <EditableNumberCell
                             value={p.shares}
                             format={fmtShares}
                             onCommit={v => handleUpdatePosition(p.id, { shares: v })}
                           />
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'right' }}>
                           <EditableNumberCell
                             value={p.costBasisPerShare}
                             prefix="$"
@@ -1450,24 +1461,24 @@ export default function PortfolioTab({
                             onCommit={v => handleUpdatePosition(p.id, { costBasisPerShare: v })}
                           />
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#e2e6f0' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#e2e6f0' }}>
                           {p.liveLoading ? <span style={{ color: '#8b93a8' }}>…</span> : p.livePrice != null ? `$${p.livePrice.toFixed(2)}` : <span style={{ color: '#ff4b6e', fontSize: 10 }}>ERR</span>}
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: gainColor }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: gainColor }}>
                           {p.unrealizedGainPct != null ? `${p.unrealizedGainPct >= 0 ? '+' : ''}${fmt(p.unrealizedGainPct)}%` : '—'}
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
-                            <div style={{ width: 48, height: 3, background: '#1e2230', borderRadius: 2, flexShrink: 0 }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                            <div style={{ width: 32, height: 3, background: '#1e2230', borderRadius: 2, flexShrink: 0 }}>
                               <div style={{ height: 3, borderRadius: 2, background: color, width: `${Math.min(p.portfolioWeightPct * 2.5, 100)}%` }} />
                             </div>
-                            <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#8b93a8', minWidth: 30 }}>
+                            <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#8b93a8', minWidth: 26 }}>
                               {hasPrices ? `${fmt(p.portfolioWeightPct)}%` : '—'}
                             </span>
                           </div>
                         </td>
-                        <td style={{ padding: '6px 6px', position: 'sticky', right: 0, background: '#0f1117', borderLeft: '1px solid #1e2230' }}>
-                          <button onClick={() => handleRemovePosition(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 16, lineHeight: 1, padding: '4px 8px' }} title="Remove">×</button>
+                        <td style={{ padding: '6px 4px', position: 'sticky', right: 0, background: '#0f1117', borderLeft: '1px solid #1e2230' }}>
+                          <button onClick={() => handleRemovePosition(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 15, lineHeight: 1, padding: '4px 5px' }} title="Remove">×</button>
                         </td>
                       </tr>
                     );
