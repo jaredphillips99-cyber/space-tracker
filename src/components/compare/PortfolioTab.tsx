@@ -583,7 +583,8 @@ export default function PortfolioTab({
     if (isAuthenticated) {
       onSavePositions(positions);
     } else {
-      if (positions.length === 0 && Object.keys(sectorTargets).length === 0) return;
+      // Always persist, even when the portfolio is emptied out — otherwise a
+      // removed position can silently reappear from stale sessionStorage.
       saveSession({ positions, liveData, sectorTargets, accountType, savedAt: Date.now() });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -595,7 +596,6 @@ export default function PortfolioTab({
     if (isAuthenticated) {
       onSavePreferences(accountType, sectorTargets, cashAmount, investorPreferences);
     } else {
-      if (positions.length === 0 && Object.keys(sectorTargets).length === 0) return;
       saveSession({ positions, liveData, sectorTargets, accountType, savedAt: Date.now() });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
