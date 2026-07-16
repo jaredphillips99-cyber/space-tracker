@@ -1388,15 +1388,20 @@ export default function PortfolioTab({
           )}
 
           {/* Positions table */}
-          <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, overflow: 'hidden', marginBottom: 24 }}>
+          <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, marginBottom: 24, overflow: 'hidden' }}>
             {positions.length === 0 ? (
               <div style={{ padding: '32px 20px', textAlign: 'center', color: '#8b93a8', fontSize: 13 }}>Add your first position below to get started.</div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #1e2230' }}>
                     {['Ticker', 'Sector', 'Shares', 'Avg price', 'Price', 'Gain / loss', 'Allocation', ''].map(h => (
-                      <th key={h} style={{ textAlign: ['Allocation', 'Shares', 'Avg price', 'Price', 'Gain / loss'].includes(h) ? 'right' : 'left', padding: '6px 10px', color: '#8b93a8', fontWeight: 400, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                      <th key={h} style={{
+                        textAlign: ['Allocation', 'Shares', 'Avg price', 'Price', 'Gain / loss'].includes(h) ? 'right' : 'left',
+                        padding: '6px 10px', color: '#8b93a8', fontWeight: 400, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+                        ...(h === '' ? { position: 'sticky' as const, right: 0, background: '#0f1117' } : {}),
+                      }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1451,14 +1456,15 @@ export default function PortfolioTab({
                             </span>
                           </div>
                         </td>
-                        <td style={{ padding: '6px 6px' }}>
-                          <button onClick={() => handleRemovePosition(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 14, lineHeight: 1, padding: '2px 4px' }} title="Remove">×</button>
+                        <td style={{ padding: '6px 6px', position: 'sticky', right: 0, background: '#0f1117', borderLeft: '1px solid #1e2230' }}>
+                          <button onClick={() => handleRemovePosition(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 16, lineHeight: 1, padding: '4px 8px' }} title="Remove">×</button>
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+              </div>
             )}
             {/* Add row */}
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '8px 10px', borderTop: positions.length > 0 ? '1px solid #1e2230' : 'none', background: '#0f1117' }}>
