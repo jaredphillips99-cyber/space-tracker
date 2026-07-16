@@ -46,6 +46,13 @@ function saveSession(data: SessionCache) {
   } catch {}
 }
 
+// Read-only accessor for the anonymous-session portfolio, used by the Net Worth
+// tab to derive the linked "Portfolio holdings" value without duplicating the
+// session key or TTL logic here.
+export function readSessionPositions(): PortfolioPosition[] {
+  return loadSession().positions ?? [];
+}
+
 // ─── Sync props (passed from Portfolio.tsx when authenticated) ────────────────
 
 export interface PortfolioTabSyncProps {

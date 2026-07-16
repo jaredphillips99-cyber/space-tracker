@@ -1,0 +1,332 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { supabase } from '../lib/supabase';
+
+// ─── Types ─────────────────────────────────────────────────────────────────────
+
+export type AccountKind = 'holdings_link' | 'cash' | 'balance' | 'crypto';
+
+export interface NetWorthAccount {
+  id: string;
+  kind: AccountKind;
+  label: string;
+  balance: number | null;
+  balanceUpdatedAt: string | null;
+  linked: boolean;
+  sortOrder: number;
+}
+
+// ─── DB row shape (accounts table) ─────────────────────────────────────────────
+
+interface AccountRow {
+  id: string;
+  user_id: string;
+  kind: AccountKind;
+  label: string;
+  balance: number | null;
+  balance_updated_at: string | null;
+  linked: boolean;
+  sort_order: number;
+  created_at?: string;
+}
+
+function mapRow(r: AccountRow): NetWorthAccount {
+  return {
+    id:               r.id,
+    kind:             r.kind,
+    label:            r.label,
+    balance:          r.balance == null ? null : Number(r.balance),
+    balanceUpdatedAt: r.balance_updated_at,
+    linked:           r.linked,
+    sortOrder:        r.sort_order,
+  };
+}
+
+// The single synthetic row representing "whatever is in the Portfolio tab".
+// Its displayed value is always derived live from Portfolio positions —
+// the stored balance is never read.
+const LINKED_ROW_DEFAULTS = {
+  kind:   'holdings_link' as AccountKind,
+  label:  'Portfolio holdings',
+  linked: true,
+};
+
+function localLinkedRow(): NetWorthAccount {
+  return {
+    id: 'linked-local',
+    ...LINKED_ROW_DEFAULTS,
+    balance: null,
+    balanceUpdatedAt: null,
+    sortOrder: 0,
+  };
+}
+
+// ─── Hook return shape ─────────────────────────────────────────────────────────
+
+export interface NetWorthSyncReturn {
+  accounts:        NetWorthAccount[] | null;   // null = not yet loaded
+  loading:         boolean;
+  isAuthenticated: boolean;
+  syncError:       string | null;
+  addAccount:            (kind: AccountKind, label: string, balance?: number) => Promise<void>;
+  updateAccountBalance:  (id: string, balance: number) => Promise<void>;
+  removeAccount:         (id: string) => Promise<void>;
+  reorderAccounts:       (orderedIds: string[]) => Promise<void>;
+}
+
+// ─── Hook ──────────────────────────────────────────────────────────────────────
+// Mirrors usePortfolioSync: resolve user via supabase.auth, load on mount,
+// debounce balance edits, and flush pending writes on visibilitychange/pagehide
+// so a change made right before closing the tab isn't lost.
+// Anonymous users get in-memory accounts only — nothing persists.
+
+export function useNetWorthSync(): NetWorthSyncReturn {
+  const [accounts,  setAccounts]  = useState<NetWorthAccount[] | null>(null);
+  const [loading,   setLoading]   = useState(true);
+  const [userId,    setUserId]    = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  // ── Resolve user ID on mount and on auth changes ──────────────────────────
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUserId(data.session?.user?.id ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUserId(session?.user?.id ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Load accounts when userId is resolved ─────────────────────────────────
+
+  useEffect(() => {
+    if (userId === null) {
+      // No session — in-memory state only, seeded with the synthetic linked row
+      setAccounts(prev => prev ?? [localLinkedRow()]);
+      setLoading(false);
+      return;
+    }
+
+    async function load() {
+      setLoading(true);
+      try {
+        const { data: rows, error } = await supabase
+          .from('accounts')
+          .select('*')
+          .eq('user_id', userId)
+          .order('sort_order', { ascending: true });
+
+        if (error) {
+          console.warn('[networth-sync] accounts load failed:', error.message);
+          setSyncError(`Accounts failed to load: ${error.message}`);
+          return;
+        }
+
+        let mapped = (rows as AccountRow[]).map(mapRow);
+
+        // Auto-create the linked Portfolio row on first load if missing
+        if (!mapped.some(a => a.kind === 'holdings_link')) {
+          const { data: inserted, error: insErr } = await supabase
+            .from('accounts')
+            .insert({
+              user_id:    userId,
+              ...LINKED_ROW_DEFAULTS,
+              balance:    0,   // never read — display value derives from Portfolio
+              sort_order: 0,
+            })
+            .select()
+            .single();
+
+          if (insErr) {
+            console.warn('[networth-sync] linked row create failed:', insErr.message);
+            setSyncError(`Failed to initialize accounts: ${insErr.message}`);
+            // Still show a local linked row so the page renders
+            mapped = [localLinkedRow(), ...mapped];
+          } else if (inserted) {
+            mapped = [mapRow(inserted as AccountRow), ...mapped];
+            setSyncError(null);
+          }
+        }
+
+        setAccounts(mapped);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // ── Write: balance edits ──────────────────────────────────────────────────
+  // Debounced 800ms so typing doesn't hammer Supabase, with the same
+  // pending-ref + flush-on-leave treatment as usePortfolioSync — the debounce
+  // alone means an edit made right before closing the tab can be lost.
+
+  const balanceTimer          = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingBalanceWrites  = useRef<Map<string, number>>(new Map());
+
+  const writeBalancesNow = useCallback(async (uid: string, writes: Map<string, number>) => {
+    for (const [id, balance] of writes) {
+      const { error } = await supabase
+        .from('accounts')
+        .update({ balance, balance_updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('user_id', uid);
+      if (error) return error;
+    }
+    return null;
+  }, []);
+
+  const flushBalances = useCallback(() => {
+    if (!userId || pendingBalanceWrites.current.size === 0) return;
+    if (balanceTimer.current) clearTimeout(balanceTimer.current);
+    const writes = pendingBalanceWrites.current;
+    pendingBalanceWrites.current = new Map();
+    writeBalancesNow(userId, writes).then(error => {
+      if (error) {
+        console.warn('[networth-sync] balance save failed:', error.message);
+        setSyncError(`Balance failed to save: ${error.message}`);
+      } else {
+        setSyncError(null);
+      }
+    });
+  }, [userId, writeBalancesNow]);
+
+  const updateAccountBalance = useCallback(async (id: string, balance: number) => {
+    const now = new Date().toISOString();
+    setAccounts(prev =>
+      prev?.map(a => (a.id === id ? { ...a, balance, balanceUpdatedAt: now } : a)) ?? prev
+    );
+
+    if (!userId) return; // anonymous — in-memory only
+
+    pendingBalanceWrites.current.set(id, balance);
+    if (balanceTimer.current) clearTimeout(balanceTimer.current);
+    balanceTimer.current = setTimeout(flushBalances, 800);
+  }, [userId, flushBalances]);
+
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'hidden') flushBalances();
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', flushBalances);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', flushBalances);
+    };
+  }, [flushBalances]);
+
+  // ── Write: add / remove / reorder (immediate, not debounced) ──────────────
+
+  const addAccount = useCallback(async (kind: AccountKind, label: string, balance = 0) => {
+    const sortOrder = (accounts ?? []).reduce((max, a) => Math.max(max, a.sortOrder), 0) + 1;
+
+    if (!userId) {
+      setAccounts(prev => [
+        ...(prev ?? []),
+        {
+          id: `local-${Date.now()}`,
+          kind, label, balance,
+          balanceUpdatedAt: new Date().toISOString(),
+          linked: false,
+          sortOrder,
+        },
+      ]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('accounts')
+      .insert({
+        user_id:            userId,
+        kind,
+        label,
+        balance,
+        balance_updated_at: new Date().toISOString(),
+        linked:             false,
+        sort_order:         sortOrder,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('[networth-sync] account add failed:', error.message);
+      setSyncError(`Account failed to save: ${error.message}`);
+    } else if (data) {
+      setAccounts(prev => [...(prev ?? []), mapRow(data as AccountRow)]);
+      setSyncError(null);
+    }
+  }, [userId, accounts]);
+
+  const removeAccount = useCallback(async (id: string) => {
+    // The linked Portfolio row is permanent — never deletable
+    const target = accounts?.find(a => a.id === id);
+    if (!target || target.kind === 'holdings_link') return;
+
+    setAccounts(prev => prev?.filter(a => a.id !== id) ?? prev);
+    pendingBalanceWrites.current.delete(id);
+
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from('accounts')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.warn('[networth-sync] account remove failed:', error.message);
+      setSyncError(`Account failed to remove: ${error.message}`);
+    } else {
+      setSyncError(null);
+    }
+  }, [userId, accounts]);
+
+  const reorderAccounts = useCallback(async (orderedIds: string[]) => {
+    setAccounts(prev => {
+      if (!prev) return prev;
+      const byId = new Map(prev.map(a => [a.id, a]));
+      const reordered = orderedIds
+        .map((id, i) => {
+          const a = byId.get(id);
+          return a ? { ...a, sortOrder: i } : null;
+        })
+        .filter((a): a is NetWorthAccount => a !== null);
+      // Keep any accounts not mentioned in orderedIds at the end
+      const leftover = prev.filter(a => !orderedIds.includes(a.id));
+      return [...reordered, ...leftover];
+    });
+
+    if (!userId) return;
+
+    const results = await Promise.all(
+      orderedIds.map((id, i) =>
+        supabase.from('accounts').update({ sort_order: i }).eq('id', id).eq('user_id', userId)
+      )
+    );
+    const failed = results.find(r => r.error);
+    if (failed?.error) {
+      console.warn('[networth-sync] reorder failed:', failed.error.message);
+      setSyncError(`Account order failed to save: ${failed.error.message}`);
+    } else {
+      setSyncError(null);
+    }
+  }, [userId]);
+
+  return {
+    accounts,
+    loading,
+    isAuthenticated: !!userId,
+    syncError,
+    addAccount,
+    updateAccountBalance,
+    removeAccount,
+    reorderAccounts,
+  };
+}

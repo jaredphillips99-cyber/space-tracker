@@ -7,6 +7,7 @@ import type { Sector } from '../../types';
 const NAV_LINKS = [
   { to: '/', label: 'Dashboard' },
   { to: '/portfolio', label: 'Portfolio' },
+  { to: '/networth', label: 'Net Worth' },
 ];
 
 // lng_export intentionally excluded
