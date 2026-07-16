@@ -3,16 +3,29 @@ import { supabase } from '../lib/supabase';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-export type AccountKind = 'holdings_link' | 'cash' | 'balance' | 'crypto';
+export type AccountKind = 'holdings_link' | 'cash' | 'balance' | 'crypto' | 'credit_card';
 
 export interface NetWorthAccount {
   id: string;
   kind: AccountKind;
   label: string;
-  balance: number | null;
+  balance: number | null;   // for credit_card: amount currently owed (positive)
   balanceUpdatedAt: string | null;
   linked: boolean;
   sortOrder: number;
+  // credit_card only — absent/null for all other kinds
+  apr?: number | null;
+  dueDate?: string | null;          // 'YYYY-MM-DD'
+  minPayment?: number | null;
+  statementBalance?: number | null;
+}
+
+// Optional credit-card fields accepted at creation time
+export interface CreditCardFields {
+  apr?: number | null;
+  dueDate?: string | null;
+  minPayment?: number | null;
+  statementBalance?: number | null;
 }
 
 // ─── DB row shape (accounts table) ─────────────────────────────────────────────
@@ -27,6 +40,11 @@ interface AccountRow {
   linked: boolean;
   sort_order: number;
   created_at?: string;
+  // credit_card columns — nullable, null for all other kinds
+  apr?: number | null;
+  due_date?: string | null;
+  min_payment?: number | null;
+  statement_balance?: number | null;
 }
 
 function mapRow(r: AccountRow): NetWorthAccount {
@@ -38,6 +56,10 @@ function mapRow(r: AccountRow): NetWorthAccount {
     balanceUpdatedAt: r.balance_updated_at,
     linked:           r.linked,
     sortOrder:        r.sort_order,
+    apr:              r.apr == null ? null : Number(r.apr),
+    dueDate:          r.due_date ?? null,
+    minPayment:       r.min_payment == null ? null : Number(r.min_payment),
+    statementBalance: r.statement_balance == null ? null : Number(r.statement_balance),
   };
 }
 
@@ -67,8 +89,15 @@ export interface NetWorthSyncReturn {
   loading:         boolean;
   isAuthenticated: boolean;
   syncError:       string | null;
-  addAccount:            (kind: AccountKind, label: string, balance?: number) => Promise<void>;
+  addAccount:            (kind: AccountKind, label: string, balance?: number, creditCard?: CreditCardFields) => Promise<void>;
   updateAccountBalance:  (id: string, balance: number) => Promise<void>;
+  updateCreditCard:      (id: string, fields: Partial<{
+    balance: number;
+    apr: number | null;
+    dueDate: string | null;
+    minPayment: number | null;
+    statementBalance: number | null;
+  }>) => Promise<void>;
   removeAccount:         (id: string) => Promise<void>;
   reorderAccounts:       (orderedIds: string[]) => Promise<void>;
 }
@@ -224,7 +253,7 @@ export function useNetWorthSync(): NetWorthSyncReturn {
 
   // ── Write: add / remove / reorder (immediate, not debounced) ──────────────
 
-  const addAccount = useCallback(async (kind: AccountKind, label: string, balance = 0) => {
+  const addAccount = useCallback(async (kind: AccountKind, label: string, balance = 0, creditCard?: CreditCardFields) => {
     const sortOrder = (accounts ?? []).reduce((max, a) => Math.max(max, a.sortOrder), 0) + 1;
 
     if (!userId) {
@@ -236,6 +265,10 @@ export function useNetWorthSync(): NetWorthSyncReturn {
           balanceUpdatedAt: new Date().toISOString(),
           linked: false,
           sortOrder,
+          apr:              creditCard?.apr ?? null,
+          dueDate:          creditCard?.dueDate ?? null,
+          minPayment:       creditCard?.minPayment ?? null,
+          statementBalance: creditCard?.statementBalance ?? null,
         },
       ]);
       return;
@@ -251,6 +284,10 @@ export function useNetWorthSync(): NetWorthSyncReturn {
         balance_updated_at: new Date().toISOString(),
         linked:             false,
         sort_order:         sortOrder,
+        apr:                creditCard?.apr ?? null,
+        due_date:           creditCard?.dueDate ?? null,
+        min_payment:        creditCard?.minPayment ?? null,
+        statement_balance:  creditCard?.statementBalance ?? null,
       })
       .select()
       .single();
@@ -263,6 +300,62 @@ export function useNetWorthSync(): NetWorthSyncReturn {
       setSyncError(null);
     }
   }, [userId, accounts]);
+
+  // ── Write: credit-card field edits ────────────────────────────────────────
+  // Immediate (not debounced) — commits arrive on blur/Enter, one discrete
+  // event per edit, so the keystroke-debounce machinery above isn't needed.
+  // The balance debounce path stays balance-only; credit-card balance edits
+  // route here instead so a single update carries balance_updated_at too.
+
+  const updateCreditCard = useCallback(async (id: string, fields: Partial<{
+    balance: number;
+    apr: number | null;
+    dueDate: string | null;
+    minPayment: number | null;
+    statementBalance: number | null;
+  }>) => {
+    const now = new Date().toISOString();
+
+    setAccounts(prev =>
+      prev?.map(a => a.id === id
+        ? {
+            ...a,
+            ...('balance' in fields ? { balance: fields.balance ?? null, balanceUpdatedAt: now } : {}),
+            ...('apr' in fields ? { apr: fields.apr ?? null } : {}),
+            ...('dueDate' in fields ? { dueDate: fields.dueDate ?? null } : {}),
+            ...('minPayment' in fields ? { minPayment: fields.minPayment ?? null } : {}),
+            ...('statementBalance' in fields ? { statementBalance: fields.statementBalance ?? null } : {}),
+          }
+        : a
+      ) ?? prev
+    );
+
+    if (!userId) return; // anonymous — in-memory only
+
+    const patch: Record<string, unknown> = {};
+    if ('balance' in fields) {
+      patch.balance = fields.balance;
+      patch.balance_updated_at = now;
+    }
+    if ('apr' in fields)              patch.apr = fields.apr;
+    if ('dueDate' in fields)          patch.due_date = fields.dueDate;
+    if ('minPayment' in fields)       patch.min_payment = fields.minPayment;
+    if ('statementBalance' in fields) patch.statement_balance = fields.statementBalance;
+    if (Object.keys(patch).length === 0) return;
+
+    const { error } = await supabase
+      .from('accounts')
+      .update(patch)
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.warn('[networth-sync] credit card save failed:', error.message);
+      setSyncError(`Card details failed to save: ${error.message}`);
+    } else {
+      setSyncError(null);
+    }
+  }, [userId]);
 
   const removeAccount = useCallback(async (id: string) => {
     // The linked Portfolio row is permanent — never deletable
@@ -326,6 +419,7 @@ export function useNetWorthSync(): NetWorthSyncReturn {
     syncError,
     addAccount,
     updateAccountBalance,
+    updateCreditCard,
     removeAccount,
     reorderAccounts,
   };

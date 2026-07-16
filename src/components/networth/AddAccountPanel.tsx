@@ -1,40 +1,77 @@
 import { useState, useEffect } from 'react';
-import type { AccountKind } from '../../hooks/useNetWorthSync';
+import type { AccountKind, CreditCardFields } from '../../hooks/useNetWorthSync';
 import { KIND_DISPLAY } from './kindDisplay';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onAdd: (kind: AccountKind, label: string, balance: number) => Promise<void>;
+  onAdd: (kind: AccountKind, label: string, balance: number, creditCard?: CreditCardFields) => Promise<void>;
 }
 
-const ADDABLE_KINDS: AccountKind[] = ['cash', 'balance', 'crypto'];
+const ADDABLE_KINDS: AccountKind[] = ['cash', 'balance', 'crypto', 'credit_card'];
+
+// Optional numeric field: empty is fine (null), otherwise must parse ≥ 0
+function parseOptional(s: string): { ok: boolean; value: number | null } {
+  const t = s.trim();
+  if (t === '') return { ok: true, value: null };
+  const n = parseFloat(t);
+  return { ok: !isNaN(n) && n >= 0, value: n };
+}
 
 export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
   const [kind, setKind]       = useState<AccountKind>('cash');
   const [label, setLabel]     = useState('');
   const [balance, setBalance] = useState('');
   const [saving, setSaving]   = useState(false);
+  // credit_card only
+  const [apr, setApr]                   = useState('');
+  const [dueDate, setDueDate]           = useState('');
+  const [minPayment, setMinPayment]     = useState('');
+  const [stmtBalance, setStmtBalance]   = useState('');
 
   useEffect(() => {
     if (open) {
       setKind('cash');
       setLabel('');
       setBalance('');
+      setApr('');
+      setDueDate('');
+      setMinPayment('');
+      setStmtBalance('');
       setSaving(false);
     }
   }, [open]);
 
   if (!open) return null;
 
+  const isCard = kind === 'credit_card';
+
   const parsedBalance = parseFloat(balance);
   const balanceOk = balance.trim() !== '' && !isNaN(parsedBalance) && parsedBalance >= 0;
-  const canSave = label.trim() !== '' && balanceOk && !saving;
+
+  const aprParsed  = parseOptional(apr);
+  const minParsed  = parseOptional(minPayment);
+  const stmtParsed = parseOptional(stmtBalance);
+  const cardFieldsOk = !isCard || (aprParsed.ok && minParsed.ok && stmtParsed.ok);
+
+  const canSave = label.trim() !== '' && balanceOk && cardFieldsOk && !saving;
 
   async function handleSave() {
     if (!canSave) return;
     setSaving(true);
-    await onAdd(kind, label.trim(), parsedBalance);
+    await onAdd(
+      kind,
+      label.trim(),
+      parsedBalance,
+      isCard
+        ? {
+            apr:              aprParsed.value,
+            dueDate:          dueDate || null,
+            minPayment:       minParsed.value,
+            statementBalance: stmtParsed.value,
+          }
+        : undefined
+    );
     onClose();
   }
 
@@ -83,7 +120,7 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
           <div>
             <div style={{ fontSize: 15, fontWeight: 500, color: '#e2e6f0' }}>Add account</div>
             <div style={{ fontSize: 12, color: '#8b93a8', marginTop: 3 }}>
-              Track cash, retirement balances, or crypto alongside your portfolio.
+              Track cash, retirement balances, crypto, or credit card debt alongside your portfolio.
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 20, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
@@ -129,14 +166,19 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
               type="text"
               value={label}
               onChange={e => setLabel(e.target.value)}
-              placeholder={kind === 'cash' ? 'e.g. Checking account' : kind === 'balance' ? 'e.g. 401k — Fidelity' : 'e.g. Coinbase'}
+              placeholder={
+                kind === 'cash' ? 'e.g. Checking account'
+                : kind === 'balance' ? 'e.g. 401k — Fidelity'
+                : kind === 'credit_card' ? 'e.g. Chase Sapphire'
+                : 'e.g. Coinbase'
+              }
               style={inputStyle}
             />
           </div>
 
           {/* Starting balance */}
           <div>
-            <span style={fieldLabelStyle}>Current balance</span>
+            <span style={fieldLabelStyle}>{isCard ? 'Current balance owed' : 'Current balance'}</span>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <span style={{ position: 'absolute', left: 12, color: '#8b93a8', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
               <input
@@ -161,6 +203,77 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
               </div>
             )}
           </div>
+
+          {/* Credit card details — all optional */}
+          {isCard && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <span style={fieldLabelStyle}>APR % (optional)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={apr}
+                    onChange={e => setApr(e.target.value)}
+                    placeholder="e.g. 24.99"
+                    style={{ ...inputStyle, fontFamily: 'Space Mono, monospace', MozAppearance: 'textfield' as any }}
+                  />
+                  {!aprParsed.ok && (
+                    <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 6 }}>Must be a number ≥ 0.</div>
+                  )}
+                </div>
+                <div>
+                  <span style={fieldLabelStyle}>Payment due date</span>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={e => setDueDate(e.target.value)}
+                    style={{ ...inputStyle, fontFamily: 'Space Mono, monospace', colorScheme: 'dark' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <span style={fieldLabelStyle}>Min payment (optional)</span>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <span style={{ position: 'absolute', left: 12, color: '#8b93a8', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={minPayment}
+                      onChange={e => setMinPayment(e.target.value)}
+                      placeholder="0"
+                      style={{ ...inputStyle, paddingLeft: 26, fontFamily: 'Space Mono, monospace', MozAppearance: 'textfield' as any }}
+                    />
+                  </div>
+                  {!minParsed.ok && (
+                    <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 6 }}>Must be a number ≥ 0.</div>
+                  )}
+                </div>
+                <div>
+                  <span style={fieldLabelStyle}>Statement balance (optional)</span>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <span style={{ position: 'absolute', left: 12, color: '#8b93a8', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={stmtBalance}
+                      onChange={e => setStmtBalance(e.target.value)}
+                      placeholder="0"
+                      style={{ ...inputStyle, paddingLeft: 26, fontFamily: 'Space Mono, monospace', MozAppearance: 'textfield' as any }}
+                    />
+                  </div>
+                  {!stmtParsed.ok && (
+                    <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 6 }}>Must be a number ≥ 0.</div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Actions */}

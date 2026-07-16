@@ -9,7 +9,8 @@ import { KIND_DISPLAY } from './kindDisplay';
 // ─── Formatting helpers ─────────────────────────────────────────────────────────
 
 function fmtUSD(n: number): string {
-  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  const abs = '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  return n < 0 ? `−${abs}` : abs;
 }
 
 function fmtUpdated(iso: string | null): string {
@@ -18,6 +19,39 @@ function fmtUpdated(iso: string | null): string {
   if (days <= 0) return 'today';
   if (days === 1) return '1d ago';
   return `${days}d ago`;
+}
+
+// ─── Credit card due-date helpers ───────────────────────────────────────────────
+// All urgency is computed at render from today's date — never stored.
+
+const RED   = '#ff4b6e';
+const AMBER = '#ffd166';
+const MUTED_ACCENT = '#2e3548';
+
+// Whole days from today (local midnight) to a 'YYYY-MM-DD' due date.
+// Negative = overdue.
+function daysUntil(dateStr: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dateStr.slice(0, 10) + 'T00:00:00');
+  return Math.round((due.getTime() - today.getTime()) / 86_400_000);
+}
+
+function dueDaysLabel(days: number): string {
+  if (days < 0) return `${-days}d overdue`;
+  if (days === 0) return 'due today';
+  return `in ${days}d`;
+}
+
+function dueDaysColor(days: number): string {
+  if (days <= 5) return RED;
+  if (days <= 14) return AMBER;
+  return '#8b93a8';
+}
+
+function fmtDueShort(dateStr: string): string {
+  return new Date(dateStr.slice(0, 10) + 'T00:00:00')
+    .toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 // ─── Linked Portfolio value ─────────────────────────────────────────────────────
@@ -94,7 +128,11 @@ function useLinkedPortfolioValue(): { value: number | null; loading: boolean; ha
 
 // ─── Inline balance editor ──────────────────────────────────────────────────────
 
-function BalanceCell({ account, onCommit }: { account: NetWorthAccount; onCommit: (v: number) => void }) {
+function BalanceCell({ account, onCommit, color = '#e2e6f0' }: {
+  account: NetWorthAccount;
+  onCommit: (v: number) => void;
+  color?: string;
+}) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft]     = useState('');
 
@@ -147,7 +185,7 @@ function BalanceCell({ account, onCommit }: { account: NetWorthAccount; onCommit
       style={{
         fontSize: 14,
         fontFamily: 'Space Mono, monospace',
-        color: '#e2e6f0',
+        color,
         cursor: 'pointer',
         borderBottom: '1px dashed #2e3548',
       }}
@@ -157,29 +195,208 @@ function BalanceCell({ account, onCommit }: { account: NetWorthAccount; onCommit
   );
 }
 
+// ─── Small inline editors for credit-card fields ────────────────────────────────
+// Same click-to-edit pattern as BalanceCell, scaled down for the detail row.
+// Empty input commits null (clears the field) — optional fields stay optional.
+
+function MiniNumberCell({ label, value, prefix = '', suffix = '', onCommit }: {
+  label: string;
+  value: number | null;
+  prefix?: string;
+  suffix?: string;
+  onCommit: (v: number | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState('');
+
+  function startEdit() {
+    setDraft(value == null ? '' : String(value));
+    setEditing(true);
+  }
+
+  function commit() {
+    const t = draft.trim();
+    if (t === '') {
+      if (value != null) onCommit(null);
+    } else {
+      const n = parseFloat(t);
+      if (!isNaN(n) && n >= 0 && n !== value) onCommit(n);
+    }
+    setEditing(false);
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5 }}>
+      <span style={{ fontSize: 9, color: '#4a4f63', fontFamily: 'Space Mono, monospace', letterSpacing: '0.07em' }}>
+        {label}
+      </span>
+      {editing ? (
+        <input
+          type="number"
+          min={0}
+          step="any"
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          style={{
+            width: 68,
+            background: '#161922',
+            border: '1px solid #2e3548',
+            borderRadius: 4,
+            color: '#e2e6f0',
+            fontSize: 11,
+            fontFamily: 'Space Mono, monospace',
+            padding: '2px 6px',
+            textAlign: 'right',
+            outline: 'none',
+            MozAppearance: 'textfield' as any,
+          }}
+        />
+      ) : (
+        <span
+          onClick={startEdit}
+          title="Click to edit"
+          style={{
+            fontSize: 11,
+            fontFamily: 'Space Mono, monospace',
+            color: value == null ? '#4a4f63' : '#8b93a8',
+            cursor: 'pointer',
+            borderBottom: '1px dashed #2e3548',
+          }}
+        >
+          {value == null
+            ? 'set'
+            : `${prefix}${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}${suffix}`}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function MiniDateCell({ label, value, hint, valueColor, onCommit }: {
+  label: string;
+  value: string | null;
+  hint?: string;
+  valueColor?: string;
+  onCommit: (v: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState('');
+
+  function startEdit() {
+    setDraft(value ?? '');
+    setEditing(true);
+  }
+
+  function commit() {
+    const next = draft.trim() === '' ? null : draft;
+    if (next !== value) onCommit(next);
+    setEditing(false);
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5 }}>
+      <span style={{ fontSize: 9, color: '#4a4f63', fontFamily: 'Space Mono, monospace', letterSpacing: '0.07em' }}>
+        {label}
+      </span>
+      {editing ? (
+        <input
+          type="date"
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          style={{
+            background: '#161922',
+            border: '1px solid #2e3548',
+            borderRadius: 4,
+            color: '#e2e6f0',
+            fontSize: 11,
+            fontFamily: 'Space Mono, monospace',
+            padding: '2px 6px',
+            outline: 'none',
+            colorScheme: 'dark',
+          }}
+        />
+      ) : (
+        <span
+          onClick={startEdit}
+          title="Click to edit"
+          style={{
+            fontSize: 11,
+            fontFamily: 'Space Mono, monospace',
+            color: value == null ? '#4a4f63' : (valueColor ?? '#8b93a8'),
+            cursor: 'pointer',
+            borderBottom: '1px dashed #2e3548',
+          }}
+        >
+          {value == null ? 'set' : `${fmtDueShort(value)}${hint ? ` · ${hint}` : ''}`}
+        </span>
+      )}
+    </span>
+  );
+}
+
 // ─── Main component ─────────────────────────────────────────────────────────────
 
 export default function NetWorthTab() {
   const {
     accounts, loading, isAuthenticated, syncError,
-    addAccount, updateAccountBalance, removeAccount,
+    addAccount, updateAccountBalance, updateCreditCard, removeAccount,
   } = useNetWorthSync();
 
   const linked = useLinkedPortfolioValue();
   const [addOpen, setAddOpen] = useState(false);
 
   // ── Totals — null/undefined balances count as 0, never crash ──────────────
-  const { total, segments } = useMemo(() => {
+  // Net worth = assets − credit card balances. Card balances stay stored as
+  // positive amounts owed; the subtraction happens only here, at render.
+  const { total, assetTotal, liabilityTotal, assetSegments, liabilitySegments } = useMemo(() => {
     const accs = accounts ?? [];
     const segs = accs.map(a => ({
       account: a,
       value: a.kind === 'holdings_link' ? (linked.value ?? 0) : (a.balance ?? 0),
     }));
+    const assets = segs.filter(x => x.account.kind !== 'credit_card');
+    const debts  = segs.filter(x => x.account.kind === 'credit_card');
+    const assetTotal     = assets.reduce((s, x) => s + x.value, 0);
+    const liabilityTotal = debts.reduce((s, x) => s + x.value, 0);
     return {
-      total: segs.reduce((s, x) => s + x.value, 0),
-      segments: segs.filter(x => x.value > 0),
+      total: assetTotal - liabilityTotal,
+      assetTotal,
+      liabilityTotal,
+      assetSegments:     assets.filter(x => x.value > 0),
+      liabilitySegments: debts.filter(x => x.value > 0),
     };
   }, [accounts, linked.value]);
+
+  // ── 30-day cash flow — cards with a balance owed and a due date set ────────
+  // A card with no due date simply doesn't appear here; a paid-off card has
+  // no payment coming, so it's excluded too.
+  const cashFlow = useMemo(() => {
+    const items = (accounts ?? [])
+      .filter(a => a.kind === 'credit_card' && (a.balance ?? 0) > 0 && a.dueDate != null)
+      .map(a => ({ account: a, days: daysUntil(a.dueDate!) }))
+      .filter(x => x.days <= 30)
+      .sort((a, b) => a.days - b.days);
+
+    const dueSoon = items.filter(x => x.days <= 5);
+    return {
+      items,
+      // Cards without a min payment are listed but excluded from the sum
+      minDueSoonSum:  dueSoon.reduce((s, x) => s + (x.account.minPayment ?? 0), 0),
+      maxDueSoonDays: dueSoon.reduce((m, x) => Math.max(m, x.days), 0),
+    };
+  }, [accounts]);
 
   const manualAccounts = (accounts ?? []).filter(a => a.kind !== 'holdings_link');
 
@@ -226,9 +443,14 @@ export default function NetWorthTab() {
         }}>
           Total net worth
         </div>
-        <div style={{ fontSize: 40, fontWeight: 700, fontFamily: 'Space Mono, monospace', color: '#e2e6f0', lineHeight: 1.1 }}>
+        <div style={{ fontSize: 40, fontWeight: 700, fontFamily: 'Space Mono, monospace', color: total < 0 ? RED : '#e2e6f0', lineHeight: 1.1 }}>
           {fmtUSD(total)}
         </div>
+        {liabilityTotal > 0 && (
+          <div style={{ fontSize: 11, color: '#8b93a8', fontFamily: 'Space Mono, monospace', marginTop: 6 }}>
+            {fmtUSD(assetTotal)} assets − {fmtUSD(liabilityTotal)} liabilities
+          </div>
+        )}
         {linked.value === null && linked.hasPositions && (
           <div style={{ fontSize: 11, color: '#8b93a8', marginTop: 6 }}>
             Portfolio holdings value unavailable (price fetch failed) — excluded from total.
@@ -236,28 +458,66 @@ export default function NetWorthTab() {
         )}
       </div>
 
-      {/* ── Composition bar ───────────────────────────────────────────────── */}
-      {total > 0 && (
+      {/* ── Composition bars — assets on top, liabilities (credit cards) below ── */}
+      {(assetSegments.length > 0 || liabilitySegments.length > 0) && (
         <div style={{ marginBottom: 28 }}>
-          <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', border: '1px solid #1e2230' }}>
-            {segments.map(({ account, value }) => (
-              <div
-                key={account.id}
-                title={`${account.label} — ${fmtUSD(value)} (${((value / total) * 100).toFixed(1)}%)`}
-                style={{
-                  width: `${(value / total) * 100}%`,
-                  background: KIND_DISPLAY[account.kind].color,
-                  opacity: 0.85,
-                }}
-              />
-            ))}
-          </div>
+          {assetSegments.length > 0 && (
+            <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', border: '1px solid #1e2230' }}>
+              {assetSegments.map(({ account, value }) => (
+                <div
+                  key={account.id}
+                  title={`${account.label} — ${fmtUSD(value)} (${((value / assetTotal) * 100).toFixed(1)}%)`}
+                  style={{
+                    width: `${(value / assetTotal) * 100}%`,
+                    background: KIND_DISPLAY[account.kind].color,
+                    opacity: 0.85,
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Liabilities bar — width shows debt magnitude relative to assets */}
+          {liabilitySegments.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+              <div style={{
+                display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden',
+                border: `1px solid ${RED}40`,
+                width: `${assetTotal > 0 ? Math.min((liabilityTotal / assetTotal) * 100, 100) : 100}%`,
+                minWidth: 24,
+              }}>
+                {liabilitySegments.map(({ account, value }, i) => (
+                  <div
+                    key={account.id}
+                    title={`${account.label} — ${fmtUSD(value)} owed`}
+                    style={{
+                      width: `${(value / liabilityTotal) * 100}%`,
+                      background: RED,
+                      opacity: 0.8,
+                      borderLeft: i > 0 ? '1px solid #08090d' : 'none',
+                    }}
+                  />
+                ))}
+              </div>
+              <span style={{ fontSize: 11, color: RED, fontFamily: 'Space Mono, monospace', flexShrink: 0 }}>
+                −{fmtUSD(liabilityTotal)} debt
+              </span>
+            </div>
+          )}
+
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 10 }}>
-            {segments.map(({ account, value }) => (
+            {assetSegments.map(({ account, value }) => (
               <span key={account.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#8b93a8' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: KIND_DISPLAY[account.kind].color, display: 'inline-block' }} />
                 {account.label}
-                <span style={{ fontFamily: 'Space Mono, monospace' }}>{((value / total) * 100).toFixed(1)}%</span>
+                <span style={{ fontFamily: 'Space Mono, monospace' }}>{((value / assetTotal) * 100).toFixed(1)}%</span>
+              </span>
+            ))}
+            {liabilitySegments.map(({ account, value }) => (
+              <span key={account.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#8b93a8' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: RED, display: 'inline-block' }} />
+                {account.label}
+                <span style={{ fontFamily: 'Space Mono, monospace', color: RED }}>−{fmtUSD(value)}</span>
               </span>
             ))}
           </div>
@@ -290,66 +550,123 @@ export default function NetWorthTab() {
 
         {(accounts ?? []).map(account => {
           const isLinked = account.kind === 'holdings_link';
+          const isCard   = account.kind === 'credit_card';
           const { label: kindLabel, color } = KIND_DISPLAY[account.kind];
+
+          // Urgency accent — computed at render, only when there's a balance owed.
+          // A paid-off card (balance 0) displays with the muted accent regardless
+          // of due date; a card with no due date never registers as due.
+          const dueDays = isCard && account.dueDate != null ? daysUntil(account.dueDate) : null;
+          const hasDebt = isCard && (account.balance ?? 0) > 0;
+          const accent = !isCard ? null
+            : hasDebt && dueDays != null && dueDays <= 5  ? RED
+            : hasDebt && dueDays != null && dueDays <= 14 ? AMBER
+            : MUTED_ACCENT;
 
           return (
             <div
               key={account.id}
               style={{
-                display: 'flex', alignItems: 'center', gap: 14,
-                padding: '12px 18px', borderBottom: '1px solid #1e2230',
+                borderBottom: '1px solid #1e2230',
+                // inset shadow instead of border-left so non-card rows keep
+                // their exact layout — no 3px content shift
+                ...(accent ? { boxShadow: `inset 3px 0 0 ${accent}` } : {}),
               }}
             >
-              {/* Kind badge */}
-              <span style={{
-                fontSize: 9, fontFamily: 'Space Mono, monospace', letterSpacing: '0.08em',
-                color, background: `${color}14`, border: `1px solid ${color}40`,
-                borderRadius: 4, padding: '3px 7px', flexShrink: 0, width: 72, textAlign: 'center',
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                padding: isCard ? '12px 18px 6px' : '12px 18px',
               }}>
-                {kindLabel}
-              </span>
-
-              {/* Label */}
-              <span style={{ flex: 1, fontSize: 13, color: '#e2e6f0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {account.label}
-                {isLinked && (
-                  <Link
-                    to="/portfolio"
-                    style={{ marginLeft: 10, fontSize: 11, color: '#00c8ff', textDecoration: 'none' }}
-                  >
-                    view portfolio →
-                  </Link>
-                )}
-              </span>
-
-              {/* Value */}
-              {isLinked ? (
-                <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', color: linked.value == null && linked.hasPositions ? '#8b93a8' : '#e2e6f0' }}>
-                  {linked.loading ? '…' : linked.value != null ? fmtUSD(linked.value) : '—'}
+                {/* Kind badge */}
+                <span style={{
+                  fontSize: 9, fontFamily: 'Space Mono, monospace', letterSpacing: '0.08em',
+                  color, background: `${color}14`, border: `1px solid ${color}40`,
+                  borderRadius: 4, padding: '3px 7px', flexShrink: 0, width: 86, textAlign: 'center',
+                  boxSizing: 'border-box', whiteSpace: 'nowrap',
+                }}>
+                  {kindLabel}
                 </span>
-              ) : (
-                <BalanceCell account={account} onCommit={v => updateAccountBalance(account.id, v)} />
-              )}
 
-              {/* Updated */}
-              <span style={{ fontSize: 10, color: '#4a4f63', fontFamily: 'Space Mono, monospace', width: 82, textAlign: 'right', flexShrink: 0 }}>
-                {isLinked ? 'auto-synced' : fmtUpdated(account.balanceUpdatedAt)}
-              </span>
+                {/* Label */}
+                <span style={{ flex: 1, fontSize: 13, color: '#e2e6f0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {account.label}
+                  {isLinked && (
+                    <Link
+                      to="/portfolio"
+                      style={{ marginLeft: 10, fontSize: 11, color: '#00c8ff', textDecoration: 'none' }}
+                    >
+                      view portfolio →
+                    </Link>
+                  )}
+                </span>
 
-              {/* Remove */}
-              {isLinked ? (
-                <span style={{ width: 22, flexShrink: 0 }} />
-              ) : (
-                <button
-                  onClick={() => removeAccount(account.id)}
-                  title="Remove account"
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: '#4a4f63', fontSize: 15, lineHeight: 1, padding: 4, width: 22, flexShrink: 0,
-                  }}
-                >
-                  ×
-                </button>
+                {/* Value */}
+                {isLinked ? (
+                  <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', color: linked.value == null && linked.hasPositions ? '#8b93a8' : '#e2e6f0' }}>
+                    {linked.loading ? '…' : linked.value != null ? fmtUSD(linked.value) : '—'}
+                  </span>
+                ) : (
+                  <BalanceCell
+                    account={account}
+                    color={hasDebt ? RED : undefined}
+                    onCommit={v => isCard ? updateCreditCard(account.id, { balance: v }) : updateAccountBalance(account.id, v)}
+                  />
+                )}
+
+                {/* Updated */}
+                <span style={{ fontSize: 10, color: '#4a4f63', fontFamily: 'Space Mono, monospace', width: 82, textAlign: 'right', flexShrink: 0 }}>
+                  {isLinked ? 'auto-synced' : fmtUpdated(account.balanceUpdatedAt)}
+                </span>
+
+                {/* Remove */}
+                {isLinked ? (
+                  <span style={{ width: 22, flexShrink: 0 }} />
+                ) : (
+                  <button
+                    onClick={() => removeAccount(account.id)}
+                    title="Remove account"
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: '#4a4f63', fontSize: 15, lineHeight: 1, padding: 4, width: 22, flexShrink: 0,
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              {/* Credit card detail row — each field independently editable */}
+              {isCard && (
+                <div style={{
+                  display: 'flex', alignItems: 'baseline', gap: 20, flexWrap: 'wrap',
+                  padding: '0 18px 10px 118px',
+                }}>
+                  <MiniNumberCell
+                    label="APR"
+                    value={account.apr ?? null}
+                    suffix="%"
+                    onCommit={v => updateCreditCard(account.id, { apr: v })}
+                  />
+                  <MiniDateCell
+                    label="DUE"
+                    value={account.dueDate ?? null}
+                    hint={dueDays != null ? dueDaysLabel(dueDays) : undefined}
+                    valueColor={hasDebt && dueDays != null ? dueDaysColor(dueDays) : undefined}
+                    onCommit={v => updateCreditCard(account.id, { dueDate: v })}
+                  />
+                  <MiniNumberCell
+                    label="MIN PAY"
+                    value={account.minPayment ?? null}
+                    prefix="$"
+                    onCommit={v => updateCreditCard(account.id, { minPayment: v })}
+                  />
+                  <MiniNumberCell
+                    label="STMT"
+                    value={account.statementBalance ?? null}
+                    prefix="$"
+                    onCommit={v => updateCreditCard(account.id, { statementBalance: v })}
+                  />
+                </div>
               )}
             </div>
           );
@@ -359,10 +676,63 @@ export default function NetWorthTab() {
         {manualAccounts.length === 0 && (
           <div style={{ padding: '22px 18px', fontSize: 12, color: '#8b93a8', lineHeight: 1.6 }}>
             Your portfolio is linked automatically. Add your other accounts — cash,
-            401k or other balances, crypto — to see your full net worth in one place.
+            401k or other balances, crypto, credit cards — to see your full net worth
+            in one place.
           </div>
         )}
       </div>
+
+      {/* ── 30-day cash flow — upcoming credit card due dates ─────────────── */}
+      {cashFlow.items.length > 0 && (
+        <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, overflow: 'hidden', marginTop: 16 }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e2230' }}>
+            <span style={{
+              fontSize: 11, color: '#8b93a8', textTransform: 'uppercase', letterSpacing: '0.1em',
+              fontFamily: 'Space Mono, monospace',
+            }}>
+              30-day cash flow
+            </span>
+          </div>
+
+          {cashFlow.minDueSoonSum > 0 && (
+            <div style={{
+              padding: '10px 18px', borderBottom: '1px solid #1e2230',
+              background: `${RED}0d`, color: RED, fontSize: 12,
+            }}>
+              ⚠ <span style={{ fontFamily: 'Space Mono, monospace' }}>{fmtUSD(cashFlow.minDueSoonSum)}</span>
+              {' '}in minimum payments due within {cashFlow.maxDueSoonDays}d
+            </div>
+          )}
+
+          {cashFlow.items.map(({ account, days }) => (
+            <div
+              key={account.id}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                padding: '10px 18px', borderBottom: '1px solid #1e2230',
+              }}
+            >
+              <span style={{ flex: 1, fontSize: 13, color: '#e2e6f0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {account.label}
+              </span>
+              <span style={{ fontSize: 12, fontFamily: 'Space Mono, monospace', color: RED }}>
+                {fmtUSD(account.balance ?? 0)}
+              </span>
+              {account.minPayment != null && (
+                <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#8b93a8' }}>
+                  min {fmtUSD(account.minPayment)}
+                </span>
+              )}
+              <span style={{
+                fontSize: 11, fontFamily: 'Space Mono, monospace',
+                color: dueDaysColor(days), width: 92, textAlign: 'right', flexShrink: 0,
+              }}>
+                {dueDaysLabel(days)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <AddAccountPanel
         open={addOpen}
