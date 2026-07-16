@@ -45,6 +45,9 @@ export interface LivePrice {
   // Analyst consensus data sourced from Yahoo Finance (updated daily)
   analystTargetPrice?: number;   // mean analyst price target
   recommendationMean?: number;   // 1.0 (Strong Buy) → 5.0 (Strong Sell)
+  // Earliest upcoming earnings date, sourced from Yahoo calendarEvents.
+  // null when Yahoo has no earnings data for this ticker (e.g. some ETFs, thin coverage names).
+  nextEarningsDate?: string | null;
   fetchError?: boolean;
   fetchedAt: number;        // unix ms timestamp
 }

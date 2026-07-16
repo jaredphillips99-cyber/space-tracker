@@ -39,6 +39,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let yahooIndustry: string | undefined;
       let fundCategory: string | undefined;
       let expenseRatio: number | undefined;
+      // Earliest upcoming earnings date, sourced from calendarEvents (stocks only).
+      // Null (not undefined) when Yahoo has no earnings data for this ticker —
+      // callers should treat null/undefined the same, but null is the explicit signal.
+      let nextEarningsDate: string | null = null;
 
       try {
         if (isFund) {
@@ -58,8 +62,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // quote() does not reliably return targetMeanPrice / recommendationMean
           // in all environments. quoteSummary with the 'financialData' module is
           // the authoritative source — it always includes both fields when available.
+          // calendarEvents is bundled into the same request — Yahoo returns all
+          // requested modules in one HTTP call, so this adds no extra round-trip.
           const summary = await yahooFinance.quoteSummary(ticker, {
-            modules: ['financialData', 'assetProfile'],
+            modules: ['financialData', 'assetProfile', 'calendarEvents'],
           });
           const fd = summary?.financialData;
           if (fd) {
@@ -75,9 +81,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             yahooSector = (ap as any).sector ?? undefined;
             yahooIndustry = (ap as any).industry ?? undefined;
           }
+          const earningsDates = summary?.calendarEvents?.earnings?.earningsDate;
+          if (earningsDates && earningsDates.length > 0) {
+            const earliest = earningsDates
+              .map((d) => new Date(d))
+              .filter((d) => !isNaN(d.getTime()))
+              .sort((a, b) => a.getTime() - b.getTime())[0];
+            if (earliest) nextEarningsDate = earliest.toISOString().split('T')[0];
+          }
         }
       } catch {
-        // Analyst/fund data is optional — fall back to whatever quote() has
+        // Analyst/fund/earnings data is optional — fall back to whatever quote() has
         analystTargetPrice = (quote as any).targetMeanPrice ?? undefined;
         recommendationMean = (quote as any).recommendationMean ?? undefined;
       }
@@ -123,6 +137,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // Fund classification — sourced from quoteSummary.fundProfile (ETFs + mutual funds)
         fundCategory,
         expenseRatio,
+        // Earliest upcoming earnings date — sourced from quoteSummary.calendarEvents (stocks only)
+        nextEarningsDate,
         fetchError: false,
         fetchedAt,
       };
@@ -137,6 +153,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       price: 0,
       change: 0,
       changePercent: 0,
+      nextEarningsDate: null,
       fetchError: true,
       fetchedAt,
     };

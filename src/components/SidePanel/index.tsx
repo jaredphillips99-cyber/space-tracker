@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import { TICKERS } from '../../config/tickers';
 import { isAnalysisStale, SECTOR_COLORS } from '../../types';
+import type { TickerConfig } from '../../types';
+import { useNewswire } from '../../hooks/useNewswire';
+import type { NewswireItem } from '../../hooks/useNewswire';
 
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -14,21 +17,14 @@ function relativeTime(ts: number): string {
   return `${months}mo ago`;
 }
 
-// ─── Extract first prose sentence from narrative ──────────────────────────────
-// The stored summary field is the full narrative, which starts with a markdown
-// heading like "## What Happened\n\nFirst sentence..." — strip all leading
-// heading lines and return the first real prose sentence (up to ~100 chars).
 function extractSnippet(summary?: string): string {
   if (!summary) return '';
-  // Remove all leading markdown headings (## Foo, ### Bar, etc.)
   const withoutHeadings = summary
     .split('\n')
     .filter((line) => !line.trim().startsWith('#'))
     .join('\n');
-  // Trim whitespace and grab first non-empty paragraph
   const trimmed = withoutHeadings.replace(/\n{2,}/g, '\n').trim();
   const firstLine = trimmed.split('\n')[0]?.trim() ?? '';
-  // Strip any remaining markdown bold (**text**) for clean display
   return firstLine.replace(/\*\*/g, '');
 }
 
@@ -44,14 +40,55 @@ function fmtEarningsDate(iso?: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function daysUntil(iso?: string): number | null {
-  const d = parseDate(iso);
+function daysUntil(iso?: string | null): number | null {
+  const d = parseDate(iso ?? undefined);
   if (!d) return null;
   return Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
-// ─── Section header ───────────────────────────────────────────────────────────
+function daysSince(ts: number): number {
+  return Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
+}
 
+function fmtRunDate(isoDate: string | null): string {
+  if (!isoDate) return '';
+  const d = new Date(isoDate + 'T12:00:00'); // noon to avoid timezone edge cases
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (isoDate === today.toISOString().split('T')[0]) return 'Today';
+  if (isoDate === yesterday.toISOString().split('T')[0]) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// ─── Sentiment dot color ──────────────────────────────────────────────────────
+function sentimentColor(sentiment: NewswireItem['sentiment']): string {
+  if (sentiment === 'positive') return '#00e676';
+  if (sentiment === 'negative') return '#ff4b6e';
+  return '#8b93a8';
+}
+
+// ─── Needs Attention ──────────────────────────────────────────────────────────
+// Unified stale/earnings tracker — prioritizes "there's a new report you
+// haven't looked at" (reportDue) over a flat days-since-analysis timer.
+
+type AttentionTier = 'reportDue' | 'earningsSoon' | 'staleFallback';
+
+interface AttentionItem {
+  ticker: TickerConfig;
+  tier: AttentionTier;
+  sortKey: number;
+  secondaryLine: string;
+  tag: string;
+}
+
+const TIER_COLORS: Record<AttentionTier, { text: string; bg: string }> = {
+  reportDue: { text: '#ff4b6e', bg: '#ff4b6e18' },
+  earningsSoon: { text: '#ffd166', bg: '#ffd16618' },
+  staleFallback: { text: '#8b93a8', bg: 'transparent' },
+};
+
+// ─── Section header ───────────────────────────────────────────────────────────
 function SectionHeader({ label }: { label: string }) {
   return (
     <div
@@ -68,24 +105,11 @@ function SectionHeader({ label }: { label: string }) {
 }
 
 // ─── Main panel ───────────────────────────────────────────────────────────────
-
 export function SidePanel() {
   const navigate = useNavigate();
   const analyses = useStore((s) => s.analyses);
-
-  const staleStocks = useMemo(
-    () =>
-      TICKERS.filter((t) => {
-        const a = analyses[t.ticker];
-        return a && isAnalysisStale(a);
-      }),
-    [analyses],
-  );
-
-  const awaitingStocks = useMemo(
-    () => TICKERS.filter((t) => !analyses[t.ticker]),
-    [analyses],
-  );
+  const prices = useStore((s) => s.prices);
+  const { items: newswireItems, loading: newswireLoading, runDate } = useNewswire();
 
   const recentAnalyses = useMemo(() => {
     return TICKERS.filter((t) => analyses[t.ticker])
@@ -94,14 +118,63 @@ export function SidePanel() {
       .slice(0, 5);
   }, [analyses]);
 
-  const upcomingEarnings = useMemo(() => {
-    return TICKERS.flatMap((t) => {
+  const needsAttention = useMemo(() => {
+    const items: AttentionItem[] = [];
+
+    for (const t of TICKERS) {
       const a = analyses[t.ticker];
-      const d = daysUntil(a?.nextEarningsDate);
-      if (d == null || d < 0 || d > 45) return [];
-      return [{ ticker: t, daysUntil: d, date: a!.nextEarningsDate! }];
-    }).sort((a, b) => a.daysUntil - b.daysUntil);
-  }, [analyses]);
+      const earningsDate = prices[t.ticker]?.nextEarningsDate ?? null;
+      const untilEarnings = daysUntil(earningsDate);
+
+      // reportDue: earnings already happened and we haven't analyzed since
+      if (untilEarnings != null && untilEarnings < 0) {
+        const earningsMs = parseDate(earningsDate!)!.getTime();
+        if (!a || a.analyzedAt < earningsMs) {
+          items.push({
+            ticker: t,
+            tier: 'reportDue',
+            sortKey: -untilEarnings, // more overdue = higher priority
+            secondaryLine: `overdue since ${fmtEarningsDate(earningsDate!)}`,
+            tag: '⚠ re-run analysis',
+          });
+          continue;
+        }
+      }
+
+      // earningsSoon: earnings coming up within a week
+      if (untilEarnings != null && untilEarnings >= 0 && untilEarnings <= 7) {
+        items.push({
+          ticker: t,
+          tier: 'earningsSoon',
+          sortKey: untilEarnings, // soonest first
+          secondaryLine: fmtEarningsDate(earningsDate!),
+          tag: `⏱ earnings in ${untilEarnings}d`,
+        });
+        continue;
+      }
+
+      // staleFallback: Yahoo has no earnings data, and analysis is missing/stale
+      if (earningsDate == null && (!a || isAnalysisStale(a))) {
+        const since = a ? daysSince(a.analyzedAt) : Infinity;
+        items.push({
+          ticker: t,
+          tier: 'staleFallback',
+          sortKey: since,
+          secondaryLine: a ? `last analyzed ${relativeTime(a.analyzedAt)}` : 'never analyzed',
+          tag: `◌ stale (${since === Infinity ? '∞' : `${since}d`})`,
+        });
+      }
+    }
+
+    const tierOrder: Record<AttentionTier, number> = { reportDue: 0, earningsSoon: 1, staleFallback: 2 };
+    return items.sort((a, b) => {
+      const tierDiff = tierOrder[a.tier] - tierOrder[b.tier];
+      if (tierDiff !== 0) return tierDiff;
+      if (a.sortKey === b.sortKey) return 0;
+      // earningsSoon sorts soonest-first (ascending); reportDue/staleFallback sort most-urgent-first (descending)
+      return a.tier === 'earningsSoon' ? a.sortKey - b.sortKey : b.sortKey - a.sortKey;
+    });
+  }, [analyses, prices]);
 
   return (
     <div
@@ -119,12 +192,110 @@ export function SidePanel() {
         What's New
       </div>
 
-      {/* ── Stale warnings ──────────────────────────────────────────────── */}
-      {staleStocks.length > 0 && (
+      {/* ── Today's Newswire ──────────────────────────────────────────────── */}
+      {(newswireLoading || newswireItems.length > 0) && (
         <div>
-          <SectionHeader label="NEEDS REFRESH" />
-          {staleStocks.map((t) => {
-            const a = analyses[t.ticker]!;
+          <div
+            className="px-4 py-2 flex items-center justify-between"
+            style={{
+              fontFamily: 'Space Mono, monospace',
+              color: '#4a4e63',
+              borderBottom: '1px solid #14151c',
+              fontSize: 10,
+              letterSpacing: '0.1em',
+            }}
+          >
+            <span>TODAY'S WIRE</span>
+            {runDate && (
+              <span style={{ color: '#2e3248', fontSize: 9 }}>
+                {fmtRunDate(runDate)}
+              </span>
+            )}
+          </div>
+
+          {newswireLoading ? (
+            <div className="px-4 py-3" style={{ color: '#2e3248', fontFamily: 'Space Mono, monospace', fontSize: 10 }}>
+              Loading…
+            </div>
+          ) : (
+            newswireItems.map((item) => {
+              const tickerConfig = TICKERS.find((t) => t.ticker === item.ticker);
+              const sectorColor = tickerConfig
+                ? (SECTOR_COLORS[tickerConfig.sectors[0] as keyof typeof SECTOR_COLORS] ?? '#e2e4ef')
+                : '#e2e4ef';
+
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => navigate(`/stock/${item.ticker}`)}
+                  className="w-full text-left px-4 py-2.5 transition-colors"
+                  style={{
+                    borderBottom: '1px solid #14151c',
+                    backgroundColor: 'transparent',
+                    cursor: 'pointer',
+                    display: 'block',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#161821'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
+                >
+                  {/* Ticker + sentiment dot */}
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className="text-xs font-bold"
+                      style={{ fontFamily: 'Space Mono, monospace', color: sectorColor }}
+                    >
+                      {item.ticker}
+                    </span>
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        backgroundColor: sentimentColor(item.sentiment),
+                        display: 'inline-block',
+                        flexShrink: 0,
+                      }}
+                    />
+                  </div>
+                  {/* Headline */}
+                  <p
+                    className="text-xs leading-snug mb-1"
+                    style={{
+                      fontFamily: 'DM Sans, sans-serif',
+                      color: '#c8ccd8',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {item.headline}
+                  </p>
+                  {/* Summary */}
+                  <p
+                    className="text-xs leading-snug"
+                    style={{
+                      fontFamily: 'DM Sans, sans-serif',
+                      color: '#6b7280',
+                    }}
+                  >
+                    {item.summary}
+                  </p>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* ── Needs Attention ──────────────────────────────────────────────── */}
+      <div>
+        <SectionHeader label="NEEDS ATTENTION" />
+        {needsAttention.length === 0 ? (
+          <div className="px-4 py-3" style={{ color: '#4a4e63', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
+            All caught up
+          </div>
+        ) : (
+          needsAttention.map(({ ticker: t, tier, secondaryLine, tag }) => {
+            const colors = TIER_COLORS[tier];
+            const sectorColor = SECTOR_COLORS[t.sectors[0] as keyof typeof SECTOR_COLORS] ?? '#e2e4ef';
             return (
               <button
                 key={t.ticker}
@@ -134,25 +305,53 @@ export function SidePanel() {
                   borderBottom: '1px solid #14151c',
                   backgroundColor: 'transparent',
                   cursor: 'pointer',
-                  borderLeft: '2px solid #f59e0b',
                 }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#161821'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
               >
-                <div>
-                  <span className="text-xs font-bold" style={{ fontFamily: 'Space Mono, monospace', color: '#f59e0b' }}>
-                    {t.ticker}
-                  </span>
-                  <span className="text-xs ml-2" style={{ color: '#8b8fa8' }}>{t.name}</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        backgroundColor: sectorColor,
+                        display: 'inline-block',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span className="text-xs font-bold" style={{ fontFamily: 'Space Mono, monospace', color: sectorColor }}>
+                      {t.ticker}
+                    </span>
+                  </div>
+                  <p
+                    className="mt-0.5 truncate"
+                    style={{
+                      fontFamily: 'DM Sans, sans-serif',
+                      color: tier === 'staleFallback' ? '#5a5f75' : '#8b8fa8',
+                      fontSize: tier === 'staleFallback' ? 10 : 11,
+                    }}
+                  >
+                    {secondaryLine}
+                  </p>
                 </div>
-                <span className="text-xs" style={{ fontFamily: 'Space Mono, monospace', color: '#4a4e63' }}>
-                  {relativeTime(a.analyzedAt)}
+                <span
+                  className="text-xs px-1.5 py-0.5 rounded shrink-0 ml-2"
+                  style={{
+                    fontFamily: 'Space Mono, monospace',
+                    backgroundColor: colors.bg,
+                    color: colors.text,
+                    fontSize: tier === 'staleFallback' ? 9 : 10,
+                  }}
+                >
+                  {tag}
                 </span>
               </button>
             );
-          })}
-        </div>
-      )}
+          })
+        )}
+      </div>
 
       {/* ── Recent analyses ─────────────────────────────────────────────── */}
       {recentAnalyses.length > 0 && (
@@ -198,79 +397,8 @@ export function SidePanel() {
         </div>
       )}
 
-      {/* ── Upcoming earnings ───────────────────────────────────────────── */}
-      {upcomingEarnings.length > 0 && (
-        <div>
-          <SectionHeader label="UPCOMING EARNINGS" />
-          {upcomingEarnings.map(({ ticker: t, daysUntil: d, date }) => (
-            <button
-              key={t.ticker}
-              onClick={() => navigate(`/stock/${t.ticker}`)}
-              className="w-full text-left px-4 py-2.5 flex items-center justify-between transition-colors"
-              style={{
-                borderBottom: '1px solid #14151c',
-                backgroundColor: 'transparent',
-                cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#161821'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
-            >
-              <div>
-                <span
-                  className="text-xs font-bold"
-                  style={{ fontFamily: 'Space Mono, monospace', color: SECTOR_COLORS[t.sectors[0] as keyof typeof SECTOR_COLORS] ?? '#e2e4ef' }}
-                >
-                  {t.ticker}
-                </span>
-                <span className="text-xs ml-2" style={{ color: '#8b8fa8' }}>
-                  {fmtEarningsDate(date)}
-                </span>
-              </div>
-              <span
-                className="text-xs px-1.5 py-0.5 rounded"
-                style={{
-                  fontFamily: 'Space Mono, monospace',
-                  backgroundColor: d <= 7 ? '#ef444418' : '#f59e0b18',
-                  color: d <= 7 ? '#ef4444' : '#f59e0b',
-                  fontSize: 10,
-                }}
-              >
-                {d === 0 ? 'TODAY' : `${d}D`}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Awaiting ────────────────────────────────────────────────────── */}
-      {awaitingStocks.length > 0 && (
-        <div>
-          <SectionHeader label={`AWAITING ANALYSIS (${awaitingStocks.length})`} />
-          <div className="px-4 py-3 flex flex-wrap gap-1.5">
-            {awaitingStocks.map((t) => (
-              <button
-                key={t.ticker}
-                onClick={() => navigate(`/stock/${t.ticker}`)}
-                className="text-xs px-2 py-0.5 rounded transition-colors"
-                style={{
-                  fontFamily: 'Space Mono, monospace',
-                  color: '#4a4e63',
-                  border: '1px solid #1e2030',
-                  backgroundColor: 'transparent',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#8b8fa8'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#4a4e63'; }}
-              >
-                {t.ticker}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── Empty state ─────────────────────────────────────────────────── */}
-      {staleStocks.length === 0 && recentAnalyses.length === 0 && upcomingEarnings.length === 0 && (
+      {newswireItems.length === 0 && !newswireLoading && recentAnalyses.length === 0 && needsAttention.length === 0 && (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-center px-6" style={{ color: '#4a4e63', fontFamily: 'Space Mono, monospace', lineHeight: 1.8 }}>
             No analyses yet.{'\n'}
