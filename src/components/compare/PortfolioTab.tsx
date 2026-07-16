@@ -148,6 +148,62 @@ const SECTOR_ORDER: TopLevelSector[] = [
 
 function fmt(n: number, decimals = 1) { return n.toFixed(decimals); }
 function fmtDelta(delta: number) { const s = delta > 0 ? '+' : ''; return `${s}${Math.round(delta)}pp`; }
+function fmtShares(n: number) { return n % 1 === 0 ? n.toFixed(0) : n.toString(); }
+
+// ─── Editable number cell — click any Shares/Avg Price value to adjust it in place ─
+function EditableNumberCell({
+  value,
+  onCommit,
+  prefix = '',
+  format,
+}: {
+  value: number;
+  onCommit: (v: number) => void;
+  prefix?: string;
+  format: (n: number) => string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => { if (!editing) setDraft(String(value)); }, [value, editing]);
+
+  function commit() {
+    setEditing(false);
+    const v = parseFloat(draft);
+    if (!isNaN(v) && v > 0 && v !== value) onCommit(v);
+    else setDraft(String(value));
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="number"
+        min="0"
+        step="any"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onFocus={e => e.target.select()}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { setDraft(String(value)); setEditing(false); }
+        }}
+        style={{ width: 66, background: '#161922', border: '1px solid #00c8ff88', borderRadius: 4, color: '#e2e6f0', fontFamily: 'Space Mono, monospace', fontSize: 11, textAlign: 'right', padding: '2px 4px' }}
+      />
+    );
+  }
+
+  return (
+    <span
+      onClick={() => setEditing(true)}
+      title="Click to edit"
+      style={{ cursor: 'pointer', borderBottom: '1px dashed #8b93a866', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#8b93a8' }}
+    >
+      {prefix}{format(value)}
+    </span>
+  );
+}
 
 // ─── Markdown prose styles ────────────────────────────────────────────────────
 
@@ -626,6 +682,10 @@ export default function PortfolioTab({
     setPositions(prev => prev.filter(p => p.id !== id));
     setLiveData(prev => { const n = { ...prev }; delete n[id]; return n; });
     setMacroRisk(null); setTrimResult(null); setScenarioResult(null);
+  }
+
+  function handleUpdatePosition(id: string, updates: Partial<Pick<PortfolioPosition, 'shares' | 'costBasisPerShare'>>) {
+    setPositions(prev => prev.map(p => (p.id === id ? { ...p, ...updates } : p)));
   }
 
   // ─── Chart expand ─────────────────────────────────────────────────────────
@@ -1335,8 +1395,8 @@ export default function PortfolioTab({
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #1e2230' }}>
-                    {['Ticker', 'Sector', 'Price', 'Cost basis', 'Gain / loss', 'Allocation', ''].map(h => (
-                      <th key={h} style={{ textAlign: ['Allocation', 'Price', 'Cost basis', 'Gain / loss'].includes(h) ? 'right' : 'left', padding: '6px 10px', color: '#8b93a8', fontWeight: 400, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                    {['Ticker', 'Sector', 'Shares', 'Avg price', 'Price', 'Gain / loss', 'Allocation', ''].map(h => (
+                      <th key={h} style={{ textAlign: ['Allocation', 'Shares', 'Avg price', 'Price', 'Gain / loss'].includes(h) ? 'right' : 'left', padding: '6px 10px', color: '#8b93a8', fontWeight: 400, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1360,10 +1420,24 @@ export default function PortfolioTab({
                             {subLabel && <span style={{ fontSize: 9, color: '#6b7190', paddingLeft: 9 }}>{subLabel}</span>}
                           </div>
                         </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                          <EditableNumberCell
+                            value={p.shares}
+                            format={fmtShares}
+                            onCommit={v => handleUpdatePosition(p.id, { shares: v })}
+                          />
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                          <EditableNumberCell
+                            value={p.costBasisPerShare}
+                            prefix="$"
+                            format={n => n.toFixed(2)}
+                            onCommit={v => handleUpdatePosition(p.id, { costBasisPerShare: v })}
+                          />
+                        </td>
                         <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#e2e6f0' }}>
                           {p.liveLoading ? <span style={{ color: '#8b93a8' }}>…</span> : p.livePrice != null ? `$${p.livePrice.toFixed(2)}` : <span style={{ color: '#ff4b6e', fontSize: 10 }}>ERR</span>}
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#8b93a8' }}>${p.costBasisPerShare.toFixed(2)}</td>
                         <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: gainColor }}>
                           {p.unrealizedGainPct != null ? `${p.unrealizedGainPct >= 0 ? '+' : ''}${fmt(p.unrealizedGainPct)}%` : '—'}
                         </td>
