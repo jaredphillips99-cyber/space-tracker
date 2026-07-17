@@ -37,6 +37,16 @@ const CIK_MAP: Record<string, string> = {
 const SPECULATIVE_TICKERS = new Set(['OKLO', 'NNE', 'NXE']);
 const SEDAR_ONLY_TICKERS = new Set(['NXE']);
 
+// Tickers that cannot be served by the 8-K item 2.02 pipeline:
+//   NBIS — Nebius Group N.V. is a Dutch foreign private issuer (CIK 0001513845,
+//           formerly Yandex N.V.). Files 6-K on EDGAR, not 8-K.
+//   CCJ  — Cameco Corp is a Canadian foreign private issuer (CIK 0001009001).
+//           Files 6-K on EDGAR, not 8-K.
+//   SATS — EchoStar Corp (CIK 0001415404) is a restructuring story. Files 8-Ks
+//           but none contain item 2.02 (no traditional earnings releases).
+// All three fall back to Claude training knowledge, same as NXE.
+const TRAINING_KNOWLEDGE_FALLBACK = new Set(['NBIS', 'CCJ', 'SATS']);
+
 interface EdgarSubmission {
   cik_str: number;
   filings: {
@@ -362,6 +372,30 @@ export default async function handler(
       items: null,
       wordCount: 0,
       note: 'NXE (NexGen Energy) files on SEDAR (Canadian), not SEC EDGAR. Automated filing fetch is not supported. Analysis will be based on Claude training knowledge only.',
+    };
+    res.status(200).json(response);
+    return;
+  }
+
+  // Handle tickers that cannot be served by the 8-K item 2.02 pipeline
+  if (TRAINING_KNOWLEDGE_FALLBACK.has(upperTicker)) {
+    const notes: Record<string, string> = {
+      NBIS: 'NBIS (Nebius Group N.V.) is a Dutch foreign private issuer (formerly Yandex N.V.) that files 6-K forms on EDGAR, not 8-K earnings releases. Analysis will be based on Claude training knowledge covering AI cloud infrastructure buildout, the $27B Meta deal, GPU cluster deployments, and revenue trajectory.',
+      CCJ:  'CCJ (Cameco Corp) is a Canadian foreign private issuer that files 6-K forms on EDGAR, not 8-K earnings releases. Analysis will be based on Claude training knowledge covering uranium contracting book, production guidance, realized vs. spot pricing, and utility customer mix.',
+      SATS: 'SATS (EchoStar Corp) files 8-Ks on EDGAR but none contain item 2.02 (earnings releases) — the company completed a major restructuring/asset sale and no longer holds traditional earnings calls. Analysis will be based on Claude training knowledge covering the post-restructuring capital structure, Hughes broadband subscriber trends, and spectrum asset value.',
+    };
+    const response: EdgarResponse = {
+      ticker: upperTicker,
+      cik,
+      isSedarOnly: true,   // reuse flag — tells analyze.ts to treat as training-knowledge fallback
+      documentText: '',
+      documentUrl: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=8-K`,
+      filingDate: null,
+      accessionNumber: null,
+      period: null,
+      items: null,
+      wordCount: 0,
+      note: notes[upperTicker] ?? `${upperTicker} cannot be served by the standard 8-K pipeline. Analysis will be based on Claude training knowledge.`,
     };
     res.status(200).json(response);
     return;

@@ -591,44 +591,27 @@ NNE  → energy / advanced_reactors
 - FLY (Firefly Aerospace) — IPO'd Aug 8 2025, CIK 0001860160. Verify EDGAR
   pipeline pulls filings correctly when analyzed.
 
-- isAdmin flag persists in localStorage — cosmetically anyone can set it via
-  devtools, but Supabase RLS blocks all unauthorized writes. Not a real security
-  risk given single-user allowlist in Supabase Authentication settings.
-
 ---
 
 ## Next Session Priorities (in order)
 
-1. Thesis tracking — per-position notes with status (intact/weakening/broken),
-   key catalyst to watch, and timestamped notes log after each earnings.
-   Storage: Supabase alongside analyses. UI: expandable row in positions table,
-   "Review thesis" button on StockDetail for owned positions, thesis status dot
-   on dashboard PriceTable rows.
-
-2. Congressional trading tracker — display government buy/sell disclosures
-   as sentiment indicators on the dashboard. Source: housestockwatcher.com
-   and senatestockwatcher.com APIs (free, no key required).
-
-3. Toast notifications — success/error feedback on analysis run completion.
-
-4. Earnings calendar — surface upcoming earnings dates for the 31-stock
-   universe using earningsDate from Yahoo Finance (already in API response
-   but unused). Show "stale soon" indicator on dashboard rows.
-
-5. **Financial Overview tab (idea captured, not scoped) — new top-level tab
+1. **Financial Overview tab (idea captured, not scoped)** — new top-level tab
    for whole-picture net worth, separate from the Portfolio tab's stock/fund
-   tracking.** A central hub for asset types the app doesn't currently touch:
-   crypto holdings, 401k balance, cash on hand (checking/savings, separate
-   from the Portfolio tab's "dry powder" cash), and other asset categories
-   TBD. Roth IRA / brokerage holdings would pull from the existing Portfolio
-   tab rather than being re-entered.
-   Architectural note: this is the same underlying question raised during
-   the investor-preferences work — the app currently models "one portfolio"
-   per user, not "multiple accounts." A real net-worth hub needs a proper
-   accounts concept (an `accounts` or `asset_holdings` table scoped to
-   user_id, with type/category/value fields) rather than extending the
-   existing single-portfolio schema. Scope as its own project before
-   starting — likely bigger than it looks from the UI description alone.
+   tracking. Central hub for asset types the app doesn't touch yet: crypto,
+   401k balance, cash on hand (separate from Portfolio's "dry powder" cash).
+   Roth IRA / brokerage holdings would pull from the existing Portfolio tab
+   rather than being re-entered. Architectural note: the app currently models
+   "one portfolio" per user, not "multiple accounts" — a real net-worth hub
+   needs a proper `accounts`/`asset_holdings` table scoped to user_id, rather
+   than extending the single-portfolio schema. Scope as its own project —
+   likely bigger than it looks from the UI description alone.
+
+2. **Sharpen AI portfolio recommendations** — current suggestions read as
+   generalist and low-diversity (same 2-of-3 stocks recur across cash-deploy
+   runs regardless of amount). Want more in-depth, theme-based
+   recommendations (a few stocks/funds per theme, one line each), accepting
+   higher token cost for deeper, more varied reasoning. Need to figure out
+   token cost of that level of prompt detail and how to structure it.
 
 ---
 
@@ -661,106 +644,150 @@ use the real paths from the session.
 
 ---
 
-### July 9, 2026 — Fund Classification, Investor Preferences, Cash Fixes, Freshness Grounding
+### July 16, 2026 — Portfolio Table UX & Sync Reliability Fixes
 
-**New: Diversified-fund sector classification**
-  ETFs/mutual funds (e.g. VOO, VFIAX) previously fell into the same "Other"
-  sector bucket as genuinely unclassified tickers. api/prices.ts now checks
-  quote.quoteType and, for ETF/MUTUALFUND, fetches the fundProfile module
-  (categoryName + expense ratio) instead of stock-only modules. New
-  'diversified' TopLevelSector added to gics.ts/PortfolioTab.tsx/
-  SectorTargetsPanel.tsx — broad funds get their own chart row and settable
-  target, distinct from "Other." Excluded from sector-explore gap-fill logic
-  (suggesting stocks to fill a fund gap is incoherent).
+**New: Editable Shares / Avg Price columns**
+  Positions table now shows Shares and Avg Price as separate, click-to-edit
+  columns instead of a single static Cost Basis field. Values commit inline
+  via handleUpdatePosition() — no more remove-and-re-add to adjust a holding.
 
-**New: Investor preferences**
-  Single risk/style profile per user, separate from account type. New
-  `PreferencesPanel` (PortfolioTab.tsx) — risk tolerance, time horizon,
-  income/growth tilt, stock-vs-fund tilt, max position size, new-money
-  cadence, exclusions. Persisted via user_preferences.preferences (jsonb,
-  migration: supabase_migration_preferences.sql). buildPreferenceBlock() in
-  api/portfolio.ts injects the profile into all 6 request types. Exclusions
-  are a prompt instruction, not a code-level filter — best-effort, not
-  airtight; noted as a possible follow-up if that ever needs to be hard.
+**Bug fixed: removed positions reappearing after refresh (anonymous users)**
+  usePortfolioSync's sessionStorage-persist effect skipped writing whenever
+  the portfolio ended up fully empty with no sector targets set — clearing
+  your last position(s) looked like it worked but silently reverted on
+  reload. Removed the guard; an emptied portfolio now persists correctly.
 
-**Bug fixed: cash amount / positions lost on tab close**
-  usePortfolioSync's debounced writes (800ms) could be dropped entirely if
-  the tab closed before the timer fired. Fixed by tracking the latest
-  pending write in a ref and flushing it immediately on 'visibilitychange'
-  (hidden) and 'pagehide', instead of only relying on the debounce timer.
-  Applied to both savePreferences (cash amount, account type, sector
-  targets, investor preferences) and savePositions.
+**Bug fixed: remove (×) button clipped off-screen**
+  Adding the Shares/Avg Price columns widened rows past the container, and
+  `overflow:hidden` silently clipped the × column entirely. Table now scrolls
+  horizontally in its own wrapper with the remove column pinned via
+  `position: sticky; right: 0`, always reachable regardless of width.
 
-**Bug fixed: cash deployment used a hypothetical dollar figure**
-  The app deliberately never sends the real cash dollar total to Claude
-  (privacy — only cashWeightPct % and pre-computed share/leftover examples
-  are sent). With no real total to anchor to, Claude would sometimes
-  illustrate with an invented round number (e.g. "$10,000"). Added
-  CASH_GROUNDING_RULE to api/portfolio.ts, injected into all 5 cash-related
-  prompt paths — explicitly forbids inventing a hypothetical total, restricts
-  Claude to the real % and share/leftover figures provided.
+**Layout: widened positions table, shrank simulation panel**
+  Grid ratio flipped from `2fr/3fr` to `13fr/7fr` (left/right), and the table
+  now uses `table-layout: fixed` with an explicit `<colgroup>` so all columns
+  (including Allocation) fit without horizontal scroll on normal screens.
 
-**UX fixed: "Where to deploy cash?" required running macro analysis first**
-  Button was rendered inside the `{macroRisk && (...)}` block despite firing
-  an independent `cash_deploy` API call. Moved to a standalone section
-  directly under the cash input — usable the moment cash is entered, no
-  macro risk run required. Removed the now-duplicate copy that lived inside
-  the macro risk card.
+**Bug fixed: preferences not persisting across sign-ins**
+  Root cause: `user_preferences` table likely missing `cash_amount` /
+  `preferences` jsonb columns from an unrun migration — Supabase silently
+  rejected the upsert (console.warn only, never surfaced). Added idempotent
+  `supabase_migration_preferences_fix.sql` (run manually in Supabase SQL
+  Editor) and a `syncError` state shown as a red banner in the UI so a
+  failed save/load is never silent again.
 
-**Bug fixed: AI responses citing stale/outdated dates**
-  Portfolio-level calls (macro risk, trim/add memos, sector explore, cash
-  deploy) and the earnings analysis calls (api/analyze.ts) have no live web
-  access, so Claude was filling timing/context gaps from training data and
-  stating specifics (e.g. a 2025 reference) as if current. Added
-  buildFreshnessBlock() to both api/portfolio.ts and api/analyze.ts —
-  injects today's actual date plus an explicit instruction not to assert
-  unverified current events/dates. Computed fresh per request (not a
-  module-level constant), so it's correct even on a warm serverless instance.
+**Bug fixed: simulation panel crash ("site going black")**
+  Reproduced via headless-browser scripting. Root cause: a failed ticker
+  price lookup returned `price: 0` (not `null`); `?? null` doesn't catch `0`,
+  so a failed lookup was treated as a real $0 price — dividing cash by $0
+  produced Infinity/NaN inside the simulation math. Fixed fetchPrice() to
+  check `entry.fetchError` explicitly. Also added a React ErrorBoundary
+  around the /portfolio route so any future render crash degrades to a
+  recoverable card instead of blanking the page.
 
-**Files modified:** api/prices.ts · api/portfolio.ts · api/analyze.ts ·
-  src/config/gics.ts · src/components/compare/PortfolioTab.tsx ·
-  src/components/compare/SectorTargetsPanel.tsx · src/hooks/usePortfolioSync.ts ·
-  src/pages/Portfolio.tsx · supabase_migration_preferences.sql (new)
+**Files modified:** src/components/compare/PortfolioTab.tsx ·
+  src/hooks/usePortfolioSync.ts · src/pages/Portfolio.tsx · src/App.tsx ·
+  src/components/ErrorBoundary.tsx (new) ·
+  supabase_migration_preferences_fix.sql (new)
 
 ---
 
-### June 10, 2026 — Portfolio Persistence: Supabase Sync for Authenticated Users
+### July 16, 2026 — Earnings-Driven "Needs Attention" Sidebar (spec'd, not yet built)
 
-**Architecture change: Portfolio state persisted to Supabase per user**
-  Previously all portfolio data (positions, account type, sector targets) lived
-  in sessionStorage with a 60-min TTL, wiped on tab close. Now authenticated
-  users get full cross-session persistence via Supabase.
+**Problem identified:** The Dashboard sidebar's staleness signal (analyzedAt > 30
+days) is a weak proxy — it flags age, not whether there's actually new data
+(an earnings report) to analyze. At time of writing, every analyzed stock is
+already >30 days stale, making the existing flag useless for prioritization.
 
-**New tables (run supabase_migration.sql in Supabase SQL Editor):**
-  - portfolio_positions: one row per position per user, RLS user-scoped
-  - user_preferences: one row per user, stores account_type + sector_targets jsonb
+**Decision: replace stale-tracking with earnings-date-driven tracking**
+  Two prompts were written for Claude Code (not yet executed):
+  1. **Upcoming Earnings tracker** — add `calendarEvents` module to the
+     yahoo-finance2 quoteSummary call in api/prices.ts, exposing
+     `nextEarningsDate: string | null` per ticker. New sidebar panel listing
+     tickers with upcoming earnings, sorted soonest-first, with dueSoon
+     (within 7 days) and reportLikelyOut (earnings passed, analyzedAt
+     predates it) status tiers.
+  2. **Superseding prompt — unified "Needs Attention" panel** — this fully
+     replaces the What's New stale/awaiting logic in SidePanel/index.tsx
+     rather than running alongside it. Three-tier status computed at
+     render (never stored):
+       - `reportDue` (red, highest priority) — earnings passed,
+         analyzedAt null or predates it. Tag: "⚠ re-run analysis"
+       - `earningsSoon` (amber) — earnings within 7 days.
+         Tag: "⏱ earnings in Nd"
+       - `staleFallback` (dim gray, lowest priority) — only for tickers
+         where Yahoo has no earnings date at all AND analyzedAt >30 days.
+         Kept as a fallback net so tickers with no earnings-calendar
+         coverage (e.g. some pre-revenue names) don't silently disappear
+         from tracking.
+     Sort order: reportDue → earningsSoon → staleFallback. Anything not
+     matching a tier is dropped from the panel entirely (list only shows
+     actionable/upcoming items, not full 31-ticker status).
+     Empty state: "All caught up" instead of blank panel.
 
-**New files:**
-  - src/hooks/usePortfolioSync.ts — loads positions + prefs from Supabase on mount,
-    exposes savePositions() and savePreferences() with 800ms debounce writes
-  - src/components/PortfolioAuthGate.tsx — soft sign-in prompt shown to unauthenticated
-    visitors with "Continue without saving" escape hatch; dismissed state stored in
-    sessionStorage so it only shows once per session
+  **Rationale for not just deleting stale-tracking outright:** it still
+  covers tickers Yahoo's earnings calendar doesn't reach — without a
+  fallback tier, those rows would go stale forever with no indicator.
 
-**Modified files:**
-  - src/pages/Portfolio.tsx — checks auth state on mount; shows PortfolioAuthGate
-    if no session and gate not yet dismissed; passes sync props to PortfolioTab
-  - src/components/compare/PortfolioTab.tsx — accepts PortfolioTabSyncProps; seeds
-    state from Supabase data when authenticated; falls back to sessionStorage for
-    anonymous users; shows SYNCED badge in positions header when authenticated;
-    shows loading overlay while Supabase data hydrates
+**Status:** Prompt written and reviewed, not yet run through Claude Code.
+Next session: execute the "Needs Attention" prompt, verify calendarEvents
+field path in yahoo-finance2's types before implementation, confirm
+`npx tsc --noEmit` passes, then deploy and spot-check that the first
+post-deploy render is sane (all 31 tickers currently stale, so initial
+panel population should be checked by hand rather than assumed correct).
 
-**Privacy rule unchanged:** Dollar amounts and share counts are persisted to Supabase
-  (raw inputs), but all API calls still only receive weightPct and gainPct computed
-  at call time. Shares/cost-basis never leave the browser toward Claude API.
+**Files to be modified (not yet touched):** api/prices.ts,
+src/components/SidePanel/index.tsx
 
-**Auth flow:**
-  - Unauthenticated → PortfolioAuthGate shows magic-link prompt + "Continue without saving"
-  - Magic link clicked → Supabase session established → Portfolio.tsx detects auth
-    change → PortfolioTab reloads with Supabase data
-  - Authenticated → positions/prefs load on mount, save on every mutation (debounced)
-  - Dashboard is unaffected — fully public, no auth required
+---
 
-**Next: add "Sign out" to nav header for portfolio users (currently only admin sees it)**
-  Supabase auth.users are open to any email now (not just admin allowlist).
-  Recommend adding a visible sign-in/sign-out state to the Portfolio nav area.
+---
+
+### July 16, 2026 — Net Worth Tab (Stage 1.5.1) — spec'd + credit card liabilities
+
+**New: Net Worth tab (aggregation-only, no AI calls in v1)**
+  New top-level tab at /networth alongside Dashboard/Portfolio. Introduces
+  an `accounts` table (Supabase, RLS user-scoped) modeling net worth as a
+  set of accounts of different kinds:
+    - `holdings_link` (linked: true) — a single synthetic row whose value is
+      never stored; it's read live from the existing Portfolio tab's
+      positions + prices, same source PortfolioTab uses for its own total.
+    - `cash` / `balance` / `crypto` — manually-entered balances with a label,
+      editable inline, timestamped on edit.
+  Total net worth = linked Portfolio value + sum of all other account
+  balances. Breakdown shown as a stacked bar, one segment per account,
+  colored by kind.
+
+  New files: src/hooks/useNetWorthSync.ts (mirrors usePortfolioSync.ts's
+  debounce + visibilitychange/pagehide flush pattern), NetWorthTab.tsx,
+  NetWorthAuthGate.tsx, AddAccountPanel.tsx, kindDisplay.ts, NetWorth.tsx.
+  Route wrapped in the existing ErrorBoundary, same as /portfolio.
+
+**New: Credit card liability tracking**
+  Extended `accounts.kind` to include `credit_card`, with new nullable
+  columns: `apr`, `due_date`, `min_payment`, `statement_balance`. The
+  existing `balance` column doubles as "amount owed" for these rows — no
+  sign flip stored; liability-ness is applied only at aggregation/display
+  time (net worth = assets − sum of credit_card balances).
+
+  Accounts list shows balance/APR/due date/min payment per card, with
+  left-border urgency coloring computed at render (never stored): red
+  (due ≤5d), amber (due 6–14d), gray (further out or no due date). New
+  "30-day cash flow" section lists upcoming due dates soonest-first with a
+  rollup warning when minimum payments are due within 5 days.
+
+  Migrations: `supabase_migration_accounts.sql`,
+  `supabase_migration_credit_cards.sql` (both idempotent, run manually in
+  Supabase SQL Editor before deploying the corresponding code).
+
+**Status:** Both scoped as Claude Code prompts, not yet executed/deployed.
+Next session: run migrations → run prompts → `npx tsc --noEmit` → verify
+credit_card rows don't affect existing account kinds → deploy.
+
+**Files to be created/modified (not yet touched):**
+  src/hooks/useNetWorthSync.ts · src/components/networth/NetWorthTab.tsx ·
+  src/components/networth/AddAccountPanel.tsx ·
+  src/components/networth/kindDisplay.ts · src/components/networth/NetWorthAuthGate.tsx ·
+  src/pages/NetWorth.tsx · src/App.tsx · src/components/Layout/index.tsx
+
+---

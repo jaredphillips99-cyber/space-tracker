@@ -1,8 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useNetWorthSync, type NetWorthAccount } from '../../hooks/useNetWorthSync';
 import { usePortfolioSync } from '../../hooks/usePortfolioSync';
+import { useFinancialProfile, type FinancialProfile } from '../../hooks/useFinancialProfile';
 import { readSessionPositions, type PortfolioPosition } from '../compare/PortfolioTab';
+import { classifyTicker } from '../../config/gics';
 import AddAccountPanel from './AddAccountPanel';
 import { KIND_DISPLAY } from './kindDisplay';
 
@@ -26,6 +30,7 @@ function fmtUpdated(iso: string | null): string {
 
 const RED   = '#ff4b6e';
 const AMBER = '#ffd166';
+const CYAN  = '#00c8ff';
 const MUTED_ACCENT = '#2e3548';
 
 // Whole days from today (local midnight) to a 'YYYY-MM-DD' due date.
@@ -54,6 +59,11 @@ function fmtDueShort(dateStr: string): string {
     .toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function fmtDateWithYear(dateStr: string): string {
+  return new Date(dateStr.slice(0, 10) + 'T00:00:00')
+    .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 // ─── Linked Portfolio value ─────────────────────────────────────────────────────
 // The holdings_link row's displayed value is always derived live: positions come
 // from Supabase (authenticated, via usePortfolioSync) or the anonymous session
@@ -61,11 +71,19 @@ function fmtDueShort(dateStr: string): string {
 // PortfolioTab uses for its own total. Returns null while loading or when no
 // price could be resolved, so the row degrades to "—" instead of breaking.
 
-function useLinkedPortfolioValue(): { value: number | null; loading: boolean; hasPositions: boolean } {
+function useLinkedPortfolioValue(): {
+  value: number | null;
+  loading: boolean;
+  hasPositions: boolean;
+  // Top sector concentrations (% of portfolio value) — lightweight context for
+  // the AI analysis call, not a full position list.
+  sectorWeights: { sector: string; pct: number }[];
+} {
   const { savedPositions, loading: syncLoading, isAuthenticated } = usePortfolioSync();
   const [value, setValue]     = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [positions, setPositions] = useState<PortfolioPosition[]>([]);
+  const [sectorWeights, setSectorWeights] = useState<{ sector: string; pct: number }[]>([]);
 
   useEffect(() => {
     if (syncLoading) return;
@@ -77,6 +95,7 @@ function useLinkedPortfolioValue(): { value: number | null; loading: boolean; ha
 
     if (positions.length === 0) {
       setValue(0);
+      setSectorWeights([]);
       setLoading(false);
       return;
     }
@@ -103,14 +122,26 @@ function useLinkedPortfolioValue(): { value: number | null; loading: boolean; ha
 
         let total = 0;
         let anyPriced = false;
+        const sectorTotals = new Map<string, number>();
         for (const p of positions) {
           const price = priceMap.get(p.ticker.toUpperCase());
           if (price != null) {
-            total += price * p.shares;
+            const v = price * p.shares;
+            total += v;
             anyPriced = true;
+            const { sector } = classifyTicker(p.ticker);
+            sectorTotals.set(sector, (sectorTotals.get(sector) ?? 0) + v);
           }
         }
         setValue(anyPriced ? total : null);
+        setSectorWeights(
+          anyPriced && total > 0
+            ? [...sectorTotals.entries()]
+                .map(([sector, v]) => ({ sector, pct: (v / total) * 100 }))
+                .sort((a, b) => b.pct - a.pct)
+                .slice(0, 4)
+            : []
+        );
       } catch {
         if (!cancelled) setValue(null);
       } finally {
@@ -123,7 +154,7 @@ function useLinkedPortfolioValue(): { value: number | null; loading: boolean; ha
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncLoading, positions]);
 
-  return { value, loading, hasPositions: positions.length > 0 };
+  return { value, loading, hasPositions: positions.length > 0, sectorWeights };
 }
 
 // ─── Inline balance editor ──────────────────────────────────────────────────────
@@ -278,11 +309,12 @@ function MiniNumberCell({ label, value, prefix = '', suffix = '', onCommit }: {
   );
 }
 
-function MiniDateCell({ label, value, hint, valueColor, onCommit }: {
+function MiniDateCell({ label, value, hint, valueColor, withYear, onCommit }: {
   label: string;
   value: string | null;
   hint?: string;
   valueColor?: string;
+  withYear?: boolean;   // goal-type dates can be years out — show the year
   onCommit: (v: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -339,10 +371,145 @@ function MiniDateCell({ label, value, hint, valueColor, onCommit }: {
             borderBottom: '1px dashed #2e3548',
           }}
         >
-          {value == null ? 'set' : `${fmtDueShort(value)}${hint ? ` · ${hint}` : ''}`}
+          {value == null ? 'set' : `${withYear ? fmtDateWithYear(value) : fmtDueShort(value)}${hint ? ` · ${hint}` : ''}`}
         </span>
       )}
     </span>
+  );
+}
+
+// Free-text variant of MiniNumberCell — same click-to-edit pattern.
+// Empty input commits null (clears the field).
+function MiniTextCell({ label, value, placeholder, onCommit }: {
+  label: string;
+  value: string | null;
+  placeholder?: string;
+  onCommit: (v: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState('');
+
+  function startEdit() {
+    setDraft(value ?? '');
+    setEditing(true);
+  }
+
+  function commit() {
+    const next = draft.trim() === '' ? null : draft.trim();
+    if (next !== value) onCommit(next);
+    setEditing(false);
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5 }}>
+      <span style={{ fontSize: 9, color: '#4a4f63', fontFamily: 'Space Mono, monospace', letterSpacing: '0.07em' }}>
+        {label}
+      </span>
+      {editing ? (
+        <input
+          type="text"
+          autoFocus
+          value={draft}
+          placeholder={placeholder}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          style={{
+            width: 140,
+            background: '#161922',
+            border: '1px solid #2e3548',
+            borderRadius: 4,
+            color: '#e2e6f0',
+            fontSize: 11,
+            fontFamily: 'DM Sans, sans-serif',
+            padding: '2px 6px',
+            outline: 'none',
+          }}
+        />
+      ) : (
+        <span
+          onClick={startEdit}
+          title="Click to edit"
+          style={{
+            fontSize: 11,
+            fontFamily: 'DM Sans, sans-serif',
+            color: value == null ? '#4a4f63' : '#8b93a8',
+            cursor: 'pointer',
+            borderBottom: '1px dashed #2e3548',
+          }}
+        >
+          {value == null ? 'set' : value}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// ─── Markdown renderer for AI output ────────────────────────────────────────────
+// Mirrors MarkdownCard in src/components/compare/PortfolioTab.tsx, which is a
+// non-exported local there (and that file is off-limits to this change).
+// Keep the two visually in sync if either is restyled.
+
+function MarkdownCard({ children }: { children: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h2: () => null, // suppress top-level ## headings (card header already labels it)
+        h3: ({ children }) => (
+          <div style={{
+            fontSize: 10,
+            fontFamily: 'Space Mono, monospace',
+            fontWeight: 600,
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            color: '#8b93a8',
+            marginTop: 14,
+            marginBottom: 6,
+            paddingTop: 10,
+            borderTop: '1px solid #1e2230',
+          }}>{children}</div>
+        ),
+        p: ({ children }) => (
+          <p style={{ margin: '0 0 8px 0', fontSize: 13, lineHeight: 1.7, color: '#c5cad8' }}>{children}</p>
+        ),
+        strong: ({ children }) => (
+          <strong style={{ color: '#e2e6f0', fontWeight: 600 }}>{children}</strong>
+        ),
+        ul: ({ children }) => (
+          <ul style={{ margin: '0 0 8px 0', paddingLeft: 0, listStyle: 'none' }}>{children}</ul>
+        ),
+        li: ({ children }) => (
+          <li style={{ fontSize: 13, color: '#c5cad8', lineHeight: 1.65, marginBottom: 4, paddingLeft: 12, position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 0, color: '#8b93a8' }}>—</span>
+            {children}
+          </li>
+        ),
+        table: ({ children }) => (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 8 }}>{children}</table>
+        ),
+        thead: ({ children }) => <thead>{children}</thead>,
+        tbody: ({ children }) => <tbody>{children}</tbody>,
+        tr: ({ children }) => (
+          <tr style={{ borderBottom: '1px solid #1e2230' }}>{children}</tr>
+        ),
+        th: ({ children }) => (
+          <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontSize: 10, color: '#8b93a8', fontFamily: 'Space Mono, monospace', fontWeight: 400, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{children}</th>
+        ),
+        td: ({ children }) => (
+          <td style={{ padding: '5px 8px 5px 0', fontSize: 12, color: '#c5cad8', fontFamily: 'Space Mono, monospace' }}>{children}</td>
+        ),
+        hr: () => <hr style={{ border: 'none', borderTop: '1px solid #1e2230', margin: '10px 0' }} />,
+        code: ({ children }) => (
+          <code style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#e2e6f0', background: '#161922', padding: '1px 4px', borderRadius: 3 }}>{children}</code>
+        ),
+      }}
+    >
+      {children}
+    </ReactMarkdown>
   );
 }
 
@@ -356,6 +523,35 @@ export default function NetWorthTab() {
 
   const linked = useLinkedPortfolioValue();
   const [addOpen, setAddOpen] = useState(false);
+
+  // ── Financial profile (optional — unlocks Tier 2 analysis) ─────────────────
+  const {
+    profile, hasProfile, updateProfile,
+    syncError: profileSyncError,
+  } = useFinancialProfile();
+
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  // Tier 2 needs actual figures to compute with — a goal label alone isn't enough.
+  // The server re-derives this itself from the payload; this only drives UI labels.
+  const tier2Available = profile != null &&
+    (profile.monthlyIncome != null || profile.monthlySavingsTarget != null);
+
+  const profileFieldsSet = profile == null ? 0 : [
+    profile.monthlyIncome,
+    profile.monthlySavingsTarget,
+    profile.goalLabel,
+    profile.goalTargetDate,
+    profile.goalTargetAmount,
+  ].filter(v => v != null && v !== '').length;
+
+  // ── AI analysis — in-memory cache only; balances change too often for a
+  //    persisted analysis to stay meaningful ─────────────────────────────────
+  const [analysis, setAnalysis]               = useState<string | null>(null);
+  const [analysisRanTier2, setAnalysisRanTier2] = useState(false);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError]     = useState('');
 
   // ── Totals — null/undefined balances count as 0, never crash ──────────────
   // Net worth = assets − credit card balances. Card balances stay stored as
@@ -400,6 +596,63 @@ export default function NetWorthTab() {
 
   const manualAccounts = (accounts ?? []).filter(a => a.kind !== 'holdings_link');
 
+  // ── Run AI analysis ────────────────────────────────────────────────────────
+  // Deliberately sends real dollar figures — this tab is admin-only and the
+  // Portfolio-tab percentages-only privacy rule does NOT apply here (and must
+  // not be carried back there). See the privacy note in api/portfolio.ts.
+  async function runAnalysis() {
+    setAnalysisLoading(true);
+    setAnalysisError('');
+    try {
+      const tier2 = tier2Available;
+
+      const accountPayload = (accounts ?? [])
+        // Skip the linked row when its live value is unavailable or empty —
+        // a $0 "portfolio" line would just mislead the model
+        .filter(a => a.kind !== 'holdings_link' || (linked.value != null && linked.value > 0))
+        .map(a => ({
+          kind: a.kind,
+          label: a.label,
+          balance: a.kind === 'holdings_link' ? (linked.value ?? 0) : (a.balance ?? 0),
+          ...(a.kind === 'credit_card' ? {
+            apr:              a.apr ?? null,
+            dueDate:          a.dueDate ?? null,
+            minPayment:       a.minPayment ?? null,
+            statementBalance: a.statementBalance ?? null,
+          } : {}),
+        }));
+
+      const res = await fetch('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'networth_analysis',
+          accounts: accountPayload,
+          ...(linked.sectorWeights.length > 0 ? {
+            portfolioContext: {
+              topSectorWeights: linked.sectorWeights.map(s => ({
+                sector: s.sector,
+                pct: parseFloat(s.pct.toFixed(1)),
+              })),
+            },
+          } : {}),
+          ...(hasProfile && profile ? { financialProfile: profile satisfies FinancialProfile } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? 'API error');
+      }
+      const { result } = await res.json();
+      setAnalysis(result);
+      setAnalysisRanTier2(tier2);
+    } catch (e: unknown) {
+      setAnalysisError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }
+
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading || accounts === null) {
     return (
@@ -421,6 +674,14 @@ export default function NetWorthTab() {
           padding: '10px 14px', marginBottom: 16, color: '#ff4b6e', fontSize: 12, lineHeight: 1.5,
         }}>
           ⚠ Sync issue: {syncError}
+        </div>
+      )}
+      {profileSyncError && (
+        <div style={{
+          background: '#ff4b6e14', border: '1px solid #ff4b6e40', borderRadius: 8,
+          padding: '10px 14px', marginBottom: 16, color: '#ff4b6e', fontSize: 12, lineHeight: 1.5,
+        }}>
+          ⚠ Sync issue: {profileSyncError}
         </div>
       )}
 
@@ -731,6 +992,145 @@ export default function NetWorthTab() {
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Financial profile (optional) — unlocks Tier 2 analysis ────────── */}
+      <div
+        ref={profileRef}
+        style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, overflow: 'hidden', marginTop: 16 }}
+      >
+        <button
+          onClick={() => setProfileOpen(o => !o)}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+            padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+          }}
+        >
+          <span style={{
+            fontSize: 11, color: '#8b93a8', textTransform: 'uppercase', letterSpacing: '0.1em',
+            fontFamily: 'Space Mono, monospace',
+          }}>
+            Financial profile <span style={{ color: '#4a4f63', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+            {profileFieldsSet > 0 && (
+              <span style={{
+                fontSize: 9, fontFamily: 'Space Mono, monospace', color: CYAN,
+                background: `${CYAN}14`, border: `1px solid ${CYAN}40`, borderRadius: 4, padding: '2px 7px',
+              }}>
+                {profileFieldsSet}/5 SET
+              </span>
+            )}
+            <span style={{ fontSize: 10, color: '#8b93a8' }}>{profileOpen ? '▾' : '▸'}</span>
+          </span>
+        </button>
+
+        {profileOpen && (
+          <div style={{ padding: '4px 18px 16px', borderTop: '1px solid #1e2230' }}>
+            <div style={{ fontSize: 12, color: '#8b93a8', lineHeight: 1.6, margin: '12px 0 14px' }}>
+              Adding your income and savings target unlocks a deeper planning analysis —
+              payoff timelines, savings rate, runway.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <MiniNumberCell
+                label="MONTHLY INCOME"
+                value={profile?.monthlyIncome ?? null}
+                prefix="$"
+                onCommit={v => updateProfile({ monthlyIncome: v })}
+              />
+              <MiniNumberCell
+                label="MONTHLY SAVINGS TARGET"
+                value={profile?.monthlySavingsTarget ?? null}
+                prefix="$"
+                onCommit={v => updateProfile({ monthlySavingsTarget: v })}
+              />
+              <MiniTextCell
+                label="GOAL (OPTIONAL)"
+                value={profile?.goalLabel ?? null}
+                placeholder="e.g. Retire at 55"
+                onCommit={v => updateProfile({ goalLabel: v })}
+              />
+              <MiniDateCell
+                label="TARGET DATE (OPTIONAL)"
+                value={profile?.goalTargetDate ?? null}
+                withYear
+                onCommit={v => updateProfile({ goalTargetDate: v })}
+              />
+              <MiniNumberCell
+                label="TARGET AMOUNT (OPTIONAL)"
+                value={profile?.goalTargetAmount ?? null}
+                prefix="$"
+                onCommit={v => updateProfile({ goalTargetAmount: v })}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── AI analysis card — needs at least one manual account ──────────── */}
+      {manualAccounts.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          {!analysis && !analysisLoading && (
+            <button
+              onClick={runAnalysis}
+              style={{
+                background: 'none', border: '1px solid #1e2230', borderRadius: 8,
+                color: '#e2e6f0', fontSize: 12, padding: '8px 16px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'DM Sans, sans-serif',
+              }}
+            >
+              ✦ Run {tier2Available ? 'financial plan' : 'balance sheet'} analysis
+            </button>
+          )}
+          {analysisLoading && (
+            <div style={{ fontSize: 12, color: '#8b93a8', padding: '12px 0' }}>Analyzing balance sheet…</div>
+          )}
+          {analysisError && (
+            <div style={{ fontSize: 12, color: RED, padding: '8px 0' }}>{analysisError}</div>
+          )}
+          {analysis && (
+            <>
+              <div style={{
+                borderLeft: `3px solid ${CYAN}`, padding: '16px 18px', background: `${CYAN}0d`,
+                marginBottom: 8, borderRadius: '0 8px 8px 0',
+              }}>
+                <div style={{
+                  fontSize: 10, fontWeight: 500, color: CYAN, letterSpacing: '0.08em',
+                  textTransform: 'uppercase', marginBottom: 12,
+                  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                }}>
+                  {analysisRanTier2 ? 'Financial Plan' : 'Balance Sheet Analysis'}
+                  {!analysisRanTier2 && !tier2Available && (
+                    <button
+                      onClick={() => {
+                        setProfileOpen(true);
+                        profileRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }}
+                      style={{
+                        background: 'none', border: `1px solid ${CYAN}33`, borderRadius: 4,
+                        color: CYAN, fontSize: 9, padding: '2px 7px', cursor: 'pointer',
+                        fontFamily: 'Space Mono, monospace', textTransform: 'none', letterSpacing: 0,
+                      }}
+                    >
+                      Add income info above for a deeper plan →
+                    </button>
+                  )}
+                </div>
+                <MarkdownCard>{analysis}</MarkdownCard>
+              </div>
+              <button
+                onClick={runAnalysis}
+                disabled={analysisLoading}
+                style={{
+                  background: 'none', border: '1px solid #1e2230', borderRadius: 6,
+                  color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer',
+                }}
+              >
+                ↺ Re-run
+              </button>
+            </>
+          )}
         </div>
       )}
 
