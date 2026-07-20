@@ -30,26 +30,26 @@
 }
 
 html.light {
-  --bg-base: #f4f5f9;
+  --bg-base: #eaecf2;
   --bg-surface: #ffffff;
-  --bg-elevated: #eceef4;
+  --bg-elevated: #e1e4ed;
   --bg-panel: #ffffff;
-  --bg-inset: #e8eaf1;
+  --bg-inset: #dbdfe9;
 
-  --border: #d9dce6;
-  --border-muted: #e8eaf1;
-  --border-strong: #c6cbd9;
-  --border-panel: #d6dbe8;
-  --border-faint: #d9dce688;
+  --border: #c3c8d8;
+  --border-muted: #d8dbe6;
+  --border-strong: #a5abc0;
+  --border-panel: #bfc5d8;
+  --border-faint: #c3c8d880;
 
-  --text-primary: #171a26;
-  --text-body: #3a4054;
-  --text-secondary: #5c6375;
-  --text-tertiary: #767d90;
-  --text-muted: #9aa0b2;
-  --text-dim: #adb3c4;
+  --text-primary: #10121c;
+  --text-body: #2b3044;
+  --text-secondary: #4a5064;
+  --text-tertiary: #646b80;
+  --text-muted: #848ba1;
+  --text-dim: #9aa0b4;
 
-  --overlay: rgba(240, 242, 247, 0.85);
+  --overlay: rgba(224, 227, 236, 0.85);
 }
 
 @theme {
