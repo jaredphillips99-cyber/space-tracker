@@ -112,14 +112,14 @@ export default function SectorTargetsPanel({
     const actual = actuals[sector] ?? 0;
     if (target == null)
       return (
-        <span style={{ color: '#8b93a8', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
+        <span style={{ color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
           —
         </span>
       );
     const delta = Math.round(actual - target);
     if (delta === 0)
       return (
-        <span style={{ color: '#8b93a8', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
+        <span style={{ color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
           0pp
         </span>
       );
@@ -133,7 +133,7 @@ export default function SectorTargetsPanel({
 
   const cellStyle = (align: 'left' | 'right' = 'left'): React.CSSProperties => ({
     fontSize: 10,
-    color: '#8b93a8',
+    color: 'var(--text-secondary)',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.07em',
     textAlign: align,
@@ -152,19 +152,19 @@ export default function SectorTargetsPanel({
         style={{
           position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50,
           width: 460,
-          background: '#0f1117', borderLeft: '1px solid #1e2230',
+          background: 'var(--bg-surface)', borderLeft: '1px solid var(--border)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}
       >
         {/* Header */}
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #1e2230', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 500, color: '#e2e6f0' }}>Set sector targets</div>
-            <div style={{ fontSize: 12, color: '#8b93a8', marginTop: 3 }}>
+            <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)' }}>Set sector targets</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>
               Define ideal weightings. Must sum to 100%. Tap ▶ to expand sub-sectors.
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 20, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 20, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
         </div>
 
         {/* Column labels — FIX: wider TARGET column */}
@@ -174,7 +174,7 @@ export default function SectorTargetsPanel({
             gridTemplateColumns: '24px 1fr 60px 80px 64px',
             gap: 8,
             padding: '10px 24px 6px',
-            borderBottom: '1px solid #1e2230',
+            borderBottom: '1px solid var(--border)',
           }}
         >
           <span />
@@ -203,13 +203,13 @@ export default function SectorTargetsPanel({
                     gap: 8,
                     alignItems: 'center',
                     padding: '10px 0',
-                    borderBottom: '1px solid #1e2230',
+                    borderBottom: '1px solid var(--border)',
                   }}
                 >
                   {/* Expand chevron */}
                   <button
                     onClick={() => canExpand && toggleExpand(sector)}
-                    style={{ background: 'none', border: 'none', cursor: canExpand ? 'pointer' : 'default', color: canExpand ? '#8b93a8' : 'transparent', fontSize: 10, padding: 0, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    style={{ background: 'none', border: 'none', cursor: canExpand ? 'pointer' : 'default', color: canExpand ? 'var(--text-secondary)' : 'transparent', fontSize: 10, padding: 0, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     title={canExpand ? 'Show sub-sectors' : undefined}
                   >
                     {canExpand ? (isExp ? '▼' : '▶') : ''}
@@ -222,7 +222,7 @@ export default function SectorTargetsPanel({
                   </span>
 
                   {/* Actual — FIX: always enough room */}
-                  <span style={{ fontSize: 12, fontFamily: 'Space Mono, monospace', color: '#8b93a8', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 12, fontFamily: 'Space Mono, monospace', color: 'var(--text-secondary)', textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {actual > 0 ? `${actual.toFixed(1)}%` : '—'}
                   </span>
 
@@ -239,10 +239,10 @@ export default function SectorTargetsPanel({
                         placeholder="—"
                         style={{
                           width: 52,
-                          background: '#161922',
-                          border: '1px solid #1e2230',
+                          background: 'var(--bg-elevated)',
+                          border: '1px solid var(--border)',
                           borderRadius: 6,
-                          color: '#e2e6f0',
+                          color: 'var(--text-primary)',
                           fontSize: 12,
                           fontFamily: 'Space Mono, monospace',
                           padding: '4px 6px 4px 8px',
@@ -253,7 +253,7 @@ export default function SectorTargetsPanel({
                         }}
                       />
                       {/* FIX: % as sibling span outside input so number has full width */}
-                      <span style={{ fontSize: 11, color: '#8b93a8', marginLeft: 4, flexShrink: 0 }}>%</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 4, flexShrink: 0 }}>%</span>
                     </div>
                   </div>
 
@@ -274,8 +274,8 @@ export default function SectorTargetsPanel({
                         gap: 8,
                         alignItems: 'center',
                         padding: '7px 0 7px 8px',
-                        borderBottom: '1px solid #1e222866',
-                        background: '#161922',
+                        borderBottom: '1px solid var(--border-faint)',
+                        background: 'var(--bg-elevated)',
                         marginLeft: -24,
                         marginRight: -24,
                         paddingLeft: 48,
@@ -283,14 +283,14 @@ export default function SectorTargetsPanel({
                       }}
                     >
                       <span />
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#8b93a8' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
                         <span style={{ display: 'inline-block', width: 5, height: 5, borderRadius: '50%', background: color, opacity: 0.6, flexShrink: 0 }} />
                         {ssInfo.label}
                       </span>
-                      <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#6b7190', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: 'var(--text-tertiary)', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {ssActual.toFixed(1)}%
                       </span>
-                      <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#6b7190', textAlign: 'right' }}>—</span>
+                      <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: 'var(--text-tertiary)', textAlign: 'right' }}>—</span>
                       <span />
                     </div>
                   );
@@ -301,25 +301,25 @@ export default function SectorTargetsPanel({
         </div>
 
         {/* Total + actions */}
-        <div style={{ padding: '16px 24px 20px', borderTop: '1px solid #1e2230' }}>
+        <div style={{ padding: '16px 24px 20px', borderTop: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <span style={{ fontSize: 12, color: '#8b93a8' }}>Total</span>
-            <span style={{ fontSize: 13, fontFamily: 'Space Mono, monospace', fontWeight: 500, color: totalOk ? '#00e676' : total > 0 ? '#ff4b6e' : '#8b93a8' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Total</span>
+            <span style={{ fontSize: 13, fontFamily: 'Space Mono, monospace', fontWeight: 500, color: totalOk ? '#00e676' : total > 0 ? '#ff4b6e' : 'var(--text-secondary)' }}>
               {total}%{' '}
               {totalOk ? '✓' : total > 100 ? `— over by ${total - 100}pp` : total > 0 ? `— ${100 - total}pp remaining` : ''}
             </span>
           </div>
 
           {!totalOk && total > 0 && (
-            <div style={{ fontSize: 11, color: '#8b93a8', marginBottom: 12, background: '#161922', borderRadius: 6, padding: '6px 10px' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12, background: 'var(--bg-elevated)', borderRadius: 6, padding: '6px 10px' }}>
               Targets must add up to exactly 100% before saving.
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={handleReset} style={{ flex: 1, background: 'none', border: '1px solid #1e2230', borderRadius: 8, color: '#8b93a8', fontSize: 12, padding: '8px 0', cursor: 'pointer' }}>Clear targets</button>
-            <button onClick={onClose} style={{ flex: 1, background: 'none', border: '1px solid #1e2230', borderRadius: 8, color: '#e2e6f0', fontSize: 12, padding: '8px 0', cursor: 'pointer' }}>Cancel</button>
-            <button onClick={handleSave} disabled={!totalOk} style={{ flex: 1, background: totalOk ? '#e2e6f0' : '#1e2230', border: 'none', borderRadius: 8, color: totalOk ? '#08090d' : '#8b93a8', fontSize: 12, fontWeight: 500, padding: '8px 0', cursor: totalOk ? 'pointer' : 'not-allowed', transition: 'background 0.15s' }}>Save targets</button>
+            <button onClick={handleReset} style={{ flex: 1, background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', fontSize: 12, padding: '8px 0', cursor: 'pointer' }}>Clear targets</button>
+            <button onClick={onClose} style={{ flex: 1, background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, padding: '8px 0', cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleSave} disabled={!totalOk} style={{ flex: 1, background: totalOk ? 'var(--text-primary)' : 'var(--border)', border: 'none', borderRadius: 8, color: totalOk ? 'var(--bg-surface)' : 'var(--text-secondary)', fontSize: 12, fontWeight: 500, padding: '8px 0', cursor: totalOk ? 'pointer' : 'not-allowed', transition: 'background 0.15s' }}>Save targets</button>
           </div>
         </div>
       </div>

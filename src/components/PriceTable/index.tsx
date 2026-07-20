@@ -68,7 +68,7 @@ function SortTh({
         fontFamily: 'Space Mono, monospace',
         fontSize: 10,
         letterSpacing: '0.08em',
-        color: active ? '#c8cde0' : '#3d4259',
+        color: active ? 'var(--text-body)' : 'var(--text-dim)',
         userSelect: 'none',
         transition: 'color 0.15s',
       }}
@@ -88,7 +88,7 @@ function SortTh({
 
 function AnalystRatingBadge({ mean }: { mean?: number }) {
   const label = recommendationMeanToLabel(mean);
-  if (!label) return <span style={{ color: '#2e3249' }}>—</span>;
+  if (!label) return <span style={{ color: 'var(--text-dim)' }}>—</span>;
   const { text, bg } = YAHOO_RATING_COLORS[label];
   return (
     <span
@@ -116,7 +116,7 @@ function SectorPills({ sectors }: { sectors: string[] }) {
   return (
     <div className="flex items-center gap-1.5">
       {sectors.slice(0, 2).map((s, i) => {
-        const color = SECTOR_COLORS[s as keyof typeof SECTOR_COLORS] ?? '#8b8fa8';
+        const color = SECTOR_COLORS[s as keyof typeof SECTOR_COLORS] ?? 'var(--text-secondary)';
         const abbr  = SECTOR_ABBR[s] ?? s.toUpperCase();
         // Secondary tag: dot only (saves column width, still informative on hover)
         if (i > 0) {
@@ -195,7 +195,7 @@ function AnalysisStatus({
     );
   }
   return (
-    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 9, letterSpacing: '0.08em', color: '#2e3249' }}>
+    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 9, letterSpacing: '0.08em', color: 'var(--text-dim)' }}>
       AWAITING
     </span>
   );
@@ -269,9 +269,9 @@ export function PriceTable() {
             fontFamily: 'Space Mono, monospace',
             fontSize: 10,
             letterSpacing: '0.06em',
-            backgroundColor: '#0c111f',
+            backgroundColor: 'var(--bg-panel)',
             color: '#3b82f6',
-            border: '1px solid #1e2a42',
+            border: '1px solid var(--border-panel)',
           }}
         >
           FETCHING LIVE PRICES…
@@ -279,12 +279,12 @@ export function PriceTable() {
       )}
       <table className="w-full border-collapse" style={{ minWidth: 980 }}>
         <thead>
-          <tr style={{ borderBottom: '1px solid #1a1d2e' }}>
+          <tr style={{ borderBottom: '1px solid var(--border)' }}>
             {/* Static non-sortable left-aligned headers */}
             <SortTh field="ticker"     label="TICKER"   currentSort={sortBy} currentDir={sortDir} onSort={toggleSort} align="left" />
             <th
               className="px-3 py-2.5 text-left"
-              style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: '#3d4259' }}
+              style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-dim)' }}
             >
               SECTOR
             </th>
@@ -293,7 +293,7 @@ export function PriceTable() {
             <SortTh field="weekChange" label="1W %"     currentSort={sortBy} currentDir={sortDir} onSort={toggleSort} />
             <th
               className="px-3 py-2.5 text-right"
-              style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: '#3d4259' }}
+              style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-dim)' }}
             >
               52W
             </th>
@@ -301,13 +301,13 @@ export function PriceTable() {
             <SortTh field="upside"     label="UPSIDE"   currentSort={sortBy} currentDir={sortDir} onSort={toggleSort} />
             <th
               className="px-3 py-2.5 text-right"
-              style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: '#3d4259' }}
+              style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-dim)' }}
             >
               RATING
             </th>
             <th
               className="px-3 py-2.5 text-right"
-              style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: '#3d4259' }}
+              style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-dim)' }}
             >
               ANALYSIS
             </th>
@@ -323,7 +323,7 @@ export function PriceTable() {
             // Upside now sourced from Yahoo Finance analyst consensus target — available for all stocks
             const upside      = computeImpliedUpside(price?.price, price?.analystTargetPrice);
 
-            const accentColor = SECTOR_COLORS[ticker.sectors[0] as keyof typeof SECTOR_COLORS] ?? '#8b8fa8';
+            const accentColor = SECTOR_COLORS[ticker.sectors[0] as keyof typeof SECTOR_COLORS] ?? 'var(--text-secondary)';
             const priceError  = price?.fetchError === true;
 
             // Left accent bar: color = primary sector color; opacity dims for awaiting rows
@@ -335,7 +335,7 @@ export function PriceTable() {
                 onClick={() => navigate(`/stock/${ticker.ticker}`)}
                 className="cursor-pointer group"
                 style={{
-                  borderBottom: '1px solid #10111a',
+                  borderBottom: '1px solid var(--border-muted)',
                   backgroundColor: 'transparent',
                   opacity: priceError ? 0.85 : awaiting ? 0.6 : 1,
                   // Stale rows: subtle amber left outline
@@ -343,7 +343,7 @@ export function PriceTable() {
                   transition: 'background-color 0.1s',
                 }}
                 onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLTableRowElement).style.backgroundColor = '#0d0e17';
+                  (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'var(--bg-inset)';
                 }}
                 onMouseLeave={(e) => {
                   (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'transparent';
@@ -379,7 +379,7 @@ export function PriceTable() {
                         style={{
                           fontFamily: 'DM Sans, sans-serif',
                           fontSize: 11,
-                          color: '#4a4e63',
+                          color: 'var(--text-muted)',
                           marginTop: 1,
                         }}
                       >
@@ -399,7 +399,7 @@ export function PriceTable() {
                   {price?.fetchError ? (
                     <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#ef4444' }}>ERR</span>
                   ) : price ? (
-                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#c8cde0', fontWeight: 700 }}>
+                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: 'var(--text-body)', fontWeight: 700 }}>
                       {fmtPrice(price.price)}
                     </span>
                   ) : isLoading ? (
@@ -407,7 +407,7 @@ export function PriceTable() {
                       ···
                     </span>
                   ) : (
-                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#2e3249' }}>—</span>
+                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: 'var(--text-dim)' }}>—</span>
                   )}
                 </td>
 
@@ -422,7 +422,7 @@ export function PriceTable() {
                       {fmtPct(price.changePercent)}
                     </span>
                   ) : (
-                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#2e3249' }}>—</span>
+                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: 'var(--text-dim)' }}>—</span>
                   )}
                 </td>
 
@@ -437,7 +437,7 @@ export function PriceTable() {
                       {fmtPct(price.weekChangePercent)}
                     </span>
                   ) : (
-                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#2e3249' }}>—</span>
+                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: 'var(--text-dim)' }}>—</span>
                   )}
                 </td>
 
@@ -445,7 +445,7 @@ export function PriceTable() {
                 <td className="px-3 py-2.5 text-right" style={{ minWidth: 110 }}>
                   {price?.fiftyTwoWeekLow != null && price?.fiftyTwoWeekHigh != null ? (
                     <div className="flex flex-col items-end gap-1">
-                      <div className="rounded-full" style={{ width: '100%', height: 3, backgroundColor: '#0d0e17' }}>
+                      <div className="rounded-full" style={{ width: '100%', height: 3, backgroundColor: 'var(--bg-inset)' }}>
                         <div
                           className="rounded-full"
                           style={{
@@ -457,20 +457,20 @@ export function PriceTable() {
                       </div>
                       <div
                         className="flex items-center justify-between w-full"
-                        style={{ fontFamily: 'Space Mono, monospace', fontSize: 9, color: '#3d4259' }}
+                        style={{ fontFamily: 'Space Mono, monospace', fontSize: 9, color: 'var(--text-dim)' }}
                       >
                         <span>{fmtPrice(price.fiftyTwoWeekLow)}</span>
                         <span>{fmtPrice(price.fiftyTwoWeekHigh)}</span>
                       </div>
                     </div>
                   ) : (
-                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#2e3249' }}>—</span>
+                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: 'var(--text-dim)' }}>—</span>
                   )}
                 </td>
 
                 {/* Mkt Cap */}
                 <td className="px-3 py-2.5 text-right">
-                  <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#6b7190' }}>
+                  <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: 'var(--text-tertiary)' }}>
                     {fmtMktCap(price?.marketCap)}
                   </span>
                 </td>
@@ -486,7 +486,7 @@ export function PriceTable() {
                       {fmtPct(upside)}
                     </span>
                   ) : (
-                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#2e3249' }}>—</span>
+                    <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, color: 'var(--text-dim)' }}>—</span>
                   )}
                 </td>
 

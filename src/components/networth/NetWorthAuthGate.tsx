@@ -33,8 +33,8 @@ export function NetWorthAuthGate({ onContinueAnonymously }: NetWorthAuthGateProp
       fontFamily: "'DM Sans', sans-serif",
     }}>
       <div style={{
-        background: '#0f1117',
-        border: '1px solid #1e2230',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border)',
         borderRadius: 12,
         padding: '36px 44px',
         width: 380,
@@ -54,10 +54,10 @@ export function NetWorthAuthGate({ onContinueAnonymously }: NetWorthAuthGateProp
           }}>
             Net Worth
           </div>
-          <div style={{ color: '#e2e6f0', fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
+          <div style={{ color: 'var(--text-primary)', fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
             Save your accounts
           </div>
-          <div style={{ color: '#8b93a8', fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6 }}>
             Sign in with a magic link to keep your cash, retirement, and crypto
             balances across sessions. No password required.
           </div>
@@ -84,11 +84,11 @@ export function NetWorthAuthGate({ onContinueAnonymously }: NetWorthAuthGateProp
               onChange={e => setEmail(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSend()}
               style={{
-                background: '#161922',
-                border: '1px solid #1e2230',
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)',
                 borderRadius: 6,
                 padding: '10px 14px',
-                color: '#e2e6f0',
+                color: 'var(--text-primary)',
                 fontSize: 14,
                 outline: 'none',
                 fontFamily: "'DM Sans', sans-serif",
@@ -100,8 +100,8 @@ export function NetWorthAuthGate({ onContinueAnonymously }: NetWorthAuthGateProp
               onClick={handleSend}
               disabled={stage === 'sending' || !email.trim()}
               style={{
-                background: stage === 'sending' ? '#1e2230' : '#00c8ff',
-                color: stage === 'sending' ? '#8b93a8' : '#08090d',
+                background: stage === 'sending' ? 'var(--border)' : '#00c8ff',
+                color: stage === 'sending' ? 'var(--text-secondary)' : '#08090d',
                 border: 'none',
                 borderRadius: 6,
                 padding: '10px 0',
@@ -122,7 +122,7 @@ export function NetWorthAuthGate({ onContinueAnonymously }: NetWorthAuthGateProp
         )}
 
         {/* Divider */}
-        <div style={{ borderTop: '1px solid #1e2230' }} />
+        <div style={{ borderTop: '1px solid var(--border)' }} />
 
         {/* Continue without saving */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -130,28 +130,28 @@ export function NetWorthAuthGate({ onContinueAnonymously }: NetWorthAuthGateProp
             onClick={onContinueAnonymously}
             style={{
               background: 'transparent',
-              border: '1px solid #1e2230',
+              border: '1px solid var(--border)',
               borderRadius: 6,
               padding: '10px 0',
               fontSize: 13,
-              color: '#8b93a8',
+              color: 'var(--text-secondary)',
               cursor: 'pointer',
               fontFamily: "'DM Sans', sans-serif",
               width: '100%',
               transition: 'border-color 0.15s, color 0.15s',
             }}
             onMouseEnter={e => {
-              (e.target as HTMLButtonElement).style.borderColor = '#2e3548';
-              (e.target as HTMLButtonElement).style.color = '#c5cad8';
+              (e.target as HTMLButtonElement).style.borderColor = 'var(--border-strong)';
+              (e.target as HTMLButtonElement).style.color = 'var(--text-body)';
             }}
             onMouseLeave={e => {
-              (e.target as HTMLButtonElement).style.borderColor = '#1e2230';
-              (e.target as HTMLButtonElement).style.color = '#8b93a8';
+              (e.target as HTMLButtonElement).style.borderColor = 'var(--border)';
+              (e.target as HTMLButtonElement).style.color = 'var(--text-secondary)';
             }}
           >
             Continue without saving →
           </button>
-          <div style={{ color: '#4a4f63', fontSize: 11, textAlign: 'center', lineHeight: 1.5 }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 11, textAlign: 'center', lineHeight: 1.5 }}>
             Without signing in, manually entered balances live in memory only and
             are lost when you close the tab.
           </div>

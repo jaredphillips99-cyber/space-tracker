@@ -1,16 +1,67 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap');
 @import "tailwindcss";
 
-@theme {
-  --color-bg-base: #08090d;
-  --color-bg-surface: #0f1117;
-  --color-bg-elevated: #161821;
-  --color-border: #1e2030;
-  --color-border-muted: #14151c;
+/* ─── Theme palette ─────────────────────────────────────────────────────────
+   Core palette lives in CSS custom properties so the whole app can flip
+   between dark (default) and light via the `light` class on <html>.
+   Accent colors (green/red/yellow, sector colors) are intentionally NOT
+   themed — they stay identical in both modes. */
+:root {
+  --bg-base: #08090d;
+  --bg-surface: #0f1117;
+  --bg-elevated: #161922;
+  --bg-panel: #0c111f;        /* PriceTable container — slightly blue-tinted surface */
+  --bg-inset: #0d0e17;        /* row hover / progress tracks */
 
-  --color-text-primary: #e2e4ef;
-  --color-text-secondary: #8b8fa8;
-  --color-text-muted: #4a4e63;
+  --border: #1e2230;
+  --border-muted: #14151c;
+  --border-strong: #2e3548;
+  --border-panel: #1e2a42;
+  --border-faint: #1e223088;
+
+  --text-primary: #e2e6f0;
+  --text-body: #c5cad8;
+  --text-secondary: #8b93a8;
+  --text-tertiary: #6b7190;
+  --text-muted: #4a4e63;
+  --text-dim: #3d4259;
+
+  --overlay: rgba(8, 9, 13, 0.8);
+}
+
+html.light {
+  --bg-base: #f4f5f9;
+  --bg-surface: #ffffff;
+  --bg-elevated: #eceef4;
+  --bg-panel: #ffffff;
+  --bg-inset: #e8eaf1;
+
+  --border: #d9dce6;
+  --border-muted: #e8eaf1;
+  --border-strong: #c6cbd9;
+  --border-panel: #d6dbe8;
+  --border-faint: #d9dce688;
+
+  --text-primary: #171a26;
+  --text-body: #3a4054;
+  --text-secondary: #5c6375;
+  --text-tertiary: #767d90;
+  --text-muted: #9aa0b2;
+  --text-dim: #adb3c4;
+
+  --overlay: rgba(240, 242, 247, 0.85);
+}
+
+@theme {
+  --color-bg-base: var(--bg-base);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-border: var(--border);
+  --color-border-muted: var(--border-muted);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
 
   --color-cyan: #00c8ff;
   --color-violet: #a259ff;
@@ -38,8 +89,8 @@ html, body, #root {
 }
 
 body {
-  background-color: #08090d;
-  color: #e2e4ef;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
   font-family: 'DM Sans', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -47,9 +98,9 @@ body {
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #0f1117; }
-::-webkit-scrollbar-thumb { background: #1e2030; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #2a2d45; }
+::-webkit-scrollbar-track { background: var(--bg-surface); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
 /* Ticker accent bars */
 .ticker-rklb { border-left-color: #00c8ff !important; }

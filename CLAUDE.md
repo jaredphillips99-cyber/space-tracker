@@ -108,10 +108,16 @@ Anthropic API → /api/analyze.ts (stock analysis, streaming SSE)
 Anthropic API → /api/portfolio.ts (portfolio features, non-streaming)
   Rate limit: 20 calls per IP per hour (separate bucket from analyze.ts).
   Model: claude-sonnet-4-6
-  Request types: "macro_risk" | "macro_scenario" | "trim" | "trim_memo" | "sector_explore"
-  max_tokens: 1200 (macro_risk) · 1000 (macro_scenario) · 800 (trim) · 800 (trim_memo) · 600 (sector_explore)
+  Request types: "macro_risk" | "macro_scenario" | "trim" | "trim_memo" | "sector_explore" | "cash_deploy" | "networth_analysis"
+  max_tokens: 1200 (macro_risk) · 1000 (macro_scenario) · 800 (trim) · 800 (trim_memo) · 600 (sector_explore) · 900 (networth_analysis Tier 1) · 1400 (networth_analysis Tier 2)
   No vercel.json maxDuration needed — all calls complete in <10s.
   trim_memo takes 10-15s due to web search round-trip — expected, within 60s limit.
+  networth_analysis shares this same 20-calls/hour bucket — it does not get
+  its own rate limit; it's the same endpoint as everything else above.
+
+  networth_analysis is the ONE exception to the percentage-only privacy rule
+  below — see "Net Worth Privacy Exception" section further down. Do not use
+  this exception as precedent for any other request type on this endpoint.
 
 SEC EDGAR → fetched browser-side in StockDetail.tsx
   CORS proxy at /api/edgar-proxy.ts for /Archives/ URLs.
@@ -152,14 +158,24 @@ Target: under 700 words total.
 ---
 
 ## Design System
-Background:   #08090d     Surface:    #0f1117
-Surface 2:    #161922     Border:     #1e2230
-Text:         #e2e6f0     Muted text: #8b93a8
+Core palette is defined as CSS custom properties in src/index.css (`:root` =
+dark defaults, `html.light` = light overrides). Components reference
+`var(--bg-base)` etc. — do not reintroduce hardcoded core-palette hex values.
+
+Dark values (the canonical look):
+Background:   #08090d  --bg-base      Surface:    #0f1117  --bg-surface
+Surface 2:    #161922  --bg-elevated  Border:     #1e2230  --border
+Text:         #e2e6f0  --text-primary Muted text: #8b93a8  --text-secondary
 Green:        #00e676     Red:        #ff4b6e     Yellow: #ffd166
+
+Accent colors (green/red/yellow, sector colors) are NOT themed — identical hex
+in both modes. Dark-text-on-accent buttons keep literal #08090d on purpose.
 
 Fonts: Space Mono → labels, tickers, data, badges
        DM Sans    → body text, descriptions, narrative prose
-Dark theme only. No light mode.
+Dark theme is the default. Light mode via sun/moon toggle in the top nav,
+persisted in localStorage `investai_theme` (unset = dark). index.html applies
+the saved theme class pre-paint to avoid a flash.
 
 ## Dashboard Sector Colors — Single Source of Truth
 Defined in src/types/index.ts as SECTOR_COLORS. Used everywhere: filter pills,
@@ -268,6 +284,9 @@ api/edgar-proxy.ts                             CORS proxy for SEC /Archives/ URL
 api/portfolio.ts                               portfolio API — macro_risk · macro_scenario · trim · trim_memo · sector_explore
 src/lib/supabase.ts                            Supabase client singleton + sendMagicLink() + signOut()
 src/hooks/useSupabaseSync.ts                   hydrates Zustand from Supabase on mount; pushAnalysis() after run
+src/hooks/useNetWorthSync.ts                   accounts table sync — debounced writes, visibilitychange/pagehide flush
+src/hooks/useFinancialProfile.ts               optional income/savings/goal profile — mirrors useNetWorthSync.ts pattern
+src/components/networth/NetWorthTab.tsx        net worth aggregation + financial profile panel + AI analysis card
 src/components/AuthGate.tsx                    admin magic-link login screen (/admin route)
 
 Deleted — do not recreate:
@@ -309,6 +328,11 @@ Tickers outside the 31-stock universe get an "EXT" badge.
 ### Privacy Rules — Hard (do not relax)
 Never send dollar amounts, share counts, or cost basis to the API.
 Send only: ticker, sector, subSector, weightPct, gainPct, inUniverse.
+
+This rule is scoped to the Portfolio tab specifically (built for eventual
+semi-public sharing). It does NOT apply to the Net Worth tab — see
+"Net Worth AI Analysis" section below for the one deliberate exception.
+Do not let that exception bleed back into Portfolio prompt-building code.
 
 ### Account Type
 Stored in sessionStorage. Passed as accountType + accountContext to all calls.
@@ -780,14 +804,154 @@ src/components/SidePanel/index.tsx
   `supabase_migration_credit_cards.sql` (both idempotent, run manually in
   Supabase SQL Editor before deploying the corresponding code).
 
-**Status:** Both scoped as Claude Code prompts, not yet executed/deployed.
-Next session: run migrations → run prompts → `npx tsc --noEmit` → verify
-credit_card rows don't affect existing account kinds → deploy.
+**Status:** Built and deployed — confirmed live in the July 17 2026 project
+export (routes wired into App.tsx, NetWorthTab/AddAccountPanel/kindDisplay
+all present). This CLAUDE.md entry previously said "not yet executed"; that
+was stale relative to the code. Lesson: update this log at the point of
+deploy, not just at the point of spec'ing, or the doc drifts behind reality.
 
 **Files to be created/modified (not yet touched):**
   src/hooks/useNetWorthSync.ts · src/components/networth/NetWorthTab.tsx ·
   src/components/networth/AddAccountPanel.tsx ·
   src/components/networth/kindDisplay.ts · src/components/networth/NetWorthAuthGate.tsx ·
   src/pages/NetWorth.tsx · src/App.tsx · src/components/Layout/index.tsx
+
+---
+
+### July 17, 2026 — Net Worth AI Analysis (two-tier) — spec'd via Claude Code prompt
+
+**Project state check:** Pulled the latest project export
+(`space-tracker-2026-07-17T18-00-37.zip`) and confirmed the Needs Attention
+sidebar and full Net Worth tab (including credit card liabilities) are
+already built and routed — both were still marked "not yet executed" in
+this file as of the July 16 entries. Corrected those entries above. Two
+unresolved items surfaced during the review, not yet addressed:
+  - `src/api/analyze.ts` and `src/api/prices.ts` still exist as stray files
+    (dated May 21). Per the API Architecture rule above, Vercel only
+    deploys from `api/*.ts` at root — these are dead weight and a
+    repeat of the exact footgun that caused the July 9 preferences bug.
+    Should be deleted.
+  - `api/edgar.ts` (611 lines) exists alongside the documented
+    `api/edgar-proxy.ts` (51 lines). Only `edgar-proxy.ts` is referenced
+    in this file's API Architecture section. Unclear whether `edgar.ts` is
+    an older implementation, a live alternate path, or dead code — needs a
+    deliberate look before more EDGAR-adjacent work happens.
+
+**New: Net Worth AI Analysis, two tiers**
+  Extends the Net Worth tab (currently aggregation-only, no AI) with an
+  analysis card following the same MarkdownCard pattern as Portfolio's
+  Macro Risk card.
+  - **Tier 1 — Balance Sheet Health:** runs from account data alone (no new
+    inputs). Sections: Balance Sheet Health, Debt Priority (APR-avalanche
+    payoff ordering across credit_card accounts), Concentration & Liquidity,
+    Watch Items.
+  - **Tier 2 — Financial Plan:** unlocked by an optional, collapsed-by-
+    default "Financial profile" panel (monthly income, monthly savings
+    target, an optional goal label/date/amount). Adds Savings Rate, Debt
+    Payoff Timeline, and Runway & Trajectory sections, with an explicit
+    "not financial advice" disclaimer appended. Tier selection is computed
+    server-side from which fields are actually populated — never trusts a
+    client-sent tier flag.
+  - New request type `"networth_analysis"` on the existing `/api/portfolio.ts`
+    endpoint, sharing its 20-calls/hour rate limit bucket (not a new one).
+    max_tokens: 900 (Tier 1) / 1400 (Tier 2).
+
+**Deliberate privacy exception — Net Worth only**
+  Unlike the Portfolio tab's hard percentage-only rule, the user explicitly
+  approved sending real dollar figures (balances, APRs, income, savings
+  targets) to the API for this feature, since the Net Worth tab is
+  already admin-gated and not built for sharing. This exception is scoped
+  to `networth_analysis` only and must not be carried back into any
+  Portfolio prompt-building code. Documented inline in `api/portfolio.ts`
+  and in the "Privacy Rules — Hard" section above.
+
+**Estimated token cost:** ~$0.014/call (Tier 1, ~1,250 input + ~675 output
+tokens) and ~$0.020/call (Tier 2, ~1,300 input + ~1,050 output tokens) at
+claude-sonnet-4-6 rates ($3/M input, $15/M output). Trivial at personal-use
+volumes — output-dominated cost, consistent with the other request types
+on this endpoint.
+
+**Data layer:** New `user_financial_profile` table (user_id, monthly_income,
+monthly_savings_target, goal_label, goal_target_date, goal_target_amount,
+updated_at — all nullable except user_id), RLS-scoped to auth.uid(). SQL
+migration handed to the user directly (not run by Claude Code) as
+`supabase_migration_financial_profile.sql` — run manually in Supabase SQL
+Editor before deploying. `useFinancialProfile.ts` should treat a missing
+table/column as a `syncError`, not a crash, since Claude Code implements
+the app code without running the migration itself.
+
+**Status:** Claude Code prompt written and handed off, not yet executed.
+Next session: confirm the Supabase migration was run → run the Claude Code
+prompt → `npx tsc --noEmit` → verify Tier 1 works with zero profile fields
+set and Tier 2 only activates with income/savings actually populated →
+confirm no dollar figures leaked into any other portfolio.ts request type
+→ deploy. Also worth using this session to resolve the two stray-file
+issues noted above before they cause a second silent-drop bug.
+
+**Files to be created/modified (not yet touched):**
+  src/hooks/useFinancialProfile.ts (new) ·
+  src/components/networth/NetWorthTab.tsx (modified — profile panel + analysis card) ·
+  api/portfolio.ts (modified — new request type, buildNetWorthPrompt())
+
+---
+### July 19, 2026 — Onboarding modal · purchase merging · $ prefixes · dark/light theme
+
+**New: First-visit onboarding modal**
+  src/components/Onboarding/OnboardingModal.tsx — fires once, gated by
+  localStorage `investai_onboarded_v1` (set on any dismiss: ×, backdrop, or
+  "Got it"). One card per tab (Dashboard / Portfolio / Net Worth) with copy
+  drawn from this file's tab specs, accent-colored left borders (cyan/violet/
+  green). Re-openable anytime via a new "?" icon button in the top nav.
+
+**New: Add purchase to existing position (PortfolioTab)**
+  The add-position row now detects when the entered ticker is already held:
+  relabels to "Add purchase to existing {TICKER} position", shows current
+  shares + avg cost as read-only context, and merges on submit into the SAME
+  row via weighted average:
+    totalShares = oldShares + newShares
+    newAvgCost = (oldShares*oldAvg + newShares*newCost) / totalShares
+  No duplicate rows possible; the old "{TICKER} is already added" error is
+  gone. Inline click-to-edit Shares/Avg Price columns unchanged — this is an
+  additional entry path. Data stays in sessionStorage; no schema change.
+
+**New: $ prefix on cost-basis inputs**
+  Avg Price inline editor (EditableNumberCell edit mode) and the add/purchase
+  cost input now render `$` as a sibling span outside the input — same
+  pattern as the % in SectorTargetsPanel, so it can't be clipped. Shares
+  inputs stay plain so shares vs dollars are unambiguous side by side.
+
+**New: Dark/light theme toggle**
+  Core palette converted to CSS custom properties in src/index.css: `:root`
+  holds dark defaults, `html.light` holds light overrides (--bg-base,
+  --bg-surface, --bg-elevated, --bg-panel, --bg-inset, --border,
+  --border-muted/-strong/-panel/-faint, --text-primary/-body/-secondary/
+  -tertiary/-muted/-dim, --overlay). A codemod replaced ~531 hardcoded hex
+  occurrences across all src/*.tsx with these vars — near-duplicate shades
+  (#e2e4ef/#e2e6f0, #1e2030/#1e2230, #8b8fa8/#8b93a8, etc.) were collapsed
+  into single tokens. Sun/moon toggle in the top nav next to the "?" button;
+  choice persists in localStorage `investai_theme`, defaults to dark; an
+  inline script in index.html applies the class pre-paint (no flash).
+
+  Deliberately NOT themed: accent colors (green/red/yellow, sector colors,
+  conviction/guidance badges) — same hex both modes; dark text (#08090d) on
+  bright accent buttons (cyan Run Analysis, green $ CASH, violet Save) —
+  correct contrast in both themes; semi-transparent grays (#8b93a866 etc.);
+  accent hexes inside .ts config files (SECTOR_COLORS, ACCOUNT_TYPES) which
+  are alpha-suffixed at runtime via template literals.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Privacy rule
+re-checked: all six /api/portfolio call sites still send only ticker /
+sector / subSector / weightPct / gainPct / inUniverse / keyMetrics — the new
+purchase-merge flow writes to sessionStorage only, nothing new in any
+request body.
+
+**Files created:** src/components/Onboarding/OnboardingModal.tsx ·
+  src/hooks/useTheme.ts
+**Files modified:** index.html · src/index.css · CLAUDE.md ·
+  src/components/Layout/index.tsx · src/components/compare/PortfolioTab.tsx ·
+  plus theme-var conversion across: AuthGate, ConvictionBadge, ErrorBoundary,
+  PortfolioAuthGate, PriceTable, SidePanel, StockCard, StockDetail,
+  SectorTargetsPanel, networth/* (AddAccountPanel, NetWorthAuthGate,
+  NetWorthTab), pages/* (Dashboard, NetWorth, Portfolio)
 
 ---

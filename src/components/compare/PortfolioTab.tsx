@@ -83,7 +83,7 @@ interface AccountTypeConfig {
 }
 
 export const ACCOUNT_TYPES: Record<AccountType, AccountTypeConfig> = {
-  unspecified: { label: 'Not specified', shortLabel: '—', color: '#8b93a8', constraints: [], taxTreatment: 'Account type not specified. Provide general analysis.' },
+  unspecified: { label: 'Not specified', shortLabel: '—', color: 'var(--text-secondary)', constraints: [], taxTreatment: 'Account type not specified. Provide general analysis.' },
   taxable: { label: 'Taxable brokerage', shortLabel: 'Taxable', color: '#f97316', constraints: ['Short-term gains taxed as income', 'Long-term gains at lower rate', 'Tax-loss harvesting available'], taxTreatment: 'Taxable brokerage account. Short-term capital gains (held <1yr) taxed as ordinary income; long-term gains (held >1yr) taxed at lower rate. Tax-loss harvesting is possible. Fractional shares may be available depending on broker. Be explicit about tax implications when suggesting trims.' },
   roth_ira: { label: 'Roth IRA', shortLabel: 'Roth IRA', color: '#00e676', constraints: ['Tax-free growth & withdrawals', 'Whole shares only (most brokers)', 'Cannot add cash above annual limit', 'No margin or short-selling'], taxTreatment: 'Roth IRA: tax-free growth and withdrawals. Cannot easily add new cash beyond annual contribution limits ($7K/yr in 2025, $8K if 50+). Most brokers require whole shares only — no fractional shares. No margin or short-selling. Tax-loss harvesting has no benefit. Prioritize highest long-term appreciation potential. When suggesting trims, specify whole share amounts only.' },
   traditional_ira: { label: 'Traditional IRA', shortLabel: 'Trad IRA', color: '#a259ff', constraints: ['Tax-deferred growth', 'Withdrawals taxed as ordinary income', 'RMDs start at age 73', 'Whole shares only (most brokers)'], taxTreatment: 'Traditional IRA: tax-deferred growth; all withdrawals taxed as ordinary income. Required Minimum Distributions (RMDs) begin at age 73. Most brokers require whole shares. No margin or short-selling.' },
@@ -92,7 +92,7 @@ export const ACCOUNT_TYPES: Record<AccountType, AccountTypeConfig> = {
   '401k_traditional': { label: 'Traditional 401(k)', shortLabel: '401k', color: '#fbbf24', constraints: ['Tax-deferred growth', 'Withdrawals taxed as income', 'RMDs at age 73', 'Limited to plan options'], taxTreatment: 'Traditional 401(k): tax-deferred, withdrawals taxed as ordinary income, RMDs at age 73. Typically limited to employer plan options. Whole share/unit amounts only.' },
   hsa: { label: 'HSA (Health Savings)', shortLabel: 'HSA', color: '#06b6d4', constraints: ['Triple tax advantage', 'Penalty-free for healthcare', 'After 65: any withdrawal (taxed as income)', 'Whole shares only (most brokers)'], taxTreatment: 'HSA: triple tax advantage. After age 65, withdrawals for non-medical purposes are taxed as ordinary income. Whole shares only at most brokers. Long-term investing strategy preferred.' },
   custodial: { label: 'Custodial (UGMA/UTMA)', shortLabel: 'Custodial', color: '#f59e0b', constraints: ['Taxable account rules apply', 'Kiddie tax may apply for minors', 'Assets transfer to beneficiary at 18–21', 'Long horizon typical'], taxTreatment: 'Custodial account (UGMA/UTMA): taxable, long investment horizon. Kiddie tax rules may apply for minors. Favor long-term growth positions.' },
-  trust: { label: 'Trust account', shortLabel: 'Trust', color: '#8b93a8', constraints: ['Tax rules depend on trust type', 'May have distribution requirements', 'Consult trust documents for constraints'], taxTreatment: 'Trust account: tax treatment depends on trust type (revocable vs irrevocable). Note that specific tax implications depend on the trust structure.' },
+  trust: { label: 'Trust account', shortLabel: 'Trust', color: 'var(--text-secondary)', constraints: ['Tax rules depend on trust type', 'May have distribution requirements', 'Consult trust documents for constraints'], taxTreatment: 'Trust account: tax treatment depends on trust type (revocable vs irrevocable). Note that specific tax implications depend on the trust structure.' },
 };
 
 // ─── Investor preferences ──────────────────────────────────────────────────────
@@ -184,21 +184,25 @@ function EditableNumberCell({
 
   if (editing) {
     return (
-      <input
-        autoFocus
-        type="number"
-        min="0"
-        step="any"
-        value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onFocus={e => e.target.select()}
-        onBlur={commit}
-        onKeyDown={e => {
-          if (e.key === 'Enter') commit();
-          if (e.key === 'Escape') { setDraft(String(value)); setEditing(false); }
-        }}
-        style={{ width: 66, background: '#161922', border: '1px solid #00c8ff88', borderRadius: 4, color: '#e2e6f0', fontFamily: 'Space Mono, monospace', fontSize: 11, textAlign: 'right', padding: '2px 4px' }}
-      />
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        {/* $ rendered as a sibling outside the input (SectorTargetsPanel % pattern) so it can't be clipped */}
+        {prefix && <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace' }}>{prefix}</span>}
+        <input
+          autoFocus
+          type="number"
+          min="0"
+          step="any"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onFocus={e => e.target.select()}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') { setDraft(String(value)); setEditing(false); }
+          }}
+          style={{ width: 66, background: 'var(--bg-elevated)', border: '1px solid #00c8ff88', borderRadius: 4, color: 'var(--text-primary)', fontFamily: 'Space Mono, monospace', fontSize: 11, textAlign: 'right', padding: '2px 4px' }}
+        />
+      </span>
     );
   }
 
@@ -206,7 +210,7 @@ function EditableNumberCell({
     <span
       onClick={() => setEditing(true)}
       title="Click to edit"
-      style={{ cursor: 'pointer', borderBottom: '1px dashed #8b93a866', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#8b93a8' }}
+      style={{ cursor: 'pointer', borderBottom: '1px dashed #8b93a866', fontFamily: 'Space Mono, monospace', fontSize: 11, color: 'var(--text-secondary)' }}
     >
       {prefix}{format(value)}
     </span>
@@ -218,7 +222,7 @@ function EditableNumberCell({
 const mdProseStyle: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.7,
-  color: '#c5cad8',
+  color: 'var(--text-body)',
 };
 
 // Custom ReactMarkdown components for the dark theme
@@ -235,25 +239,25 @@ function MarkdownCard({ children }: { children: string }) {
             fontWeight: 600,
             letterSpacing: '0.1em',
             textTransform: 'uppercase',
-            color: '#8b93a8',
+            color: 'var(--text-secondary)',
             marginTop: 14,
             marginBottom: 6,
             paddingTop: 10,
-            borderTop: '1px solid #1e2230',
+            borderTop: '1px solid var(--border)',
           }}>{children}</div>
         ),
         p: ({ children }) => (
-          <p style={{ margin: '0 0 8px 0', fontSize: 13, lineHeight: 1.7, color: '#c5cad8' }}>{children}</p>
+          <p style={{ margin: '0 0 8px 0', fontSize: 13, lineHeight: 1.7, color: 'var(--text-body)' }}>{children}</p>
         ),
         strong: ({ children }) => (
-          <strong style={{ color: '#e2e6f0', fontWeight: 600 }}>{children}</strong>
+          <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{children}</strong>
         ),
         ul: ({ children }) => (
           <ul style={{ margin: '0 0 8px 0', paddingLeft: 0, listStyle: 'none' }}>{children}</ul>
         ),
         li: ({ children }) => (
-          <li style={{ fontSize: 13, color: '#c5cad8', lineHeight: 1.65, marginBottom: 4, paddingLeft: 12, position: 'relative' }}>
-            <span style={{ position: 'absolute', left: 0, color: '#8b93a8' }}>—</span>
+          <li style={{ fontSize: 13, color: 'var(--text-body)', lineHeight: 1.65, marginBottom: 4, paddingLeft: 12, position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 0, color: 'var(--text-secondary)' }}>—</span>
             {children}
           </li>
         ),
@@ -263,17 +267,17 @@ function MarkdownCard({ children }: { children: string }) {
         thead: ({ children }) => <thead>{children}</thead>,
         tbody: ({ children }) => <tbody>{children}</tbody>,
         tr: ({ children }) => (
-          <tr style={{ borderBottom: '1px solid #1e2230' }}>{children}</tr>
+          <tr style={{ borderBottom: '1px solid var(--border)' }}>{children}</tr>
         ),
         th: ({ children }) => (
-          <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontSize: 10, color: '#8b93a8', fontFamily: 'Space Mono, monospace', fontWeight: 400, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{children}</th>
+          <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace', fontWeight: 400, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{children}</th>
         ),
         td: ({ children }) => (
-          <td style={{ padding: '5px 8px 5px 0', fontSize: 12, color: '#c5cad8', fontFamily: 'Space Mono, monospace' }}>{children}</td>
+          <td style={{ padding: '5px 8px 5px 0', fontSize: 12, color: 'var(--text-body)', fontFamily: 'Space Mono, monospace' }}>{children}</td>
         ),
-        hr: () => <hr style={{ border: 'none', borderTop: '1px solid #1e2230', margin: '10px 0' }} />,
+        hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '10px 0' }} />,
         code: ({ children }) => (
-          <code style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#e2e6f0', background: '#161922', padding: '1px 4px', borderRadius: 3 }}>{children}</code>
+          <code style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color: 'var(--text-primary)', background: 'var(--bg-elevated)', padding: '1px 4px', borderRadius: 3 }}>{children}</code>
         ),
       }}
     >
@@ -404,10 +408,10 @@ function TickerSearchInput({ value, onChange, onEnter, placeholder = 'Enter tick
   }
 
   const baseStyle: React.CSSProperties = {
-    background: '#161922',
-    border: `1px solid ${validError ? '#ff4b6e' : '#1e2230'}`,
+    background: 'var(--bg-elevated)',
+    border: `1px solid ${validError ? '#ff4b6e' : 'var(--border)'}`,
     borderRadius: 6,
-    color: '#e2e6f0',
+    color: 'var(--text-primary)',
     fontSize: 12,
     padding: '6px 10px',
     outline: 'none',
@@ -431,7 +435,7 @@ function TickerSearchInput({ value, onChange, onEnter, placeholder = 'Enter tick
         spellCheck={false}
       />
       {validating && (
-        <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: '#8b93a8' }}>…</span>
+        <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-secondary)' }}>…</span>
       )}
       {validError && (
         <div style={{ fontSize: 10, color: '#ff4b6e', marginTop: 3 }}>{validError}</div>
@@ -688,11 +692,23 @@ export default function PortfolioTab({
     if (!ticker) { setAddError('Enter a ticker symbol.'); return; }
     if (isNaN(shares) || shares <= 0) { setAddError('Enter a valid number of shares.'); return; }
     if (isNaN(basis) || basis <= 0) { setAddError('Enter a valid cost basis per share.'); return; }
-    if (positions.some(p => p.ticker === ticker)) { setAddError(`${ticker} is already added.`); return; }
-    const id = `${ticker}-${Date.now()}`;
-    setPositions(prev => [...prev, { id, ticker, shares, costBasisPerShare: basis }]);
+    const existing = positions.find(p => p.ticker === ticker);
+    if (existing) {
+      // Merge the new purchase into the existing row via weighted-average cost —
+      // never create a duplicate position for the same ticker.
+      const totalShares = existing.shares + shares;
+      const newAvgCost = (existing.shares * existing.costBasisPerShare + shares * basis) / totalShares;
+      setPositions(prev => prev.map(p => (
+        p.id === existing.id
+          ? { ...p, shares: totalShares, costBasisPerShare: parseFloat(newAvgCost.toFixed(4)) }
+          : p
+      )));
+    } else {
+      const id = `${ticker}-${Date.now()}`;
+      setPositions(prev => [...prev, { id, ticker, shares, costBasisPerShare: basis }]);
+      fetchLiveForPosition(id, ticker);
+    }
     setAddTicker(''); setAddShares(''); setAddBasis('');
-    fetchLiveForPosition(id, ticker);
   }
 
   function handleRemovePosition(id: string) {
@@ -1187,6 +1203,12 @@ export default function PortfolioTab({
   const simClassified = simTicker ? resolveSector(simTicker, simLive) : null;
   const acctCfg = ACCOUNT_TYPES[accountType];
 
+  // Add-flow mode: when the entered ticker is already held, the add row becomes
+  // an "add purchase" flow that merges into the existing row (weighted avg cost)
+  const addExistingPos = addTicker
+    ? positions.find(p => p.ticker === addTicker.trim().toUpperCase()) ?? null
+    : null;
+
   // Sim mode detection — auto-detected from slider vs current weight (% mode only)
   const simExistingPos = simTicker ? computed.find(p => p.ticker === simTicker) : null;
   const simCurrentPct = simExistingPos ? simExistingPos.portfolioWeightPct : 0;
@@ -1206,31 +1228,31 @@ export default function PortfolioTab({
   function renderDirectionArrow(d: 'toward' | 'away' | 'neutral', hasTarget: boolean) {
     if (d === 'toward') return <span style={{ color: '#00e676', fontSize: 13 }}>↑</span>;
     if (d === 'away') return <span style={{ color: '#ff4b6e', fontSize: 13 }}>↓</span>;
-    if (!hasTarget) return <span style={{ color: '#8b93a8', fontSize: 13 }}>–</span>;
-    return <span style={{ color: '#8b93a8', fontSize: 13 }}>–</span>;
+    if (!hasTarget) return <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>–</span>;
+    return <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>–</span>;
   }
 
   const inputStyle: React.CSSProperties = {
-    background: '#161922', border: '1px solid #1e2230', borderRadius: 6,
-    color: '#e2e6f0', fontSize: 12, padding: '5px 8px', outline: 'none',
+    background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6,
+    color: 'var(--text-primary)', fontSize: 12, padding: '5px 8px', outline: 'none',
   };
 
   const total = projectedTotal();
   const totalOk = Math.abs(total - 100) < 0.5;
 
   return (
-    <div style={{ fontFamily: 'DM Sans, sans-serif', color: '#e2e6f0' }}>
+    <div style={{ fontFamily: 'DM Sans, sans-serif', color: 'var(--text-primary)' }}>
 
       {/* Supabase loading overlay — shown briefly while hydrating authenticated session */}
       {syncLoading && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 50,
-          background: '#08090dcc', backdropFilter: 'blur(2px)',
+          background: 'var(--overlay)', backdropFilter: 'blur(2px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexDirection: 'column', gap: 12,
         }}>
-          <div style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid #1e2230', borderTopColor: '#a259ff', animation: 'spin 0.7s linear infinite' }} />
-          <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, letterSpacing: '0.1em', color: '#8b93a8' }}>LOADING YOUR PORTFOLIO…</span>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid var(--border)', borderTopColor: '#a259ff', animation: 'spin 0.7s linear infinite' }} />
+          <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, letterSpacing: '0.1em', color: 'var(--text-secondary)' }}>LOADING YOUR PORTFOLIO…</span>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
@@ -1303,8 +1325,8 @@ export default function PortfolioTab({
       )}
 
       {/* Account type bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, padding: '10px 16px', background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, color: '#8b93a8', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Account type</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, padding: '10px 16px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Account type</span>
         <button onClick={() => setAcctPanelOpen(true)} style={{ background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}55`, borderRadius: 6, cursor: 'pointer', color: acctCfg.color, fontSize: 12, fontFamily: 'Space Mono, monospace', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
           {acctCfg.label}<span style={{ fontSize: 10, opacity: 0.7 }}>▾</span>
         </button>
@@ -1318,7 +1340,7 @@ export default function PortfolioTab({
             ))}
           </div>
         )}
-        {accountType === 'unspecified' && <span style={{ fontSize: 11, color: '#8b93a8', fontStyle: 'italic' }}>Set account type for tax-aware analysis</span>}
+        {accountType === 'unspecified' && <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic' }}>Set account type for tax-aware analysis</span>}
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════ */}
@@ -1329,7 +1351,7 @@ export default function PortfolioTab({
           {/* Positions header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8b93a8' }}>Your positions</span>
+              <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Your positions</span>
               {isAuthenticated && (
                 <span style={{ fontSize: 10, color: '#00e676', fontFamily: 'Space Mono, monospace', display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#00e676', display: 'inline-block' }} />
@@ -1343,7 +1365,7 @@ export default function PortfolioTab({
                   + ${cashAmount >= 1_000_000 ? `${(cashAmount / 1_000_000).toFixed(2)}M` : cashAmount >= 1_000 ? `${(cashAmount / 1_000).toFixed(1)}K` : cashAmount.toFixed(0)} cash
                 </span>
               )}
-              <span style={{ fontSize: 11, color: '#8b93a8', fontFamily: 'Space Mono, monospace' }}>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace' }}>
                 {positions.length} position{positions.length !== 1 ? 's' : ''}
                 {hasPrices && effectiveTotalValue > 0 && (
                   <> · ${effectiveTotalValue >= 1_000_000 ? `${(effectiveTotalValue / 1_000_000).toFixed(2)}M` : effectiveTotalValue >= 1_000 ? `${(effectiveTotalValue / 1_000).toFixed(1)}K` : effectiveTotalValue.toFixed(0)} total</>
@@ -1353,9 +1375,9 @@ export default function PortfolioTab({
           </div>
 
           {/* Cash balance row */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', background: cashAmount > 0 ? '#00e67608' : '#0f1117', border: `1px solid ${cashAmount > 0 ? '#00e67633' : '#1e2230'}`, borderRadius: 8, transition: 'all 0.2s' }}>
-            <span style={{ fontSize: 11, color: '#8b93a8', whiteSpace: 'nowrap', letterSpacing: '0.03em' }}>Cash available</span>
-            <span style={{ fontSize: 13, color: '#8b93a8' }}>$</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', background: cashAmount > 0 ? '#00e67608' : 'var(--bg-surface)', border: `1px solid ${cashAmount > 0 ? '#00e67633' : 'var(--border)'}`, borderRadius: 8, transition: 'all 0.2s' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', letterSpacing: '0.03em' }}>Cash available</span>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>$</span>
             <input
               type="number"
               min={0}
@@ -1367,7 +1389,7 @@ export default function PortfolioTab({
                 setCashResult(null);
               }}
               placeholder="0"
-              style={{ ...inputStyle, width: 120, fontFamily: 'Space Mono, monospace', fontSize: 13, color: cashAmount > 0 ? '#00e676' : '#e2e6f0' }}
+              style={{ ...inputStyle, width: 120, fontFamily: 'Space Mono, monospace', fontSize: 13, color: cashAmount > 0 ? '#00e676' : 'var(--text-primary)' }}
             />
             {cashAmount > 0 && hasPrices && totalValue > 0 && (
               <span style={{ fontSize: 10, color: '#00e676', fontFamily: 'Space Mono, monospace', marginLeft: 4 }}>
@@ -1377,7 +1399,7 @@ export default function PortfolioTab({
             {cashAmount > 0 && (
               <button
                 onClick={() => { setCashAmount(0); setCashResult(null); setCashMode(false); }}
-                style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 13, lineHeight: 1, padding: '2px 4px' }}
+                style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1, padding: '2px 4px' }}
                 title="Clear cash"
               >×</button>
             )}
@@ -1394,28 +1416,28 @@ export default function PortfolioTab({
                   <span style={{ fontSize: 13 }}>$</span> Where to deploy cash?
                 </button>
               )}
-              {cashLoading && <div style={{ fontSize: 12, color: '#8b93a8', padding: '12px 0' }}>Analyzing…</div>}
+              {cashLoading && <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '12px 0' }}>Analyzing…</div>}
               {cashError && <div style={{ fontSize: 11, color: '#ff4b6e', padding: '8px 0' }}>{cashError}</div>}
               {cashResult && (
                 <div style={{ borderLeft: '3px solid #00e676', padding: '16px 18px', background: '#00e6760d', borderRadius: '0 8px 8px 0' }}>
                   <div style={{ fontSize: 10, fontWeight: 500, color: '#00e676', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
                     Cash Deployment
-                    <span style={{ color: '#8b93a8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· {cashWeightPct.toFixed(1)}% of portfolio</span>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· {cashWeightPct.toFixed(1)}% of portfolio</span>
                     {accountType !== 'unspecified' && (
                       <span style={{ color: acctCfg.color, background: `${acctCfg.color}18`, border: `1px solid ${acctCfg.color}44`, borderRadius: 4, padding: '1px 6px', fontSize: 9, fontFamily: 'Space Mono, monospace' }}>{acctCfg.shortLabel}</span>
                     )}
                   </div>
                   <MarkdownCard>{cashResult}</MarkdownCard>
-                  <button onClick={() => runCashDeploy(computed, sectorActuals)} disabled={cashLoading} style={{ marginTop: 10, background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
+                  <button onClick={() => runCashDeploy(computed, sectorActuals)} disabled={cashLoading} style={{ marginTop: 10, background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
                 </div>
               )}
             </div>
           )}
 
           {/* Positions table */}
-          <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, marginBottom: 24, overflow: 'hidden' }}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: 24, overflow: 'hidden' }}>
             {positions.length === 0 ? (
-              <div style={{ padding: '32px 20px', textAlign: 'center', color: '#8b93a8', fontSize: 13 }}>Add your first position below to get started.</div>
+              <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>Add your first position below to get started.</div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', minWidth: 600, borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
@@ -1430,13 +1452,13 @@ export default function PortfolioTab({
                   <col style={{ width: 32 }} />
                 </colgroup>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #1e2230' }}>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
                     {['Ticker', 'Sector', 'Shares', 'Avg price', 'Price', 'Gain / loss', 'Allocation', ''].map(h => (
                       <th key={h} style={{
                         textAlign: ['Allocation', 'Shares', 'Avg price', 'Price', 'Gain / loss'].includes(h) ? 'right' : 'left',
-                        padding: '6px 8px', color: '#8b93a8', fontWeight: 400, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+                        padding: '6px 8px', color: 'var(--text-secondary)', fontWeight: 400, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
                         overflow: 'hidden', textOverflow: 'ellipsis',
-                        ...(h === '' ? { position: 'sticky' as const, right: 0, background: '#0f1117' } : {}),
+                        ...(h === '' ? { position: 'sticky' as const, right: 0, background: 'var(--bg-surface)' } : {}),
                       }}>{h}</th>
                     ))}
                   </tr>
@@ -1445,12 +1467,12 @@ export default function PortfolioTab({
                   {computed.map(p => {
                     const { color } = SECTOR_DISPLAY[p.sector];
                     const subLabel = p.subSector ? SUBSECTOR_DISPLAY[p.subSector]?.label : null;
-                    const gainColor = p.unrealizedGainPct == null ? '#8b93a8' : p.unrealizedGainPct >= 0 ? '#00e676' : '#ff4b6e';
+                    const gainColor = p.unrealizedGainPct == null ? 'var(--text-secondary)' : p.unrealizedGainPct >= 0 ? '#00e676' : '#ff4b6e';
                     return (
-                      <tr key={p.id} style={{ borderBottom: '1px solid #1e2230' }}>
+                      <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '6px 8px' }}>
                           <span style={{ background: `${color}22`, color, fontFamily: 'Space Mono, monospace', fontSize: 11, fontWeight: 500, padding: '2px 6px', borderRadius: 4 }}>{p.ticker}</span>
-                          {!p.inUniverse && <span style={{ marginLeft: 5, fontSize: 9, color: '#8b93a8', border: '1px solid #1e2230', borderRadius: 3, padding: '1px 4px' }}>EXT</span>}
+                          {!p.inUniverse && <span style={{ marginLeft: 5, fontSize: 9, color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 4px' }}>EXT</span>}
                         </td>
                         <td style={{ padding: '6px 8px', overflow: 'hidden' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -1458,7 +1480,7 @@ export default function PortfolioTab({
                               <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, flexShrink: 0 }} />
                               <span style={{ fontSize: 10, color }}>{SECTOR_DISPLAY[p.sector].label}</span>
                             </span>
-                            {subLabel && <span style={{ fontSize: 9, color: '#6b7190', paddingLeft: 9, wordBreak: 'break-word' }}>{subLabel}</span>}
+                            {subLabel && <span style={{ fontSize: 9, color: 'var(--text-tertiary)', paddingLeft: 9, wordBreak: 'break-word' }}>{subLabel}</span>}
                           </div>
                         </td>
                         <td style={{ padding: '6px 8px', textAlign: 'right' }}>
@@ -1476,24 +1498,24 @@ export default function PortfolioTab({
                             onCommit={v => handleUpdatePosition(p.id, { costBasisPerShare: v })}
                           />
                         </td>
-                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#e2e6f0' }}>
-                          {p.liveLoading ? <span style={{ color: '#8b93a8' }}>…</span> : p.livePrice != null ? `$${p.livePrice.toFixed(2)}` : <span style={{ color: '#ff4b6e', fontSize: 10 }}>ERR</span>}
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: 'var(--text-primary)' }}>
+                          {p.liveLoading ? <span style={{ color: 'var(--text-secondary)' }}>…</span> : p.livePrice != null ? `$${p.livePrice.toFixed(2)}` : <span style={{ color: '#ff4b6e', fontSize: 10 }}>ERR</span>}
                         </td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'Space Mono, monospace', fontSize: 11, color: gainColor }}>
                           {p.unrealizedGainPct != null ? `${p.unrealizedGainPct >= 0 ? '+' : ''}${fmt(p.unrealizedGainPct)}%` : '—'}
                         </td>
                         <td style={{ padding: '6px 8px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                            <div style={{ width: 32, height: 3, background: '#1e2230', borderRadius: 2, flexShrink: 0 }}>
+                            <div style={{ width: 32, height: 3, background: 'var(--border)', borderRadius: 2, flexShrink: 0 }}>
                               <div style={{ height: 3, borderRadius: 2, background: color, width: `${Math.min(p.portfolioWeightPct * 2.5, 100)}%` }} />
                             </div>
-                            <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#8b93a8', minWidth: 26 }}>
+                            <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: 'var(--text-secondary)', minWidth: 26 }}>
                               {hasPrices ? `${fmt(p.portfolioWeightPct)}%` : '—'}
                             </span>
                           </div>
                         </td>
-                        <td style={{ padding: '6px 4px', position: 'sticky', right: 0, background: '#0f1117', borderLeft: '1px solid #1e2230' }}>
-                          <button onClick={() => handleRemovePosition(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 15, lineHeight: 1, padding: '4px 5px' }} title="Remove">×</button>
+                        <td style={{ padding: '6px 4px', position: 'sticky', right: 0, background: 'var(--bg-surface)', borderLeft: '1px solid var(--border)' }}>
+                          <button onClick={() => handleRemovePosition(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1, padding: '4px 5px' }} title="Remove">×</button>
                         </td>
                       </tr>
                     );
@@ -1502,8 +1524,18 @@ export default function PortfolioTab({
               </table>
               </div>
             )}
-            {/* Add row */}
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '8px 10px', borderTop: positions.length > 0 ? '1px solid #1e2230' : 'none', background: '#0f1117' }}>
+            {/* Add row — switches to "add purchase" mode when ticker is already held */}
+            {addExistingPos && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px 0', borderTop: positions.length > 0 ? '1px solid var(--border)' : 'none', background: 'var(--bg-surface)' }}>
+                <span style={{ fontSize: 11, color: '#ffd166' }}>
+                  Add purchase to existing <span style={{ fontFamily: 'Space Mono, monospace' }}>{addExistingPos.ticker}</span> position
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace' }}>
+                  currently {fmtShares(addExistingPos.shares)} sh @ ${addExistingPos.costBasisPerShare.toFixed(2)} avg
+                </span>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '8px 10px', borderTop: !addExistingPos && positions.length > 0 ? '1px solid var(--border)' : 'none', background: 'var(--bg-surface)' }}>
               <TickerSearchInput
                 value={addTicker}
                 onChange={setAddTicker}
@@ -1511,16 +1543,22 @@ export default function PortfolioTab({
                 placeholder="Search ticker…"
                 style={{ width: 160 }}
               />
-              <input value={addShares} onChange={e => setAddShares(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddPosition()} placeholder="Shares" type="number" min="0" style={{ ...inputStyle, width: 80 }} />
-              <input value={addBasis} onChange={e => setAddBasis(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddPosition()} placeholder="Cost basis / share" type="number" min="0" style={{ ...inputStyle, width: 130 }} />
-              <button onClick={handleAddPosition} style={{ background: '#e2e6f0', border: 'none', borderRadius: 6, color: '#08090d', fontSize: 12, fontWeight: 500, padding: '6px 14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add</button>
+              <input value={addShares} onChange={e => setAddShares(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddPosition()} placeholder={addExistingPos ? 'New shares' : 'Shares'} type="number" min="0" style={{ ...inputStyle, width: 80 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {/* $ sits as a sibling outside the input — same pattern as the % in SectorTargetsPanel */}
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>$</span>
+                <input value={addBasis} onChange={e => setAddBasis(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddPosition()} placeholder={addExistingPos ? 'Cost / share' : 'Cost basis / share'} type="number" min="0" style={{ ...inputStyle, width: 116 }} />
+              </div>
+              <button onClick={handleAddPosition} style={{ background: 'var(--text-primary)', border: 'none', borderRadius: 6, color: 'var(--bg-surface)', fontSize: 12, fontWeight: 500, padding: '6px 14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {addExistingPos ? '+ Add purchase' : '+ Add'}
+              </button>
               {addError && <span style={{ fontSize: 11, color: '#ff4b6e' }}>{addError}</span>}
             </div>
           </div>
 
           {/* Sector concentration chart */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8b93a8' }}>Sector concentration</span>
+            <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Sector concentration</span>
             <div style={{ display: 'flex', gap: 8 }}>
               {hasTargets && underweightSectors.length > 0 && (
                 <button
@@ -1531,21 +1569,21 @@ export default function PortfolioTab({
                   <span style={{ fontSize: 13 }}>↗</span> Explore gaps
                 </button>
               )}
-              <button onClick={() => setTargetsOpen(true)} style={{ background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#e2e6f0', fontSize: 11, padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <button onClick={() => setTargetsOpen(true)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 11, padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ fontSize: 13 }}>⇌</span>{hasTargets ? 'Edit targets' : 'Set targets'}
               </button>
             </div>
           </div>
 
-          <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
             {hasTargets && (
-              <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontSize: 11, color: '#8b93a8' }}>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontSize: 11, color: 'var(--text-secondary)' }}>
                 <span>■ Actual</span><span style={{ opacity: 0.5 }}>□ Target</span>
                 <span style={{ color: '#ff4b6e' }}>▲ Over</span><span style={{ color: '#00e676' }}>▼ Under</span>
               </div>
             )}
             {positions.length === 0 ? (
-              <div style={{ color: '#8b93a8', fontSize: 13, textAlign: 'center', padding: '16px 0' }}>Add positions to see sector breakdown.</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center', padding: '16px 0' }}>Add positions to see sector breakdown.</div>
             ) : (
               activeSectors.map(sector => {
                 const actual = sectorActuals[sector] ?? 0;
@@ -1564,16 +1602,16 @@ export default function PortfolioTab({
                 return (
                   <div key={sector}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: isExp ? 4 : 10 }}>
-                      <button onClick={() => canExpand && toggleChartExpand(sector)} style={{ background: 'none', border: 'none', padding: 0, cursor: canExpand ? 'pointer' : 'default', color: canExpand ? '#8b93a8' : 'transparent', fontSize: 9, width: 12, flexShrink: 0, lineHeight: 1 }}>
+                      <button onClick={() => canExpand && toggleChartExpand(sector)} style={{ background: 'none', border: 'none', padding: 0, cursor: canExpand ? 'pointer' : 'default', color: canExpand ? 'var(--text-secondary)' : 'transparent', fontSize: 9, width: 12, flexShrink: 0, lineHeight: 1 }}>
                         {canExpand ? (isExp ? '▼' : '▶') : ''}
                       </button>
-                      <span style={{ width: 100, fontSize: 12, color: '#8b93a8', flexShrink: 0 }}>{label}</span>
+                      <span style={{ width: 100, fontSize: 12, color: 'var(--text-secondary)', flexShrink: 0 }}>{label}</span>
                       <div style={{ flex: 1, position: 'relative', height: 22 }}>
                         <div style={{ position: 'absolute', top: 1, left: 0, height: 8, borderRadius: 2, width: `${barWidth}%`, background: color, transition: 'width 0.3s ease' }} />
                         {target != null && <div style={{ position: 'absolute', top: 13, left: 0, height: 8, borderRadius: 2, width: `${targetBarWidth}%`, border: `1.5px solid ${color}`, opacity: 0.5 }} />}
                       </div>
                       <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color, width: 36, textAlign: 'right', flexShrink: 0 }}>{hasPrices ? `${fmt(actual)}%` : '—'}</span>
-                      <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, width: 40, textAlign: 'right', flexShrink: 0, color: delta == null ? 'transparent' : Math.abs(delta) < 0.5 ? '#8b93a8' : delta > 0 ? '#ff4b6e' : '#00e676' }}>{delta != null ? fmtDelta(delta) : '—'}</span>
+                      <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, width: 40, textAlign: 'right', flexShrink: 0, color: delta == null ? 'transparent' : Math.abs(delta) < 0.5 ? 'var(--text-secondary)' : delta > 0 ? '#ff4b6e' : '#00e676' }}>{delta != null ? fmtDelta(delta) : '—'}</span>
                       {isUnderweight && (
                         <button
                           onClick={() => runSectorExplore(sector, computed)}
@@ -1588,11 +1626,11 @@ export default function PortfolioTab({
                       const ssActual = subSectorActuals[ss] ?? 0;
                       return (
                         <div key={ss} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, paddingLeft: 22, opacity: 0.85 }}>
-                          <span style={{ width: 90, fontSize: 11, color: '#6b7190', flexShrink: 0 }}>{SUBSECTOR_DISPLAY[ss]?.label ?? ss}</span>
+                          <span style={{ width: 90, fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>{SUBSECTOR_DISPLAY[ss]?.label ?? ss}</span>
                           <div style={{ flex: 1, position: 'relative', height: 10 }}>
                             <div style={{ position: 'absolute', top: 1, left: 0, height: 6, borderRadius: 2, width: `${hasPrices ? (ssActual / maxActual) * 100 : 0}%`, background: color, opacity: 0.5, transition: 'width 0.3s ease' }} />
                           </div>
-                          <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, color: '#6b7190', width: 36, textAlign: 'right', flexShrink: 0 }}>{hasPrices ? `${fmt(ssActual)}%` : '—'}</span>
+                          <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, color: 'var(--text-tertiary)', width: 36, textAlign: 'right', flexShrink: 0 }}>{hasPrices ? `${fmt(ssActual)}%` : '—'}</span>
                           <span style={{ width: 40 }} />
                         </div>
                       );
@@ -1608,11 +1646,11 @@ export default function PortfolioTab({
           {computed.length > 0 && hasPrices && (
             <>
               {!macroRisk && !macroLoading && (
-                <button onClick={() => runMacroRisk(computed, sectorActuals, subSectorActuals)} style={{ background: 'none', border: '1px solid #1e2230', borderRadius: 8, color: '#e2e6f0', fontSize: 12, padding: '8px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button onClick={() => runMacroRisk(computed, sectorActuals, subSectorActuals)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, padding: '8px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                   ✦ Run macro risk analysis{cashAmount > 0 ? ' · includes cash' : ''}
                 </button>
               )}
-              {macroLoading && <div style={{ fontSize: 12, color: '#8b93a8', padding: '12px 0' }}>Analyzing portfolio…</div>}
+              {macroLoading && <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '12px 0' }}>Analyzing portfolio…</div>}
               {macroError && <div style={{ fontSize: 12, color: '#ff4b6e', padding: '8px 0' }}>{macroError}</div>}
               {macroRisk && (
                 <>
@@ -1627,7 +1665,7 @@ export default function PortfolioTab({
                     <MarkdownCard>{macroRisk}</MarkdownCard>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                    <button onClick={() => runMacroRisk(computed, sectorActuals, subSectorActuals)} disabled={macroLoading} style={{ background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
+                    <button onClick={() => runMacroRisk(computed, sectorActuals, subSectorActuals)} disabled={macroLoading} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
                     <button
                       onClick={() => { initProjectedTargets(sectorActuals); setScenarioOpen(true); }}
                       style={{ background: 'none', border: '1px solid #a259ff44', borderRadius: 6, color: '#a259ff', fontSize: 11, padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
@@ -1643,21 +1681,21 @@ export default function PortfolioTab({
 
         {/* ══════════ RIGHT COLUMN ══════════ */}
         <div>
-          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8b93a8', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
             <span>{cashMode ? 'Cash injection' : simIsTrim ? 'Trim simulation' : 'Add simulation'}</span>
-            <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #1e2230', marginLeft: 'auto' }}>
+            <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)', marginLeft: 'auto' }}>
               <button
                 onClick={() => { setCashMode(false); setTrimResult(null); setMemoResult(null); }}
-                style={{ background: !cashMode ? '#e2e6f0' : '#0f1117', border: 'none', cursor: 'pointer', color: !cashMode ? '#08090d' : '#8b93a8', fontSize: 10, fontFamily: 'Space Mono, monospace', padding: '4px 10px', letterSpacing: '0.06em' }}
+                style={{ background: !cashMode ? 'var(--text-primary)' : 'var(--bg-surface)', border: 'none', cursor: 'pointer', color: !cashMode ? 'var(--bg-surface)' : 'var(--text-secondary)', fontSize: 10, fontFamily: 'Space Mono, monospace', padding: '4px 10px', letterSpacing: '0.06em' }}
               >% MODE</button>
               <button
                 onClick={() => { setCashMode(true); setTrimResult(null); setMemoResult(null); }}
-                style={{ background: cashMode ? '#00e676' : '#0f1117', border: 'none', cursor: 'pointer', color: cashMode ? '#08090d' : (cashAmount > 0 ? '#00e676' : '#8b93a8'), fontSize: 10, fontFamily: 'Space Mono, monospace', padding: '4px 10px', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}
+                style={{ background: cashMode ? '#00e676' : 'var(--bg-surface)', border: 'none', cursor: 'pointer', color: cashMode ? '#08090d' : (cashAmount > 0 ? '#00e676' : 'var(--text-secondary)'), fontSize: 10, fontFamily: 'Space Mono, monospace', padding: '4px 10px', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}
               >$ CASH{cashAmount > 0 && !cashMode && <span style={{ opacity: 0.7 }}>·{cashWeightPct.toFixed(0)}%</span>}</button>
             </div>
           </div>
-          <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, padding: '16px' }}>
-            <div style={{ fontSize: 12, color: '#8b93a8', marginBottom: 14, lineHeight: 1.5 }}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14, lineHeight: 1.5 }}>
               {cashMode
                 ? cashAmount > 0
                   ? `Simulating deployment of ${cashWeightPct.toFixed(1)}% cash into a new position. No existing position needs to be sold.`
@@ -1670,7 +1708,7 @@ export default function PortfolioTab({
             </div>
 
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, color: '#8b93a8', marginBottom: 6 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
                 {cashMode ? 'Stock to buy with cash' : simIsTrim ? 'Position to trim' : 'Candidate stock'}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1680,8 +1718,8 @@ export default function PortfolioTab({
                   placeholder="Search ticker…"
                   style={{ width: 200 }}
                 />
-                {simLive.loading && <span style={{ fontSize: 11, color: '#8b93a8' }}>…</span>}
-                {simLive.price != null && <span style={{ fontSize: 12, fontFamily: 'Space Mono, monospace', color: '#e2e6f0' }}>${simLive.price.toFixed(2)}</span>}
+                {simLive.loading && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>…</span>}
+                {simLive.price != null && <span style={{ fontSize: 12, fontFamily: 'Space Mono, monospace', color: 'var(--text-primary)' }}>${simLive.price.toFixed(2)}</span>}
                 {simTicker && !simLive.loading && simLive.error && <span style={{ fontSize: 11, color: '#ff4b6e' }}>Not found</span>}
               </div>
               {simTicker && simClassified && (
@@ -1689,9 +1727,9 @@ export default function PortfolioTab({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: SECTOR_DISPLAY[simClassified.sector].color }} />
                     <span style={{ fontSize: 11, color: SECTOR_DISPLAY[simClassified.sector].color }}>{SECTOR_DISPLAY[simClassified.sector].label}</span>
-                    {simClassified.sector === 'other' && !isInUniverse(simTicker) && <span style={{ fontSize: 10, color: '#8b93a8' }}>(unknown)</span>}
+                    {simClassified.sector === 'other' && !isInUniverse(simTicker) && <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>(unknown)</span>}
                   </div>
-                  {simClassified.subSector && <div style={{ fontSize: 10, color: '#6b7190', paddingLeft: 11, marginTop: 2 }}>{SUBSECTOR_DISPLAY[simClassified.subSector]?.label}</div>}
+                  {simClassified.subSector && <div style={{ fontSize: 10, color: 'var(--text-tertiary)', paddingLeft: 11, marginTop: 2 }}>{SUBSECTOR_DISPLAY[simClassified.subSector]?.label}</div>}
                 </div>
               )}
               {cashMode && cashAmount > 0 && simLive.price != null && cashSimShares != null && (
@@ -1700,12 +1738,12 @@ export default function PortfolioTab({
                     ~{cashSimShares} share{cashSimShares !== 1 ? 's' : ''}
                   </span>
                   {cashSimLeftover != null && cashSimLeftover > 0 && (
-                    <span style={{ fontSize: 10, color: '#8b93a8', marginLeft: 8 }}>· ${cashSimLeftover.toFixed(2)} leftover</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 8 }}>· ${cashSimLeftover.toFixed(2)} leftover</span>
                   )}
                   {cashSimLeftover === 0 && (
-                    <span style={{ fontSize: 10, color: '#8b93a8', marginLeft: 8 }}>· uses cash fully</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 8 }}>· uses cash fully</span>
                   )}
-                  <span style={{ fontSize: 10, color: '#4a4e63', marginLeft: 8 }}>at ${simLive.price.toFixed(2)}/share</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 8 }}>at ${simLive.price.toFixed(2)}/share</span>
                 </div>
               )}
             </div>
@@ -1713,31 +1751,31 @@ export default function PortfolioTab({
             {!cashMode && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: '#8b93a8' }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
                     {simIsHeld
-                      ? <>Target allocation <span style={{ color: '#4a4e63' }}>(currently {fmt(simCurrentPct)}%)</span></>
+                      ? <>Target allocation <span style={{ color: 'var(--text-muted)' }}>(currently {fmt(simCurrentPct)}%)</span></>
                       : 'Target allocation'}
                   </span>
-                  <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', fontWeight: 500, color: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : '#e2e6f0' }}>
+                  <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', fontWeight: 500, color: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : 'var(--text-primary)' }}>
                     {simIsExit ? 'EXIT' : `${simAlloc}%`}
                   </span>
                 </div>
                 <input
                   type="range" min={0} max={100} step={1} value={simAlloc}
                   onChange={e => { setSimAlloc(parseInt(e.target.value)); setTrimResult(null); setMemoResult(null); }}
-                  style={{ width: '100%', accentColor: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : '#e2e6f0' }}
+                  style={{ width: '100%', accentColor: simIsExit ? '#ff4b6e' : simIsTrim ? '#ffd166' : 'var(--text-primary)' }}
                 />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#8b93a8', marginTop: 2 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>
                   <span style={{ color: '#ff4b6e' }}>0% exit</span>
-                  {simIsHeld && <span style={{ color: '#4a4e63' }}>▲ {fmt(simCurrentPct)}% now</span>}
+                  {simIsHeld && <span style={{ color: 'var(--text-muted)' }}>▲ {fmt(simCurrentPct)}% now</span>}
                   <span>100%</span>
                 </div>
               </div>
             )}
 
             {cashMode && cashAmount > 0 && totalValue > 0 && (
-              <div style={{ marginBottom: 16, padding: '8px 12px', background: '#161922', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#8b93a8' }}>Effective weight after injection</span>
+              <div style={{ marginBottom: 16, padding: '8px 12px', background: 'var(--bg-elevated)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Effective weight after injection</span>
                 <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', fontWeight: 500, color: '#00e676' }}>
                   ≈ {cashWeightPct.toFixed(1)}%
                 </span>
@@ -1746,22 +1784,22 @@ export default function PortfolioTab({
 
             {simImpact && simTicker && (
               <>
-                <div style={{ fontSize: 11, color: '#8b93a8', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
                   {cashMode
                     ? <span>Sector impact <span style={{ color: '#00e676' }}>deploying cash → {simTicker}</span></span>
                     : simIsTrim
                       ? <span>Sector impact <span style={{ color: '#ffd166' }}>trimming {simIsExit ? 'full exit' : `→ ${simAlloc}%`}</span></span>
-                      : <>Sector impact{hasTargets ? <span style={{ color: '#4a4e63', marginLeft: 6 }}>vs targets</span> : ''}</>
+                      : <>Sector impact{hasTargets ? <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>vs targets</span> : ''}</>
                   }
                 </div>
-                <div style={{ background: '#161922', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
+                <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
                   {simImpact.map(row => {
                     const targetDelta = row.target != null ? row.after - row.target : null;
                     return (
-                      <div key={row.sector} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #1e2230', fontSize: 12 }}>
+                      <div key={row.sector} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', fontSize: 12 }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: SECTOR_DISPLAY[row.sector].color }} />
-                        <span style={{ flex: 1, color: '#e2e6f0' }}>{SECTOR_DISPLAY[row.sector].label}</span>
-                        <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#8b93a8' }}>{fmt(row.before)}% → {fmt(row.after)}%</span>
+                        <span style={{ flex: 1, color: 'var(--text-primary)' }}>{SECTOR_DISPLAY[row.sector].label}</span>
+                        <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color: 'var(--text-secondary)' }}>{fmt(row.before)}% → {fmt(row.after)}%</span>
                         {targetDelta != null && (
                           <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, color: Math.abs(targetDelta) < 1 ? '#00e676' : targetDelta > 0 ? '#ff4b6e' : '#ffd166', background: Math.abs(targetDelta) < 1 ? '#00e67618' : targetDelta > 0 ? '#ff4b6e18' : '#ffd16618', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
                             {Math.abs(targetDelta) < 1 ? '✓' : `${targetDelta > 0 ? '+' : ''}${targetDelta.toFixed(1)}pp`}
@@ -1781,9 +1819,9 @@ export default function PortfolioTab({
                 disabled={memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0)}
                 style={{
                   width: '100%',
-                  background: memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0) ? '#161922' : cashMode ? '#00e676' : simIsTrim ? '#ffd166' : '#a259ff',
+                  background: memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0) ? 'var(--bg-elevated)' : cashMode ? '#00e676' : simIsTrim ? '#ffd166' : '#a259ff',
                   border: 'none', borderRadius: 8,
-                  color: memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0) ? '#8b93a8' : cashMode ? '#08090d' : simIsTrim ? '#08090d' : '#fff',
+                  color: memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0) ? 'var(--text-secondary)' : cashMode ? '#08090d' : simIsTrim ? '#08090d' : '#fff',
                   fontSize: 12, fontWeight: 500, padding: '10px 0',
                   cursor: memoLoading || trimLoading || !simTicker || (cashMode && cashAmount <= 0) ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -1804,8 +1842,8 @@ export default function PortfolioTab({
                 disabled={trimLoading || memoLoading || !simTicker || (cashMode && cashAmount <= 0)}
                 style={{
                   width: '100%', background: 'none',
-                  border: '1px solid #1e2230', borderRadius: 8,
-                  color: trimLoading || memoLoading || !simTicker || (cashMode && cashAmount <= 0) ? '#4a4e63' : '#8b93a8',
+                  border: '1px solid var(--border)', borderRadius: 8,
+                  color: trimLoading || memoLoading || !simTicker || (cashMode && cashAmount <= 0) ? 'var(--text-muted)' : 'var(--text-secondary)',
                   fontSize: 12, padding: '8px 0',
                   cursor: trimLoading || memoLoading || !simTicker || (cashMode && cashAmount <= 0) ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -1834,7 +1872,7 @@ export default function PortfolioTab({
                 )}
               </div>
               <MarkdownCard>{memoResult}</MarkdownCard>
-              <button onClick={() => runTrimMemo(computed, sectorActuals)} disabled={memoLoading} style={{ marginTop: 10, background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
+              <button onClick={() => runTrimMemo(computed, sectorActuals)} disabled={memoLoading} style={{ marginTop: 10, background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
             </div>
           )}
 
@@ -1847,12 +1885,12 @@ export default function PortfolioTab({
                 )}
               </div>
               <MarkdownCard>{trimResult}</MarkdownCard>
-              <button onClick={() => runTrimSuggestion(computed, sectorActuals)} disabled={trimLoading} style={{ marginTop: 10, background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
+              <button onClick={() => runTrimSuggestion(computed, sectorActuals)} disabled={trimLoading} style={{ marginTop: 10, background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>↺ Re-run</button>
             </div>
           )}
 
           {computed.length === 0 && (
-            <div style={{ marginTop: 16, padding: '16px', background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, fontSize: 12, color: '#8b93a8', lineHeight: 1.5 }}>
+            <div style={{ marginTop: 16, padding: '16px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               Add at least one position on the left to enable simulation and trim suggestion.
             </div>
           )}
@@ -1905,17 +1943,17 @@ function ScenarioPanel({
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.6)' }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50, width: 500, background: '#0f1117', borderLeft: '1px solid #1e2230', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50, width: 500, background: 'var(--bg-surface)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Header */}
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #1e2230', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 500, color: '#e2e6f0', marginBottom: 4 }}>Scenario Analysis</div>
-            <div style={{ fontSize: 12, color: '#8b93a8', lineHeight: 1.5 }}>
+            <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>Scenario Analysis</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               Adjust your proposed sector weightings and get an AI analysis of how this shift would perform in the current macro environment.
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 20, lineHeight: 1, padding: 4, marginLeft: 12 }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 20, lineHeight: 1, padding: 4, marginLeft: 12 }}>×</button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
@@ -1923,9 +1961,9 @@ function ScenarioPanel({
           {/* Sector weight editor */}
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px 52px', gap: 0, marginBottom: 8 }}>
-              <span style={{ fontSize: 10, color: '#8b93a8', fontFamily: 'Space Mono, monospace', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Sector</span>
-              <span style={{ fontSize: 10, color: '#8b93a8', fontFamily: 'Space Mono, monospace', letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: 'right' }}>Actual</span>
-              <span style={{ fontSize: 10, color: '#8b93a8', fontFamily: 'Space Mono, monospace', letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: 'right' }}>Current target</span>
+              <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Sector</span>
+              <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace', letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: 'right' }}>Actual</span>
+              <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace', letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: 'right' }}>Current target</span>
               <span style={{ fontSize: 10, color: '#a259ff', fontFamily: 'Space Mono, monospace', letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: 'right' }}>Proposed</span>
             </div>
 
@@ -1937,18 +1975,18 @@ function ScenarioPanel({
               const delta = proposed != null ? proposed - actual : null;
 
               return (
-                <div key={sector} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px 52px', gap: 0, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #1e223088' }}>
+                <div key={sector} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px 52px', gap: 0, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--border-faint)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, color: '#c5cad8' }}>{label}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-body)' }}>{label}</span>
                     {delta != null && Math.abs(delta) >= 1 && (
                       <span style={{ fontSize: 10, fontFamily: 'Space Mono, monospace', color: delta > 0 ? '#00e676' : '#ff4b6e' }}>
                         {delta > 0 ? '+' : ''}{delta.toFixed(0)}pp
                       </span>
                     )}
                   </div>
-                  <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#8b93a8', textAlign: 'right' }}>{actual.toFixed(1)}%</span>
-                  <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: currentTarget != null ? '#8b93a8' : '#4a4e63', textAlign: 'right' }}>
+                  <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: 'var(--text-secondary)', textAlign: 'right' }}>{actual.toFixed(1)}%</span>
+                  <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: currentTarget != null ? 'var(--text-secondary)' : 'var(--text-muted)', textAlign: 'right' }}>
                     {currentTarget != null ? `${currentTarget}%` : '—'}
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'flex-end' }}>
@@ -1961,10 +1999,10 @@ function ScenarioPanel({
                       placeholder="—"
                       onChange={e => updateTarget(sector, e.target.value)}
                       style={{
-                        background: '#161922',
-                        border: `1px solid ${proposed != null ? '#a259ff55' : '#1e2230'}`,
+                        background: 'var(--bg-elevated)',
+                        border: `1px solid ${proposed != null ? '#a259ff55' : 'var(--border)'}`,
                         borderRadius: 5,
-                        color: proposed != null ? '#a259ff' : '#8b93a8',
+                        color: proposed != null ? '#a259ff' : 'var(--text-secondary)',
                         fontSize: 12,
                         fontFamily: 'Space Mono, monospace',
                         padding: '4px 6px',
@@ -1980,8 +2018,8 @@ function ScenarioPanel({
             })}
 
             {/* Total row */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0 4px', borderTop: '1px solid #1e2230', marginTop: 4 }}>
-              <span style={{ fontSize: 11, color: '#8b93a8', fontFamily: 'Space Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0 4px', borderTop: '1px solid var(--border)', marginTop: 4 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total</span>
               <span style={{ fontSize: 13, fontFamily: 'Space Mono, monospace', color: totalColor, fontWeight: 600 }}>
                 {(total ?? 0).toFixed(0)}% {totalOk ? '✓' : total < 100 ? `(${(100 - total).toFixed(0)}pp remaining)` : `(${(total - 100).toFixed(0)}pp over)`}
               </span>
@@ -1998,9 +2036,9 @@ function ScenarioPanel({
             onClick={onRun}
             disabled={scenarioLoading || !totalOk}
             style={{
-              width: '100%', background: scenarioLoading || !totalOk ? '#161922' : '#a259ff',
+              width: '100%', background: scenarioLoading || !totalOk ? 'var(--bg-elevated)' : '#a259ff',
               border: 'none', borderRadius: 8,
-              color: scenarioLoading || !totalOk ? '#8b93a8' : '#fff',
+              color: scenarioLoading || !totalOk ? 'var(--text-secondary)' : '#fff',
               fontSize: 12, fontWeight: 500, padding: '10px 0',
               cursor: scenarioLoading || !totalOk ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -2052,30 +2090,30 @@ function SectorExplorePanel({ sector, loading, error, suggestions, sectorActuals
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.55)' }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50, width: 420, background: '#0f1117', borderLeft: '1px solid #1e2230', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #1e2230', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50, width: 420, background: 'var(--bg-surface)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }} />
               <div style={{ fontSize: 15, fontWeight: 500, color }}>{label}</div>
             </div>
             {gap != null && gap > 0 ? (
-              <div style={{ fontSize: 12, color: '#8b93a8' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                 You're <span style={{ color: '#00e676' }}>{gap.toFixed(1)}pp underweight</span> vs your {target}% target.
                 Here are stocks that could close the gap.
               </div>
             ) : (
-              <div style={{ fontSize: 12, color: '#8b93a8' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                 Exploring {label} stocks that could fit your portfolio.
               </div>
             )}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 20, lineHeight: 1, padding: 4, marginLeft: 12 }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 20, lineHeight: 1, padding: 4, marginLeft: 12 }}>×</button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
           {loading && (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: '#8b93a8', fontSize: 13 }}>
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
               Finding {label} opportunities…
             </div>
           )}
@@ -2083,28 +2121,28 @@ function SectorExplorePanel({ sector, loading, error, suggestions, sectorActuals
           {!loading && !error && suggestions.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {suggestions.map((s, i) => (
-                <div key={i} style={{ background: '#161922', border: '1px solid #1e2230', borderRadius: 10, padding: '14px 16px' }}>
+                <div key={i} style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 13, fontWeight: 600, color, background: `${color}22`, padding: '2px 8px', borderRadius: 4 }}>{s.ticker}</span>
-                      {s.marketCapRange && <span style={{ fontSize: 10, color: '#8b93a8', fontFamily: 'Space Mono, monospace' }}>{s.marketCapRange}</span>}
+                      {s.marketCapRange && <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace' }}>{s.marketCapRange}</span>}
                     </div>
                     <button
                       onClick={() => onSimulate(s.ticker)}
-                      style={{ fontSize: 11, color: '#e2e6f0', background: '#1e2230', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      style={{ fontSize: 11, color: 'var(--text-primary)', background: 'var(--border)', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                     >
                       Simulate →
                     </button>
                   </div>
-                  <p style={{ fontSize: 12, color: '#8b93a8', lineHeight: 1.55, margin: 0 }}>{s.rationale}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0 }}>{s.rationale}</p>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        <div style={{ padding: '12px 24px', borderTop: '1px solid #1e2230' }}>
-          <div style={{ fontSize: 11, color: '#4a4e63', lineHeight: 1.5 }}>
+        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
             Click "Simulate →" on any stock to pre-fill the Add Simulation panel and see how it would affect your sector weights.
           </div>
         </div>
@@ -2125,28 +2163,28 @@ function AccountTypePanel({ value, onChange, onClose }: AccountTypePanelProps) {
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.55)' }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50, width: 400, background: '#0f1117', borderLeft: '1px solid #1e2230', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #1e2230', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50, width: 400, background: 'var(--bg-surface)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 500, color: '#e2e6f0', marginBottom: 4 }}>Account type</div>
-            <div style={{ fontSize: 12, color: '#8b93a8', lineHeight: 1.5 }}>Tells Claude what tax rules and trading constraints apply so analysis is accurate for your situation.</div>
+            <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>Account type</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>Tells Claude what tax rules and trading constraints apply so analysis is accurate for your situation.</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 20, lineHeight: 1, padding: 4, marginLeft: 12 }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 20, lineHeight: 1, padding: 4, marginLeft: 12 }}>×</button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {(Object.keys(ACCOUNT_TYPES) as AccountType[]).map(key => {
             const cfg = ACCOUNT_TYPES[key];
             const isSelected = value === key;
             return (
-              <button key={key} onClick={() => { onChange(key); onClose(); }} style={{ width: '100%', textAlign: 'left', background: isSelected ? `${cfg.color}12` : 'none', border: 'none', borderBottom: '1px solid #1e2230', borderLeft: isSelected ? `3px solid ${cfg.color}` : '3px solid transparent', cursor: 'pointer', padding: '14px 24px', transition: 'background 0.1s' }}>
+              <button key={key} onClick={() => { onChange(key); onClose(); }} style={{ width: '100%', textAlign: 'left', background: isSelected ? `${cfg.color}12` : 'none', border: 'none', borderBottom: '1px solid var(--border)', borderLeft: isSelected ? `3px solid ${cfg.color}` : '3px solid transparent', cursor: 'pointer', padding: '14px 24px', transition: 'background 0.1s' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: cfg.constraints.length > 0 ? 8 : 0 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: isSelected ? cfg.color : '#e2e6f0' }}>{cfg.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: isSelected ? cfg.color : 'var(--text-primary)' }}>{cfg.label}</span>
                   {isSelected && <span style={{ fontSize: 10, color: cfg.color, fontFamily: 'Space Mono, monospace' }}>✓ selected</span>}
                 </div>
                 {cfg.constraints.length > 0 && (
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     {cfg.constraints.map(c => (
-                      <span key={c} style={{ fontSize: 10, color: isSelected ? cfg.color : '#8b93a8', border: `1px solid ${isSelected ? cfg.color + '44' : '#1e2230'}`, borderRadius: 4, padding: '2px 6px', background: isSelected ? `${cfg.color}0d` : '#161922', whiteSpace: 'nowrap' }}>{c}</span>
+                      <span key={c} style={{ fontSize: 10, color: isSelected ? cfg.color : 'var(--text-secondary)', border: `1px solid ${isSelected ? cfg.color + '44' : 'var(--border)'}`, borderRadius: 4, padding: '2px 6px', background: isSelected ? `${cfg.color}0d` : 'var(--bg-elevated)', whiteSpace: 'nowrap' }}>{c}</span>
                     ))}
                   </div>
                 )}
@@ -2154,8 +2192,8 @@ function AccountTypePanel({ value, onChange, onClose }: AccountTypePanelProps) {
             );
           })}
         </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid #1e2230' }}>
-          <div style={{ fontSize: 11, color: '#8b93a8', lineHeight: 1.6 }}>Account context is passed to Claude with every macro risk and trim suggestion call. It is not stored anywhere outside your browser session.</div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>Account context is passed to Claude with every macro risk and trim suggestion call. It is not stored anywhere outside your browser session.</div>
         </div>
       </div>
     </>
@@ -2194,9 +2232,9 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
   const segButtonStyle = (active: boolean): React.CSSProperties => ({
     flex: 1,
     background: active ? '#a259ff18' : 'none',
-    border: `1px solid ${active ? '#a259ff' : '#1e2230'}`,
+    border: `1px solid ${active ? '#a259ff' : 'var(--border)'}`,
     borderRadius: 6,
-    color: active ? '#a259ff' : '#8b93a8',
+    color: active ? '#a259ff' : 'var(--text-secondary)',
     fontSize: 12,
     padding: '8px 6px',
     cursor: 'pointer',
@@ -2206,20 +2244,20 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.55)' }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50, width: 420, background: '#0f1117', borderLeft: '1px solid #1e2230', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #1e2230', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50, width: 420, background: 'var(--bg-surface)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 500, color: '#e2e6f0', marginBottom: 4 }}>Investor preferences</div>
-            <div style={{ fontSize: 12, color: '#8b93a8', lineHeight: 1.5 }}>Shapes what Claude recommends — not just how it's phrased. Applies to macro risk, trim/add memos, sector explore, and cash deployment.</div>
+            <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>Investor preferences</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>Shapes what Claude recommends — not just how it's phrased. Applies to macro risk, trim/add memos, sector explore, and cash deployment.</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 20, lineHeight: 1, padding: 4, marginLeft: 12 }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 20, lineHeight: 1, padding: 4, marginLeft: 12 }}>×</button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 22 }}>
 
           {/* Risk tolerance */}
           <div>
-            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 8 }}>Risk tolerance</div>
+            <div style={{ fontSize: 12, color: 'var(--text-primary)', marginBottom: 8 }}>Risk tolerance</div>
             <div style={{ display: 'flex', gap: 6 }}>
               {(Object.keys(RISK_LABELS) as RiskTolerance[]).map(key => (
                 <button key={key} onClick={() => patch({ riskTolerance: key })} style={segButtonStyle(draft.riskTolerance === key)}>
@@ -2227,12 +2265,12 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
                 </button>
               ))}
             </div>
-            <div style={{ fontSize: 10, color: '#6b7190', marginTop: 6 }}>{RISK_LABELS[draft.riskTolerance].desc}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 6 }}>{RISK_LABELS[draft.riskTolerance].desc}</div>
           </div>
 
           {/* Time horizon */}
           <div>
-            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 8 }}>Time horizon</div>
+            <div style={{ fontSize: 12, color: 'var(--text-primary)', marginBottom: 8 }}>Time horizon</div>
             <div style={{ display: 'flex', gap: 6 }}>
               {(Object.keys(HORIZON_LABELS) as TimeHorizon[]).map(key => (
                 <button key={key} onClick={() => patch({ timeHorizon: key })} style={segButtonStyle(draft.timeHorizon === key)}>
@@ -2240,13 +2278,13 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
                 </button>
               ))}
             </div>
-            <div style={{ fontSize: 10, color: '#6b7190', marginTop: 6 }}>{HORIZON_LABELS[draft.timeHorizon].desc}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 6 }}>{HORIZON_LABELS[draft.timeHorizon].desc}</div>
           </div>
 
           {/* Income vs growth */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 12, color: '#e2e6f0' }}>Income ↔ Growth</span>
+              <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>Income ↔ Growth</span>
               <span style={{ fontSize: 11, color: '#a259ff', fontFamily: 'Space Mono, monospace' }}>{draft.incomeGrowthTilt}%</span>
             </div>
             <input
@@ -2255,7 +2293,7 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
               onChange={e => patch({ incomeGrowthTilt: Number(e.target.value) })}
               style={{ width: '100%', accentColor: '#a259ff' }}
             />
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6b7190', marginTop: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4 }}>
               <span>Income</span><span>Growth</span>
             </div>
           </div>
@@ -2263,7 +2301,7 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
           {/* Diversification preference */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 12, color: '#e2e6f0' }}>Stock picking ↔ Funds</span>
+              <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>Stock picking ↔ Funds</span>
               <span style={{ fontSize: 11, color: '#a259ff', fontFamily: 'Space Mono, monospace' }}>{draft.diversificationPreference}%</span>
             </div>
             <input
@@ -2272,14 +2310,14 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
               onChange={e => patch({ diversificationPreference: Number(e.target.value) })}
               style={{ width: '100%', accentColor: '#a259ff' }}
             />
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6b7190', marginTop: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4 }}>
               <span>Individual stocks</span><span>Prefer funds</span>
             </div>
           </div>
 
           {/* Max position size */}
           <div>
-            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 8 }}>Max single-position size</div>
+            <div style={{ fontSize: 12, color: 'var(--text-primary)', marginBottom: 8 }}>Max single-position size</div>
             <div style={{ display: 'flex', gap: 6 }}>
               {MAX_POSITION_OPTIONS.map(pct => (
                 <button key={pct} onClick={() => patch({ maxPositionSizePct: pct })} style={segButtonStyle(draft.maxPositionSizePct === pct)}>
@@ -2291,7 +2329,7 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
 
           {/* New money cadence */}
           <div>
-            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 8 }}>New money</div>
+            <div style={{ fontSize: 12, color: 'var(--text-primary)', marginBottom: 8 }}>New money</div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => patch({ newMoneyCadence: 'lump_sum' })} style={segButtonStyle(draft.newMoneyCadence === 'lump_sum')}>Lump sum</button>
               <button onClick={() => patch({ newMoneyCadence: 'dca' })} style={segButtonStyle(draft.newMoneyCadence === 'dca')}>Dollar-cost avg</button>
@@ -2300,8 +2338,8 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
 
           {/* Exclusions */}
           <div>
-            <div style={{ fontSize: 12, color: '#e2e6f0', marginBottom: 4 }}>Exclusions</div>
-            <div style={{ fontSize: 10, color: '#6b7190', marginBottom: 8 }}>Best-effort — Claude is instructed to avoid these, not code-filtered yet.</div>
+            <div style={{ fontSize: 12, color: 'var(--text-primary)', marginBottom: 4 }}>Exclusions</div>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8 }}>Best-effort — Claude is instructed to avoid these, not code-filtered yet.</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {(Object.keys(EXCLUSION_LABELS) as ExclusionFlag[]).map(flag => {
                 const active = draft.exclusions.includes(flag);
@@ -2309,7 +2347,7 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
                   <button
                     key={flag}
                     onClick={() => toggleExclusion(flag)}
-                    style={{ background: active ? '#ff4b6e18' : 'none', border: `1px solid ${active ? '#ff4b6e' : '#1e2230'}`, borderRadius: 6, color: active ? '#ff4b6e' : '#8b93a8', fontSize: 11, padding: '6px 10px', cursor: 'pointer' }}
+                    style={{ background: active ? '#ff4b6e18' : 'none', border: `1px solid ${active ? '#ff4b6e' : 'var(--border)'}`, borderRadius: 6, color: active ? '#ff4b6e' : 'var(--text-secondary)', fontSize: 11, padding: '6px 10px', cursor: 'pointer' }}
                   >
                     {active ? '✕ ' : ''}{EXCLUSION_LABELS[flag]}
                   </button>
@@ -2319,8 +2357,8 @@ function PreferencesPanel({ value, onChange, onClose }: PreferencesPanelProps) {
           </div>
         </div>
 
-        <div style={{ padding: '14px 24px', borderTop: '1px solid #1e2230', display: 'flex', gap: 10 }}>
-          <button onClick={() => { setDraft(DEFAULT_PREFERENCES); }} style={{ background: 'none', border: '1px solid #1e2230', borderRadius: 6, color: '#8b93a8', fontSize: 12, padding: '8px 14px', cursor: 'pointer' }}>Reset</button>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10 }}>
+          <button onClick={() => { setDraft(DEFAULT_PREFERENCES); }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 12, padding: '8px 14px', cursor: 'pointer' }}>Reset</button>
           <button onClick={save} style={{ flex: 1, background: '#a259ff', border: 'none', borderRadius: 6, color: '#08090d', fontSize: 12, fontWeight: 600, padding: '8px 14px', cursor: 'pointer' }}>Save preferences</button>
         </div>
       </div>

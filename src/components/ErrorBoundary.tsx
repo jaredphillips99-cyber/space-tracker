@@ -38,8 +38,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return (
         <div style={{
           margin: '24px auto', maxWidth: 640, padding: '24px 28px',
-          background: '#0f1117', border: '1px solid #ff4b6e44', borderRadius: 12,
-          color: '#e2e6f0', fontFamily: 'DM Sans, sans-serif',
+          background: 'var(--bg-surface)', border: '1px solid #ff4b6e44', borderRadius: 12,
+          color: 'var(--text-primary)', fontFamily: 'DM Sans, sans-serif',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <span style={{ fontSize: 18, color: '#ff4b6e' }}>⚠</span>
@@ -47,7 +47,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               {this.props.label ? `${this.props.label} hit an error` : 'Something went wrong'}
             </span>
           </div>
-          <div style={{ fontSize: 12, color: '#8b93a8', marginBottom: 16, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
             {this.state.error.message || 'An unexpected error occurred while rendering this section.'}
             {' '}The rest of the app is unaffected — try again, or reload the page if it persists.
           </div>

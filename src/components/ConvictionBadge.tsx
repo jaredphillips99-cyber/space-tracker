@@ -34,7 +34,7 @@ export function ConvictionBadge({ rating, rationale, size = 'md' }: Props) {
         {label}
       </span>
       {rationale && (
-        <p className="text-xs leading-snug max-w-xs" style={{ color: '#8b93a8' }}>
+        <p className="text-xs leading-snug max-w-xs" style={{ color: 'var(--text-secondary)' }}>
           {rationale}
         </p>
       )}

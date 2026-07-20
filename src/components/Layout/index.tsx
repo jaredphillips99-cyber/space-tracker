@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import { SECTOR_LABELS, SECTOR_COLORS } from '../../types';
 import { signOut } from '../../lib/supabase';
+import { useTheme } from '../../hooks/useTheme';
+import OnboardingModal, { hasOnboarded } from '../Onboarding/OnboardingModal';
 import type { Sector } from '../../types';
 
 const NAV_LINKS = [
@@ -20,15 +23,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const pricesLoadingState = useStore((s) => s.pricesLoadingState);
   const isAdmin         = useStore((s) => s.isAdmin);
   const setAdminSession = useStore((s) => s.setAdminSession);
+  const { theme, toggleTheme } = useTheme();
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasOnboarded());
 
   const isDashboard = location.pathname === '/';
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#08090d' }}>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--bg-base)' }}>
+      {showOnboarding && <OnboardingModal onClose={() => setShowOnboarding(false)} />}
+
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header
         className="border-b px-6 flex items-center justify-between h-14 shrink-0"
-        style={{ backgroundColor: '#0f1117', borderColor: '#1e2030' }}
+        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}
       >
         <div className="flex items-center gap-6">
           {/* Logo */}
@@ -36,7 +43,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <span className="text-lg font-bold tracking-wide" style={{ fontFamily: 'Space Mono, monospace', color: '#00c8ff' }}>
               INVEST
             </span>
-            <span className="text-lg font-bold tracking-wide" style={{ fontFamily: 'Space Mono, monospace', color: '#e2e4ef' }}>
+            <span className="text-lg font-bold tracking-wide" style={{ fontFamily: 'Space Mono, monospace', color: 'var(--text-primary)' }}>
               AI
             </span>
           </Link>
@@ -52,8 +59,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   className="px-3 py-1.5 rounded text-sm transition-colors"
                   style={{
                     fontFamily: 'DM Sans, sans-serif',
-                    color: active ? '#e2e4ef' : '#8b8fa8',
-                    backgroundColor: active ? '#161821' : 'transparent',
+                    color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    backgroundColor: active ? 'var(--bg-elevated)' : 'transparent',
                     textDecoration: 'none',
                   }}
                 >
@@ -64,12 +71,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
 
-        {/* Right side: live indicator + admin control */}
+        {/* Right side: live indicator + help + theme + admin control */}
         <div className="flex items-center gap-4">
           {/* Live indicator */}
           <div className="flex items-center gap-2">
             {pricesLoadingState === 'loading' && (
-              <span className="text-xs" style={{ fontFamily: 'Space Mono, monospace', color: '#8b8fa8' }}>
+              <span className="text-xs" style={{ fontFamily: 'Space Mono, monospace', color: 'var(--text-secondary)' }}>
                 fetching…
               </span>
             )}
@@ -84,10 +91,52 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     : '#22c55e',
               }}
             />
-            <span className="text-xs" style={{ fontFamily: 'Space Mono, monospace', color: '#4a4e63' }}>
+            <span className="text-xs" style={{ fontFamily: 'Space Mono, monospace', color: 'var(--text-muted)' }}>
               LIVE
             </span>
           </div>
+
+          {/* Onboarding help */}
+          <button
+            onClick={() => setShowOnboarding(true)}
+            title="What does each tab do?"
+            aria-label="Open onboarding tour"
+            style={{
+              fontFamily: 'Space Mono, monospace',
+              fontSize: 11,
+              width: 22, height: 22,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--text-secondary)',
+              background: 'none',
+              border: '1px solid var(--border)',
+              borderRadius: '50%',
+              cursor: 'pointer',
+              padding: 0,
+            }}
+          >
+            ?
+          </button>
+
+          {/* Theme toggle */}
+          <button
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label="Toggle dark/light theme"
+            style={{
+              fontSize: 12,
+              width: 22, height: 22,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--text-secondary)',
+              background: 'none',
+              border: '1px solid var(--border)',
+              borderRadius: '50%',
+              cursor: 'pointer',
+              padding: 0,
+              lineHeight: 1,
+            }}
+          >
+            {theme === 'dark' ? '☀' : '☾'}
+          </button>
 
           {/* Admin control */}
           {isAdmin ? (
@@ -97,7 +146,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 fontFamily: 'Space Mono, monospace',
                 fontSize: '10px',
                 letterSpacing: '0.08em',
-                color: '#4a4e63',
+                color: 'var(--text-muted)',
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
@@ -113,7 +162,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 fontFamily: 'Space Mono, monospace',
                 fontSize: '10px',
                 letterSpacing: '0.08em',
-                color: '#2a2d3d',
+                color: 'var(--text-dim)',
                 textDecoration: 'none',
               }}
             >
@@ -127,16 +176,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {isDashboard && (
         <div
           className="border-b px-6 flex items-center gap-2 h-10 shrink-0"
-          style={{ backgroundColor: '#0f1117', borderColor: '#1e2030' }}
+          style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}
         >
           <button
             onClick={() => setSectorFilter(null)}
             className="px-3 py-1 rounded text-xs transition-all"
             style={{
               fontFamily: 'Space Mono, monospace',
-              backgroundColor: sectorFilter === null ? '#161821' : 'transparent',
-              color: sectorFilter === null ? '#e2e4ef' : '#4a4e63',
-              border: `1px solid ${sectorFilter === null ? '#1e2030' : 'transparent'}`,
+              backgroundColor: sectorFilter === null ? 'var(--bg-elevated)' : 'transparent',
+              color: sectorFilter === null ? 'var(--text-primary)' : 'var(--text-muted)',
+              border: `1px solid ${sectorFilter === null ? 'var(--border)' : 'transparent'}`,
               cursor: 'pointer',
             }}
           >
@@ -152,7 +201,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 style={{
                   fontFamily: 'Space Mono, monospace',
                   backgroundColor: active ? `${SECTOR_COLORS[sector]}18` : 'transparent',
-                  color: active ? SECTOR_COLORS[sector] : '#4a4e63',
+                  color: active ? SECTOR_COLORS[sector] : 'var(--text-muted)',
                   border: `1px solid ${active ? `${SECTOR_COLORS[sector]}40` : 'transparent'}`,
                   cursor: 'pointer',
                 }}

@@ -31,7 +31,7 @@ function fmtUpdated(iso: string | null): string {
 const RED   = '#ff4b6e';
 const AMBER = '#ffd166';
 const CYAN  = '#00c8ff';
-const MUTED_ACCENT = '#2e3548';
+const MUTED_ACCENT = 'var(--border-strong)';
 
 // Whole days from today (local midnight) to a 'YYYY-MM-DD' due date.
 // Negative = overdue.
@@ -51,7 +51,7 @@ function dueDaysLabel(days: number): string {
 function dueDaysColor(days: number): string {
   if (days <= 5) return RED;
   if (days <= 14) return AMBER;
-  return '#8b93a8';
+  return 'var(--text-secondary)';
 }
 
 function fmtDueShort(dateStr: string): string {
@@ -159,7 +159,7 @@ function useLinkedPortfolioValue(): {
 
 // ─── Inline balance editor ──────────────────────────────────────────────────────
 
-function BalanceCell({ account, onCommit, color = '#e2e6f0' }: {
+function BalanceCell({ account, onCommit, color = 'var(--text-primary)' }: {
   account: NetWorthAccount;
   onCommit: (v: number) => void;
   color?: string;
@@ -194,10 +194,10 @@ function BalanceCell({ account, onCommit, color = '#e2e6f0' }: {
         }}
         style={{
           width: 110,
-          background: '#161922',
-          border: '1px solid #2e3548',
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border-strong)',
           borderRadius: 6,
-          color: '#e2e6f0',
+          color: 'var(--text-primary)',
           fontSize: 13,
           fontFamily: 'Space Mono, monospace',
           padding: '4px 8px',
@@ -218,7 +218,7 @@ function BalanceCell({ account, onCommit, color = '#e2e6f0' }: {
         fontFamily: 'Space Mono, monospace',
         color,
         cursor: 'pointer',
-        borderBottom: '1px dashed #2e3548',
+        borderBottom: '1px dashed var(--border-strong)',
       }}
     >
       {fmtUSD(account.balance ?? 0)}
@@ -258,7 +258,7 @@ function MiniNumberCell({ label, value, prefix = '', suffix = '', onCommit }: {
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5 }}>
-      <span style={{ fontSize: 9, color: '#4a4f63', fontFamily: 'Space Mono, monospace', letterSpacing: '0.07em' }}>
+      <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace', letterSpacing: '0.07em' }}>
         {label}
       </span>
       {editing ? (
@@ -276,10 +276,10 @@ function MiniNumberCell({ label, value, prefix = '', suffix = '', onCommit }: {
           }}
           style={{
             width: 68,
-            background: '#161922',
-            border: '1px solid #2e3548',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-strong)',
             borderRadius: 4,
-            color: '#e2e6f0',
+            color: 'var(--text-primary)',
             fontSize: 11,
             fontFamily: 'Space Mono, monospace',
             padding: '2px 6px',
@@ -295,9 +295,9 @@ function MiniNumberCell({ label, value, prefix = '', suffix = '', onCommit }: {
           style={{
             fontSize: 11,
             fontFamily: 'Space Mono, monospace',
-            color: value == null ? '#4a4f63' : '#8b93a8',
+            color: value == null ? 'var(--text-muted)' : 'var(--text-secondary)',
             cursor: 'pointer',
-            borderBottom: '1px dashed #2e3548',
+            borderBottom: '1px dashed var(--border-strong)',
           }}
         >
           {value == null
@@ -333,7 +333,7 @@ function MiniDateCell({ label, value, hint, valueColor, withYear, onCommit }: {
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5 }}>
-      <span style={{ fontSize: 9, color: '#4a4f63', fontFamily: 'Space Mono, monospace', letterSpacing: '0.07em' }}>
+      <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace', letterSpacing: '0.07em' }}>
         {label}
       </span>
       {editing ? (
@@ -348,10 +348,10 @@ function MiniDateCell({ label, value, hint, valueColor, withYear, onCommit }: {
             if (e.key === 'Escape') setEditing(false);
           }}
           style={{
-            background: '#161922',
-            border: '1px solid #2e3548',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-strong)',
             borderRadius: 4,
-            color: '#e2e6f0',
+            color: 'var(--text-primary)',
             fontSize: 11,
             fontFamily: 'Space Mono, monospace',
             padding: '2px 6px',
@@ -366,9 +366,9 @@ function MiniDateCell({ label, value, hint, valueColor, withYear, onCommit }: {
           style={{
             fontSize: 11,
             fontFamily: 'Space Mono, monospace',
-            color: value == null ? '#4a4f63' : (valueColor ?? '#8b93a8'),
+            color: value == null ? 'var(--text-muted)' : (valueColor ?? 'var(--text-secondary)'),
             cursor: 'pointer',
-            borderBottom: '1px dashed #2e3548',
+            borderBottom: '1px dashed var(--border-strong)',
           }}
         >
           {value == null ? 'set' : `${withYear ? fmtDateWithYear(value) : fmtDueShort(value)}${hint ? ` · ${hint}` : ''}`}
@@ -402,7 +402,7 @@ function MiniTextCell({ label, value, placeholder, onCommit }: {
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5 }}>
-      <span style={{ fontSize: 9, color: '#4a4f63', fontFamily: 'Space Mono, monospace', letterSpacing: '0.07em' }}>
+      <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace', letterSpacing: '0.07em' }}>
         {label}
       </span>
       {editing ? (
@@ -419,10 +419,10 @@ function MiniTextCell({ label, value, placeholder, onCommit }: {
           }}
           style={{
             width: 140,
-            background: '#161922',
-            border: '1px solid #2e3548',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-strong)',
             borderRadius: 4,
-            color: '#e2e6f0',
+            color: 'var(--text-primary)',
             fontSize: 11,
             fontFamily: 'DM Sans, sans-serif',
             padding: '2px 6px',
@@ -436,9 +436,9 @@ function MiniTextCell({ label, value, placeholder, onCommit }: {
           style={{
             fontSize: 11,
             fontFamily: 'DM Sans, sans-serif',
-            color: value == null ? '#4a4f63' : '#8b93a8',
+            color: value == null ? 'var(--text-muted)' : 'var(--text-secondary)',
             cursor: 'pointer',
-            borderBottom: '1px dashed #2e3548',
+            borderBottom: '1px dashed var(--border-strong)',
           }}
         >
           {value == null ? 'set' : value}
@@ -466,25 +466,25 @@ function MarkdownCard({ children }: { children: string }) {
             fontWeight: 600,
             letterSpacing: '0.1em',
             textTransform: 'uppercase',
-            color: '#8b93a8',
+            color: 'var(--text-secondary)',
             marginTop: 14,
             marginBottom: 6,
             paddingTop: 10,
-            borderTop: '1px solid #1e2230',
+            borderTop: '1px solid var(--border)',
           }}>{children}</div>
         ),
         p: ({ children }) => (
-          <p style={{ margin: '0 0 8px 0', fontSize: 13, lineHeight: 1.7, color: '#c5cad8' }}>{children}</p>
+          <p style={{ margin: '0 0 8px 0', fontSize: 13, lineHeight: 1.7, color: 'var(--text-body)' }}>{children}</p>
         ),
         strong: ({ children }) => (
-          <strong style={{ color: '#e2e6f0', fontWeight: 600 }}>{children}</strong>
+          <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{children}</strong>
         ),
         ul: ({ children }) => (
           <ul style={{ margin: '0 0 8px 0', paddingLeft: 0, listStyle: 'none' }}>{children}</ul>
         ),
         li: ({ children }) => (
-          <li style={{ fontSize: 13, color: '#c5cad8', lineHeight: 1.65, marginBottom: 4, paddingLeft: 12, position: 'relative' }}>
-            <span style={{ position: 'absolute', left: 0, color: '#8b93a8' }}>—</span>
+          <li style={{ fontSize: 13, color: 'var(--text-body)', lineHeight: 1.65, marginBottom: 4, paddingLeft: 12, position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 0, color: 'var(--text-secondary)' }}>—</span>
             {children}
           </li>
         ),
@@ -494,17 +494,17 @@ function MarkdownCard({ children }: { children: string }) {
         thead: ({ children }) => <thead>{children}</thead>,
         tbody: ({ children }) => <tbody>{children}</tbody>,
         tr: ({ children }) => (
-          <tr style={{ borderBottom: '1px solid #1e2230' }}>{children}</tr>
+          <tr style={{ borderBottom: '1px solid var(--border)' }}>{children}</tr>
         ),
         th: ({ children }) => (
-          <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontSize: 10, color: '#8b93a8', fontFamily: 'Space Mono, monospace', fontWeight: 400, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{children}</th>
+          <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace', fontWeight: 400, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{children}</th>
         ),
         td: ({ children }) => (
-          <td style={{ padding: '5px 8px 5px 0', fontSize: 12, color: '#c5cad8', fontFamily: 'Space Mono, monospace' }}>{children}</td>
+          <td style={{ padding: '5px 8px 5px 0', fontSize: 12, color: 'var(--text-body)', fontFamily: 'Space Mono, monospace' }}>{children}</td>
         ),
-        hr: () => <hr style={{ border: 'none', borderTop: '1px solid #1e2230', margin: '10px 0' }} />,
+        hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '10px 0' }} />,
         code: ({ children }) => (
-          <code style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#e2e6f0', background: '#161922', padding: '1px 4px', borderRadius: 3 }}>{children}</code>
+          <code style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, color: 'var(--text-primary)', background: 'var(--bg-elevated)', padding: '1px 4px', borderRadius: 3 }}>{children}</code>
         ),
       }}
     >
@@ -658,7 +658,7 @@ export default function NetWorthTab() {
     return (
       <div style={{
         minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#4a4f63', fontFamily: "'Space Mono', monospace", fontSize: 12, letterSpacing: '0.08em',
+        color: 'var(--text-muted)', fontFamily: "'Space Mono', monospace", fontSize: 12, letterSpacing: '0.08em',
       }}>
         LOADING…
       </div>
@@ -688,8 +688,8 @@ export default function NetWorthTab() {
       {/* ── Anonymous notice ──────────────────────────────────────────────── */}
       {!isAuthenticated && (
         <div style={{
-          background: '#161922', border: '1px solid #1e2230', borderRadius: 8,
-          padding: '10px 14px', marginBottom: 16, color: '#8b93a8', fontSize: 12, lineHeight: 1.5,
+          background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8,
+          padding: '10px 14px', marginBottom: 16, color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.5,
         }}>
           You're not signed in — balances you enter here are held in memory only and
           will be lost when you close this tab.
@@ -699,21 +699,21 @@ export default function NetWorthTab() {
       {/* ── Total ─────────────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 24 }}>
         <div style={{
-          fontSize: 11, color: '#8b93a8', textTransform: 'uppercase', letterSpacing: '0.1em',
+          fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em',
           fontFamily: 'Space Mono, monospace', marginBottom: 8,
         }}>
           Total net worth
         </div>
-        <div style={{ fontSize: 40, fontWeight: 700, fontFamily: 'Space Mono, monospace', color: total < 0 ? RED : '#e2e6f0', lineHeight: 1.1 }}>
+        <div style={{ fontSize: 40, fontWeight: 700, fontFamily: 'Space Mono, monospace', color: total < 0 ? RED : 'var(--text-primary)', lineHeight: 1.1 }}>
           {fmtUSD(total)}
         </div>
         {liabilityTotal > 0 && (
-          <div style={{ fontSize: 11, color: '#8b93a8', fontFamily: 'Space Mono, monospace', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'Space Mono, monospace', marginTop: 6 }}>
             {fmtUSD(assetTotal)} assets − {fmtUSD(liabilityTotal)} liabilities
           </div>
         )}
         {linked.value === null && linked.hasPositions && (
-          <div style={{ fontSize: 11, color: '#8b93a8', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>
             Portfolio holdings value unavailable (price fetch failed) — excluded from total.
           </div>
         )}
@@ -723,7 +723,7 @@ export default function NetWorthTab() {
       {(assetSegments.length > 0 || liabilitySegments.length > 0) && (
         <div style={{ marginBottom: 28 }}>
           {assetSegments.length > 0 && (
-            <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', border: '1px solid #1e2230' }}>
+            <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', border: '1px solid var(--border)' }}>
               {assetSegments.map(({ account, value }) => (
                 <div
                   key={account.id}
@@ -755,7 +755,7 @@ export default function NetWorthTab() {
                       width: `${(value / liabilityTotal) * 100}%`,
                       background: RED,
                       opacity: 0.8,
-                      borderLeft: i > 0 ? '1px solid #08090d' : 'none',
+                      borderLeft: i > 0 ? '1px solid var(--bg-base)' : 'none',
                     }}
                   />
                 ))}
@@ -768,14 +768,14 @@ export default function NetWorthTab() {
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 10 }}>
             {assetSegments.map(({ account, value }) => (
-              <span key={account.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#8b93a8' }}>
+              <span key={account.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: KIND_DISPLAY[account.kind].color, display: 'inline-block' }} />
                 {account.label}
                 <span style={{ fontFamily: 'Space Mono, monospace' }}>{((value / assetTotal) * 100).toFixed(1)}%</span>
               </span>
             ))}
             {liabilitySegments.map(({ account, value }) => (
-              <span key={account.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#8b93a8' }}>
+              <span key={account.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: RED, display: 'inline-block' }} />
                 {account.label}
                 <span style={{ fontFamily: 'Space Mono, monospace', color: RED }}>−{fmtUSD(value)}</span>
@@ -786,13 +786,13 @@ export default function NetWorthTab() {
       )}
 
       {/* ── Accounts list ─────────────────────────────────────────────────── */}
-      <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '14px 18px', borderBottom: '1px solid #1e2230',
+          padding: '14px 18px', borderBottom: '1px solid var(--border)',
         }}>
           <span style={{
-            fontSize: 11, color: '#8b93a8', textTransform: 'uppercase', letterSpacing: '0.1em',
+            fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em',
             fontFamily: 'Space Mono, monospace',
           }}>
             Accounts
@@ -800,8 +800,8 @@ export default function NetWorthTab() {
           <button
             onClick={() => setAddOpen(true)}
             style={{
-              background: 'none', border: '1px solid #1e2230', borderRadius: 6,
-              color: '#e2e6f0', fontSize: 12, padding: '5px 12px', cursor: 'pointer',
+              background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+              color: 'var(--text-primary)', fontSize: 12, padding: '5px 12px', cursor: 'pointer',
               fontFamily: 'DM Sans, sans-serif',
             }}
           >
@@ -828,7 +828,7 @@ export default function NetWorthTab() {
             <div
               key={account.id}
               style={{
-                borderBottom: '1px solid #1e2230',
+                borderBottom: '1px solid var(--border)',
                 // inset shadow instead of border-left so non-card rows keep
                 // their exact layout — no 3px content shift
                 ...(accent ? { boxShadow: `inset 3px 0 0 ${accent}` } : {}),
@@ -849,7 +849,7 @@ export default function NetWorthTab() {
                 </span>
 
                 {/* Label */}
-                <span style={{ flex: 1, fontSize: 13, color: '#e2e6f0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {account.label}
                   {isLinked && (
                     <Link
@@ -863,7 +863,7 @@ export default function NetWorthTab() {
 
                 {/* Value */}
                 {isLinked ? (
-                  <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', color: linked.value == null && linked.hasPositions ? '#8b93a8' : '#e2e6f0' }}>
+                  <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', color: linked.value == null && linked.hasPositions ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
                     {linked.loading ? '…' : linked.value != null ? fmtUSD(linked.value) : '—'}
                   </span>
                 ) : (
@@ -875,7 +875,7 @@ export default function NetWorthTab() {
                 )}
 
                 {/* Updated */}
-                <span style={{ fontSize: 10, color: '#4a4f63', fontFamily: 'Space Mono, monospace', width: 82, textAlign: 'right', flexShrink: 0 }}>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace', width: 82, textAlign: 'right', flexShrink: 0 }}>
                   {isLinked ? 'auto-synced' : fmtUpdated(account.balanceUpdatedAt)}
                 </span>
 
@@ -888,7 +888,7 @@ export default function NetWorthTab() {
                     title="Remove account"
                     style={{
                       background: 'none', border: 'none', cursor: 'pointer',
-                      color: '#4a4f63', fontSize: 15, lineHeight: 1, padding: 4, width: 22, flexShrink: 0,
+                      color: 'var(--text-muted)', fontSize: 15, lineHeight: 1, padding: 4, width: 22, flexShrink: 0,
                     }}
                   >
                     ×
@@ -935,7 +935,7 @@ export default function NetWorthTab() {
 
         {/* Empty state — only the auto-created linked row exists */}
         {manualAccounts.length === 0 && (
-          <div style={{ padding: '22px 18px', fontSize: 12, color: '#8b93a8', lineHeight: 1.6 }}>
+          <div style={{ padding: '22px 18px', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
             Your portfolio is linked automatically. Add your other accounts — cash,
             401k or other balances, crypto, credit cards — to see your full net worth
             in one place.
@@ -945,10 +945,10 @@ export default function NetWorthTab() {
 
       {/* ── 30-day cash flow — upcoming credit card due dates ─────────────── */}
       {cashFlow.items.length > 0 && (
-        <div style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, overflow: 'hidden', marginTop: 16 }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e2230' }}>
+        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginTop: 16 }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
             <span style={{
-              fontSize: 11, color: '#8b93a8', textTransform: 'uppercase', letterSpacing: '0.1em',
+              fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em',
               fontFamily: 'Space Mono, monospace',
             }}>
               30-day cash flow
@@ -957,7 +957,7 @@ export default function NetWorthTab() {
 
           {cashFlow.minDueSoonSum > 0 && (
             <div style={{
-              padding: '10px 18px', borderBottom: '1px solid #1e2230',
+              padding: '10px 18px', borderBottom: '1px solid var(--border)',
               background: `${RED}0d`, color: RED, fontSize: 12,
             }}>
               ⚠ <span style={{ fontFamily: 'Space Mono, monospace' }}>{fmtUSD(cashFlow.minDueSoonSum)}</span>
@@ -970,17 +970,17 @@ export default function NetWorthTab() {
               key={account.id}
               style={{
                 display: 'flex', alignItems: 'center', gap: 14,
-                padding: '10px 18px', borderBottom: '1px solid #1e2230',
+                padding: '10px 18px', borderBottom: '1px solid var(--border)',
               }}
             >
-              <span style={{ flex: 1, fontSize: 13, color: '#e2e6f0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {account.label}
               </span>
               <span style={{ fontSize: 12, fontFamily: 'Space Mono, monospace', color: RED }}>
                 {fmtUSD(account.balance ?? 0)}
               </span>
               {account.minPayment != null && (
-                <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: '#8b93a8' }}>
+                <span style={{ fontSize: 11, fontFamily: 'Space Mono, monospace', color: 'var(--text-secondary)' }}>
                   min {fmtUSD(account.minPayment)}
                 </span>
               )}
@@ -998,7 +998,7 @@ export default function NetWorthTab() {
       {/* ── Financial profile (optional) — unlocks Tier 2 analysis ────────── */}
       <div
         ref={profileRef}
-        style={{ background: '#0f1117', border: '1px solid #1e2230', borderRadius: 12, overflow: 'hidden', marginTop: 16 }}
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginTop: 16 }}
       >
         <button
           onClick={() => setProfileOpen(o => !o)}
@@ -1008,10 +1008,10 @@ export default function NetWorthTab() {
           }}
         >
           <span style={{
-            fontSize: 11, color: '#8b93a8', textTransform: 'uppercase', letterSpacing: '0.1em',
+            fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em',
             fontFamily: 'Space Mono, monospace',
           }}>
-            Financial profile <span style={{ color: '#4a4f63', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+            Financial profile <span style={{ color: 'var(--text-muted)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
             {profileFieldsSet > 0 && (
@@ -1022,13 +1022,13 @@ export default function NetWorthTab() {
                 {profileFieldsSet}/5 SET
               </span>
             )}
-            <span style={{ fontSize: 10, color: '#8b93a8' }}>{profileOpen ? '▾' : '▸'}</span>
+            <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>{profileOpen ? '▾' : '▸'}</span>
           </span>
         </button>
 
         {profileOpen && (
-          <div style={{ padding: '4px 18px 16px', borderTop: '1px solid #1e2230' }}>
-            <div style={{ fontSize: 12, color: '#8b93a8', lineHeight: 1.6, margin: '12px 0 14px' }}>
+          <div style={{ padding: '4px 18px 16px', borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '12px 0 14px' }}>
               Adding your income and savings target unlocks a deeper planning analysis —
               payoff timelines, savings rate, runway.
             </div>
@@ -1075,8 +1075,8 @@ export default function NetWorthTab() {
             <button
               onClick={runAnalysis}
               style={{
-                background: 'none', border: '1px solid #1e2230', borderRadius: 8,
-                color: '#e2e6f0', fontSize: 12, padding: '8px 16px', cursor: 'pointer',
+                background: 'none', border: '1px solid var(--border)', borderRadius: 8,
+                color: 'var(--text-primary)', fontSize: 12, padding: '8px 16px', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'DM Sans, sans-serif',
               }}
             >
@@ -1084,7 +1084,7 @@ export default function NetWorthTab() {
             </button>
           )}
           {analysisLoading && (
-            <div style={{ fontSize: 12, color: '#8b93a8', padding: '12px 0' }}>Analyzing balance sheet…</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '12px 0' }}>Analyzing balance sheet…</div>
           )}
           {analysisError && (
             <div style={{ fontSize: 12, color: RED, padding: '8px 0' }}>{analysisError}</div>
@@ -1123,8 +1123,8 @@ export default function NetWorthTab() {
                 onClick={runAnalysis}
                 disabled={analysisLoading}
                 style={{
-                  background: 'none', border: '1px solid #1e2230', borderRadius: 6,
-                  color: '#8b93a8', fontSize: 11, padding: '4px 10px', cursor: 'pointer',
+                  background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                  color: 'var(--text-secondary)', fontSize: 11, padding: '4px 10px', cursor: 'pointer',
                 }}
               >
                 ↺ Re-run

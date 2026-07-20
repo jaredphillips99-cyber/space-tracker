@@ -44,7 +44,7 @@ export function Portfolio() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#4a4f63',
+        color: 'var(--text-muted)',
         fontFamily: "'Space Mono', monospace",
         fontSize: 12,
         letterSpacing: '0.08em',

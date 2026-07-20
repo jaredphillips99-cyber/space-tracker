@@ -65,7 +65,7 @@ function fmtRunDate(isoDate: string | null): string {
 function sentimentColor(sentiment: NewswireItem['sentiment']): string {
   if (sentiment === 'positive') return '#00e676';
   if (sentiment === 'negative') return '#ff4b6e';
-  return '#8b93a8';
+  return 'var(--text-secondary)';
 }
 
 // ─── Needs Attention ──────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ interface AttentionItem {
 const TIER_COLORS: Record<AttentionTier, { text: string; bg: string }> = {
   reportDue: { text: '#ff4b6e', bg: '#ff4b6e18' },
   earningsSoon: { text: '#ffd166', bg: '#ffd16618' },
-  staleFallback: { text: '#8b93a8', bg: 'transparent' },
+  staleFallback: { text: 'var(--text-secondary)', bg: 'transparent' },
 };
 
 // ─── Section header ───────────────────────────────────────────────────────────
@@ -95,8 +95,8 @@ function SectionHeader({ label }: { label: string }) {
       className="px-4 py-2 text-xs tracking-widest"
       style={{
         fontFamily: 'Space Mono, monospace',
-        color: '#4a4e63',
-        borderBottom: '1px solid #14151c',
+        color: 'var(--text-muted)',
+        borderBottom: '1px solid var(--border-muted)',
       }}
     >
       {label}
@@ -179,14 +179,14 @@ export function SidePanel() {
   return (
     <div
       className="flex flex-col h-full overflow-y-auto"
-      style={{ backgroundColor: '#0f1117', borderLeft: '1px solid #1e2030' }}
+      style={{ backgroundColor: 'var(--bg-surface)', borderLeft: '1px solid var(--border)' }}
     >
       <div
         className="px-4 py-3 text-sm font-semibold shrink-0"
         style={{
-          borderBottom: '1px solid #1e2030',
+          borderBottom: '1px solid var(--border)',
           fontFamily: 'DM Sans, sans-serif',
-          color: '#e2e4ef',
+          color: 'var(--text-primary)',
         }}
       >
         What's New
@@ -199,30 +199,30 @@ export function SidePanel() {
             className="px-4 py-2 flex items-center justify-between"
             style={{
               fontFamily: 'Space Mono, monospace',
-              color: '#4a4e63',
-              borderBottom: '1px solid #14151c',
+              color: 'var(--text-muted)',
+              borderBottom: '1px solid var(--border-muted)',
               fontSize: 10,
               letterSpacing: '0.1em',
             }}
           >
             <span>TODAY'S WIRE</span>
             {runDate && (
-              <span style={{ color: '#2e3248', fontSize: 9 }}>
+              <span style={{ color: 'var(--text-dim)', fontSize: 9 }}>
                 {fmtRunDate(runDate)}
               </span>
             )}
           </div>
 
           {newswireLoading ? (
-            <div className="px-4 py-3" style={{ color: '#2e3248', fontFamily: 'Space Mono, monospace', fontSize: 10 }}>
+            <div className="px-4 py-3" style={{ color: 'var(--text-dim)', fontFamily: 'Space Mono, monospace', fontSize: 10 }}>
               Loading…
             </div>
           ) : (
             newswireItems.map((item) => {
               const tickerConfig = TICKERS.find((t) => t.ticker === item.ticker);
               const sectorColor = tickerConfig
-                ? (SECTOR_COLORS[tickerConfig.sectors[0] as keyof typeof SECTOR_COLORS] ?? '#e2e4ef')
-                : '#e2e4ef';
+                ? (SECTOR_COLORS[tickerConfig.sectors[0] as keyof typeof SECTOR_COLORS] ?? 'var(--text-primary)')
+                : 'var(--text-primary)';
 
               return (
                 <button
@@ -230,12 +230,12 @@ export function SidePanel() {
                   onClick={() => navigate(`/stock/${item.ticker}`)}
                   className="w-full text-left px-4 py-2.5 transition-colors"
                   style={{
-                    borderBottom: '1px solid #14151c',
+                    borderBottom: '1px solid var(--border-muted)',
                     backgroundColor: 'transparent',
                     cursor: 'pointer',
                     display: 'block',
                   }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#161821'; }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-elevated)'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
                 >
                   {/* Ticker + sentiment dot */}
@@ -262,7 +262,7 @@ export function SidePanel() {
                     className="text-xs leading-snug mb-1"
                     style={{
                       fontFamily: 'DM Sans, sans-serif',
-                      color: '#c8ccd8',
+                      color: 'var(--text-body)',
                       fontWeight: 500,
                     }}
                   >
@@ -273,7 +273,7 @@ export function SidePanel() {
                     className="text-xs leading-snug"
                     style={{
                       fontFamily: 'DM Sans, sans-serif',
-                      color: '#6b7280',
+                      color: 'var(--text-tertiary)',
                     }}
                   >
                     {item.summary}
@@ -289,24 +289,24 @@ export function SidePanel() {
       <div>
         <SectionHeader label="NEEDS ATTENTION" />
         {needsAttention.length === 0 ? (
-          <div className="px-4 py-3" style={{ color: '#4a4e63', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
+          <div className="px-4 py-3" style={{ color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
             All caught up
           </div>
         ) : (
           needsAttention.map(({ ticker: t, tier, secondaryLine, tag }) => {
             const colors = TIER_COLORS[tier];
-            const sectorColor = SECTOR_COLORS[t.sectors[0] as keyof typeof SECTOR_COLORS] ?? '#e2e4ef';
+            const sectorColor = SECTOR_COLORS[t.sectors[0] as keyof typeof SECTOR_COLORS] ?? 'var(--text-primary)';
             return (
               <button
                 key={t.ticker}
                 onClick={() => navigate(`/stock/${t.ticker}`)}
                 className="w-full text-left px-4 py-2.5 flex items-center justify-between transition-colors"
                 style={{
-                  borderBottom: '1px solid #14151c',
+                  borderBottom: '1px solid var(--border-muted)',
                   backgroundColor: 'transparent',
                   cursor: 'pointer',
                 }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#161821'; }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-elevated)'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
               >
                 <div className="min-w-0">
@@ -329,7 +329,7 @@ export function SidePanel() {
                     className="mt-0.5 truncate"
                     style={{
                       fontFamily: 'DM Sans, sans-serif',
-                      color: tier === 'staleFallback' ? '#5a5f75' : '#8b8fa8',
+                      color: tier === 'staleFallback' ? 'var(--text-tertiary)' : 'var(--text-secondary)',
                       fontSize: tier === 'staleFallback' ? 10 : 11,
                     }}
                   >
@@ -363,17 +363,17 @@ export function SidePanel() {
               onClick={() => navigate(`/stock/${t.ticker}`)}
               className="w-full text-left px-4 py-2.5 flex items-center justify-between transition-colors"
               style={{
-                borderBottom: '1px solid #14151c',
+                borderBottom: '1px solid var(--border-muted)',
                 backgroundColor: 'transparent',
                 cursor: 'pointer',
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#161821'; }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-elevated)'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
             >
               <div>
                 <span
                   className="text-xs font-bold"
-                  style={{ fontFamily: 'Space Mono, monospace', color: SECTOR_COLORS[t.sectors[0] as keyof typeof SECTOR_COLORS] ?? '#e2e4ef' }}
+                  style={{ fontFamily: 'Space Mono, monospace', color: SECTOR_COLORS[t.sectors[0] as keyof typeof SECTOR_COLORS] ?? 'var(--text-primary)' }}
                 >
                   {t.ticker}
                 </span>
@@ -382,14 +382,14 @@ export function SidePanel() {
                   return snippet ? (
                     <p
                       className="text-xs mt-0.5 line-clamp-2"
-                      style={{ color: '#8b8fa8', maxWidth: 180 }}
+                      style={{ color: 'var(--text-secondary)', maxWidth: 180 }}
                     >
                       {snippet.length > 90 ? snippet.slice(0, 90) + '…' : snippet}
                     </p>
                   ) : null;
                 })()}
               </div>
-              <span className="text-xs ml-2 shrink-0" style={{ fontFamily: 'Space Mono, monospace', color: '#4a4e63' }}>
+              <span className="text-xs ml-2 shrink-0" style={{ fontFamily: 'Space Mono, monospace', color: 'var(--text-muted)' }}>
                 {relativeTime(a.analyzedAt)}
               </span>
             </button>
@@ -400,7 +400,7 @@ export function SidePanel() {
       {/* ── Empty state ─────────────────────────────────────────────────── */}
       {newswireItems.length === 0 && !newswireLoading && recentAnalyses.length === 0 && needsAttention.length === 0 && (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs text-center px-6" style={{ color: '#4a4e63', fontFamily: 'Space Mono, monospace', lineHeight: 1.8 }}>
+          <p className="text-xs text-center px-6" style={{ color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace', lineHeight: 1.8 }}>
             No analyses yet.{'\n'}
             Click any stock to run analysis.
           </p>

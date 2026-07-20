@@ -15,16 +15,16 @@ export function Dashboard() {
         {/* Sub-header */}
         <div
           className="flex items-center justify-between px-6 py-3 shrink-0"
-          style={{ borderBottom: '1px solid #1e2030' }}
+          style={{ borderBottom: '1px solid var(--border)' }}
         >
           <div>
             <h1
               className="text-lg font-bold"
-              style={{ fontFamily: 'Space Mono, monospace', color: '#e2e4ef', margin: 0 }}
+              style={{ fontFamily: 'Space Mono, monospace', color: 'var(--text-primary)', margin: 0 }}
             >
               Watchlist
             </h1>
-            <p className="text-xs mt-0.5" style={{ color: '#4a4e63', fontFamily: 'DM Sans, sans-serif' }}>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)', fontFamily: 'DM Sans, sans-serif' }}>
               Space economy, AI infrastructure, defense & clean energy
             </p>
           </div>

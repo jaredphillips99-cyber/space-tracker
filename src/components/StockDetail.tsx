@@ -357,7 +357,7 @@ export function StockDetail() {
   const guidanceDir = storedAnalysis?.guidanceDirection ?? (displayJsonData as any)?.guidanceDirection ?? null;
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#08090d', color: '#e2e6f0', fontFamily: 'DM Sans, sans-serif' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)', fontFamily: 'DM Sans, sans-serif' }}>
       <div style={{ maxWidth: '860px', margin: '0 auto', padding: '32px 24px 80px' }}>
 
         {/* ── Back nav ───────────────────────────────────────────────────── */}
@@ -367,7 +367,7 @@ export function StockDetail() {
             display: 'flex', alignItems: 'center', gap: '8px',
             background: 'none', border: 'none', cursor: 'pointer',
             fontFamily: 'Space Mono, monospace', fontSize: '11px',
-            color: '#8b93a8', textTransform: 'uppercase', letterSpacing: '0.08em',
+            color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em',
             marginBottom: '28px', padding: 0,
           }}
         >
@@ -389,9 +389,9 @@ export function StockDetail() {
                     fontFamily: 'Space Mono, monospace', fontSize: '10px', fontWeight: 700,
                     textTransform: 'uppercase', letterSpacing: '0.1em',
                     padding: '3px 10px', borderRadius: '100px',
-                    color: SECTOR_COLOR_MAP[sector] ?? '#8b93a8',
-                    border: `1px solid ${(SECTOR_COLOR_MAP[sector] ?? '#8b93a8') + '40'}`,
-                    background: (SECTOR_COLOR_MAP[sector] ?? '#8b93a8') + '15',
+                    color: SECTOR_COLOR_MAP[sector] ?? 'var(--text-secondary)',
+                    border: `1px solid ${(SECTOR_COLOR_MAP[sector] ?? 'var(--text-secondary)') + '40'}`,
+                    background: (SECTOR_COLOR_MAP[sector] ?? 'var(--text-secondary)') + '15',
                   }}
                 >
                   {SECTOR_LABEL_MAP[sector] ?? sector}
@@ -400,7 +400,7 @@ export function StockDetail() {
             </div>
             {/* Company name */}
             {companyName && (
-              <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '14px', color: '#8b93a8' }}>
+              <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '14px', color: 'var(--text-secondary)' }}>
                 {companyName}
               </div>
             )}
@@ -432,64 +432,64 @@ export function StockDetail() {
         {/* ── Yahoo Finance stats strip (Option B) ───────────────────────── */}
         <div style={{
           display: 'flex', alignItems: 'stretch',
-          background: '#0f1117', border: '1px solid #1e2230',
+          background: 'var(--bg-surface)', border: '1px solid var(--border)',
           borderRadius: '10px', overflow: 'hidden', marginBottom: '20px',
         }}>
           {/* Analyst Target */}
-          <div style={{ flex: 1, padding: '14px 20px', borderRight: '1px solid #1e2230' }}>
-            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#8b93a8', marginBottom: '4px' }}>
+          <div style={{ flex: 1, padding: '14px 20px', borderRight: '1px solid var(--border)' }}>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-secondary)', marginBottom: '4px' }}>
               Analyst Target
             </div>
-            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '15px', fontWeight: 700, color: '#e2e6f0' }}>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
               {yahooTarget != null ? `$${yahooTarget.toFixed(2)}` : '—'}
             </div>
-            <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '11px', color: '#8b93a8', marginTop: '2px' }}>
+            <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
               Consensus
             </div>
           </div>
 
           {/* Implied Upside */}
-          <div style={{ flex: 1, padding: '14px 20px', borderRight: '1px solid #1e2230' }}>
-            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#8b93a8', marginBottom: '4px' }}>
+          <div style={{ flex: 1, padding: '14px 20px', borderRight: '1px solid var(--border)' }}>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-secondary)', marginBottom: '4px' }}>
               Implied Upside
             </div>
             <div style={{
               fontFamily: 'Space Mono, monospace', fontSize: '15px', fontWeight: 700,
-              color: impliedUpside == null ? '#4a4e63' : impliedUpside >= 0 ? '#00e676' : '#ff4b6e',
+              color: impliedUpside == null ? 'var(--text-muted)' : impliedUpside >= 0 ? '#00e676' : '#ff4b6e',
             }}>
               {impliedUpside == null ? '—' : `${impliedUpside >= 0 ? '+' : ''}${impliedUpside.toFixed(1)}%`}
             </div>
-            <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '11px', color: '#8b93a8', marginTop: '2px' }}>
+            <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
               vs. current price
             </div>
           </div>
 
           {/* Market Cap */}
-          <div style={{ flex: 1, padding: '14px 20px', borderRight: '1px solid #1e2230' }}>
-            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#8b93a8', marginBottom: '4px' }}>
+          <div style={{ flex: 1, padding: '14px 20px', borderRight: '1px solid var(--border)' }}>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-secondary)', marginBottom: '4px' }}>
               Market Cap
             </div>
-            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '15px', fontWeight: 700, color: '#e2e6f0' }}>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
               {yahooMarketCap != null ? fmtMarketCap(yahooMarketCap) : '—'}
             </div>
-            <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '11px', color: '#8b93a8', marginTop: '2px' }}>
+            <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
               &nbsp;
             </div>
           </div>
 
           {/* 52-Week Range */}
           <div style={{ flex: 1, padding: '14px 20px' }}>
-            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#8b93a8', marginBottom: '4px' }}>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-secondary)', marginBottom: '4px' }}>
               52-Week Range
             </div>
-            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', fontWeight: 700, color: '#e2e6f0' }}>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
               {fiftyTwoLow && fiftyTwoHigh
                 ? `$${fiftyTwoLow.toFixed(2)} – $${fiftyTwoHigh.toFixed(2)}`
                 : '—'}
             </div>
             {rangePosition != null && (
               <div style={{ marginTop: '6px' }}>
-                <div style={{ width: '100%', height: '4px', background: '#1e2230', borderRadius: '2px', position: 'relative' }}>
+                <div style={{ width: '100%', height: '4px', background: 'var(--border)', borderRadius: '2px', position: 'relative' }}>
                   <div style={{
                     position: 'absolute',
                     left: `${rangePosition}%`,
@@ -508,18 +508,18 @@ export function StockDetail() {
         <div style={{
           display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
           fontFamily: 'Space Mono, monospace', fontSize: '10px',
-          color: '#8b93a8', marginBottom: '24px',
+          color: 'var(--text-secondary)', marginBottom: '24px',
           textTransform: 'uppercase', letterSpacing: '0.06em',
         }}>
           {(isLiveOrDone || hasCached) && (
             <>
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#00e676', flexShrink: 0, display: 'inline-block' }} />
               {displayMeta?.period    && <span>{displayMeta.period} Earnings</span>}
-              {displayMeta?.filingDate && <span style={{ color: '#3d4259' }}>·</span>}
+              {displayMeta?.filingDate && <span style={{ color: 'var(--text-dim)' }}>·</span>}
               {displayMeta?.filingDate && <span>Filed {displayMeta.filingDate}</span>}
               {displayMeta?.documentUrl && (
                 <>
-                  <span style={{ color: '#3d4259' }}>·</span>
+                  <span style={{ color: 'var(--text-dim)' }}>·</span>
                   <a href={displayMeta.documentUrl} target="_blank" rel="noopener noreferrer"
                     style={{ color: '#00c8ff', textDecoration: 'none' }}>
                     SEC Filing ↗
@@ -528,15 +528,15 @@ export function StockDetail() {
               )}
               {guidanceDir && (
                 <>
-                  <span style={{ color: '#3d4259' }}>·</span>
+                  <span style={{ color: 'var(--text-dim)' }}>·</span>
                   <span>Guidance</span>
                   <GuidanceBadge dir={guidanceDir} />
                 </>
               )}
               {hasCached && !isBusy && storedAnalysis?.analyzedAt && (
                 <>
-                  <span style={{ color: '#3d4259' }}>·</span>
-                  <span style={{ color: '#3d4259' }}>Cached {formatAge(storedAnalysis.analyzedAt)}</span>
+                  <span style={{ color: 'var(--text-dim)' }}>·</span>
+                  <span style={{ color: 'var(--text-dim)' }}>Cached {formatAge(storedAnalysis.analyzedAt)}</span>
                 </>
               )}
             </>
@@ -550,8 +550,8 @@ export function StockDetail() {
               onClick={handleRunAnalysis}
               disabled={isBusy}
               style={{
-                backgroundColor: isBusy ? '#1e2230' : '#00c8ff',
-                color: isBusy ? '#8b93a8' : '#08090d',
+                backgroundColor: isBusy ? 'var(--border)' : '#00c8ff',
+                color: isBusy ? 'var(--text-secondary)' : '#08090d',
                 padding: '8px 18px', borderRadius: '6px', border: 'none',
                 fontFamily: 'Space Mono, monospace', fontSize: '11px',
                 fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
@@ -584,14 +584,14 @@ export function StockDetail() {
           <div style={{
             display: 'flex', alignItems: 'center', gap: '10px',
             padding: '12px 16px', borderRadius: '8px', marginBottom: '24px',
-            background: '#0f1117', border: '1px solid #1e2230',
+            background: 'var(--bg-surface)', border: '1px solid var(--border)',
           }}>
             <span style={{
               display: 'inline-block', width: '8px', height: '8px',
               backgroundColor: '#00c8ff', borderRadius: '50%',
               animation: 'pulse 1.5s infinite',
             }} />
-            <span style={{ color: '#8b93a8', fontFamily: 'DM Sans, sans-serif', fontSize: '14px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontFamily: 'DM Sans, sans-serif', fontSize: '14px' }}>
               {status === 'extracting_json'   && 'Extracting financial data from filing…'}
               {status === 'writing_narrative' && 'Writing analysis…'}
             </span>
@@ -612,8 +612,8 @@ export function StockDetail() {
         {/* ── Snapshot block (Option C) ───────────────────────────────────── */}
         {displaySnapshot && (
           <div style={{
-            background: '#0f1117',
-            border: '1px solid #1e2230',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border)',
             borderLeft: '3px solid #a259ff',
             borderRadius: '0 8px 8px 0',
             padding: '16px 20px',
@@ -626,12 +626,12 @@ export function StockDetail() {
             }}>
               {displayMeta?.period ? `${displayMeta.period} Snapshot` : 'Quarter Snapshot'}
             </div>
-            <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '14px', color: '#c8cedd', lineHeight: 1.65 }}>
+            <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '14px', color: 'var(--text-body)', lineHeight: 1.65 }}>
               <ReactMarkdown
                 components={{
                   p: ({ ...props }) => <span {...props} />,
                   strong: ({ ...props }) => (
-                    <strong style={{ color: '#e2e6f0', fontWeight: 600 }} {...props} />
+                    <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }} {...props} />
                   ),
                 }}
               >
@@ -643,7 +643,7 @@ export function StockDetail() {
 
         {/* ── Divider before narrative ────────────────────────────────────── */}
         {(displaySnapshot || displayNarrative) && (
-          <div style={{ height: '1px', background: '#1e2230', marginBottom: '32px' }} />
+          <div style={{ height: '1px', background: 'var(--border)', marginBottom: '32px' }} />
         )}
 
         {/* ── Narrative ──────────────────────────────────────────────────── */}
@@ -655,9 +655,9 @@ export function StockDetail() {
                   const text = String(children ?? '');
                   const isBull = text.toLowerCase().includes('bull');
                   const isBear = text.toLowerCase().includes('bear');
-                  const color  = isBull ? '#00e676' : isBear ? '#ff4b6e' : '#e2e6f0';
+                  const color  = isBull ? '#00e676' : isBear ? '#ff4b6e' : 'var(--text-primary)';
                   const bgTint = isBull ? '#00e67608' : isBear ? '#ff4b6e08' : 'transparent';
-                  const borderTint = isBull ? '1px solid #00e67620' : isBear ? '1px solid #ff4b6e20' : '1px solid #1e2230';
+                  const borderTint = isBull ? '1px solid #00e67620' : isBear ? '1px solid #ff4b6e20' : '1px solid var(--border)';
 
                   return (
                     <div style={{
@@ -681,13 +681,13 @@ export function StockDetail() {
                   );
                 },
                 p: ({ ...props }) => (
-                  <p style={{ marginBottom: '14px', lineHeight: 1.75, fontSize: '14.5px', color: '#c8cedd' }} {...props} />
+                  <p style={{ marginBottom: '14px', lineHeight: 1.75, fontSize: '14.5px', color: 'var(--text-body)' }} {...props} />
                 ),
                 strong: ({ ...props }) => (
-                  <strong style={{ color: '#e2e6f0', fontWeight: 600 }} {...props} />
+                  <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }} {...props} />
                 ),
                 li: ({ ...props }) => (
-                  <li style={{ marginBottom: '8px', marginLeft: '20px', lineHeight: 1.6, fontSize: '14px', color: '#c8cedd' }} {...props} />
+                  <li style={{ marginBottom: '8px', marginLeft: '20px', lineHeight: 1.6, fontSize: '14px', color: 'var(--text-body)' }} {...props} />
                 ),
               }}
             >
@@ -705,7 +705,7 @@ export function StockDetail() {
 
         {/* ── Empty state ─────────────────────────────────────────────────── */}
         {!displayNarrative && !isBusy && (
-          <div style={{ textAlign: 'center', color: '#8b93a8', padding: '60px 20px', fontFamily: 'DM Sans, sans-serif' }}>
+          <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '60px 20px', fontFamily: 'DM Sans, sans-serif' }}>
             {displayErr
               ? 'Analysis failed — check the error above and try again.'
               : 'Click "Run Analysis" to generate an AI-powered earnings breakdown.'}
@@ -717,7 +717,7 @@ export function StockDetail() {
           <div style={{
             display: 'flex', justifyContent: 'flex-end',
             marginTop: '48px', paddingTop: '20px',
-            borderTop: '1px solid #1e2230',
+            borderTop: '1px solid var(--border)',
           }}>
             <button
               onClick={handleRunAnalysis}
@@ -725,16 +725,16 @@ export function StockDetail() {
                 fontFamily: 'Space Mono, monospace', fontSize: '11px',
                 fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
                 padding: '10px 20px', background: 'transparent',
-                border: '1px solid #1e2230', borderRadius: '6px',
-                color: '#8b93a8', cursor: 'pointer', transition: 'all 0.15s',
+                border: '1px solid var(--border)', borderRadius: '6px',
+                color: 'var(--text-secondary)', cursor: 'pointer', transition: 'all 0.15s',
               }}
               onMouseEnter={e => {
                 (e.target as HTMLButtonElement).style.borderColor = '#a259ff';
                 (e.target as HTMLButtonElement).style.color = '#a259ff';
               }}
               onMouseLeave={e => {
-                (e.target as HTMLButtonElement).style.borderColor = '#1e2230';
-                (e.target as HTMLButtonElement).style.color = '#8b93a8';
+                (e.target as HTMLButtonElement).style.borderColor = 'var(--border)';
+                (e.target as HTMLButtonElement).style.color = 'var(--text-secondary)';
               }}
             >
               ↺ Re-run Analysis
@@ -757,25 +757,25 @@ export function StockDetail() {
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              backgroundColor: '#0f1117',
-              border: '1px solid #1e2230',
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border)',
               borderRadius: '8px',
               padding: '28px 32px',
               maxWidth: '420px',
               width: '100%',
             }}
           >
-            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '13px', letterSpacing: '0.08em', color: '#e2e4ef', marginBottom: '12px' }}>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '13px', letterSpacing: '0.08em', color: 'var(--text-primary)', marginBottom: '12px' }}>
               RE-RUN ANALYSIS?
             </div>
-            <p style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '14px', color: '#8b93a8', lineHeight: 1.6, margin: '0 0 8px 0' }}>
+            <p style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 8px 0' }}>
               This will fetch the latest SEC filing and run two AI calls, overwriting the cached analysis.
             </p>
-            <p style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '14px', color: '#8b93a8', lineHeight: 1.6, margin: '0 0 24px 0' }}>
+            <p style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 24px 0' }}>
               Earnings are reported quarterly — if no new report has been filed since the last run, the output will not change.
             </p>
             {storedAnalysis?.analyzedAt && (
-              <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '10px', letterSpacing: '0.06em', color: '#3d4259', marginBottom: '20px' }}>
+              <div style={{ fontFamily: 'Space Mono, monospace', fontSize: '10px', letterSpacing: '0.06em', color: 'var(--text-dim)', marginBottom: '20px' }}>
                 LAST RUN: {formatAge(storedAnalysis.analyzedAt).toUpperCase()}
               </div>
             )}
@@ -796,9 +796,9 @@ export function StockDetail() {
                 onClick={() => setShowConfirmModal(false)}
                 style={{
                   flex: 1,
-                  backgroundColor: 'transparent', color: '#8b93a8',
+                  backgroundColor: 'transparent', color: 'var(--text-secondary)',
                   padding: '9px 16px', borderRadius: '6px',
-                  border: '1px solid #1e2230',
+                  border: '1px solid var(--border)',
                   fontFamily: 'Space Mono, monospace', fontSize: '11px',
                   letterSpacing: '0.07em', cursor: 'pointer',
                 }}
@@ -823,7 +823,7 @@ export function StockDetail() {
 function GuidanceBadge({ dir }: { dir: string }) {
   const styles: Record<string, { color: string; bg: string; border: string; label: string }> = {
     Raised:     { color: '#00e676', bg: '#00e67618', border: '#00e67630', label: '▲ Raised' },
-    Maintained: { color: '#8b93a8', bg: '#8b93a818', border: '#8b93a830', label: '→ Maintained' },
+    Maintained: { color: 'var(--text-secondary)', bg: '#8b93a818', border: '#8b93a830', label: '→ Maintained' },
     Lowered:    { color: '#ff4b6e', bg: '#ff4b6e18', border: '#ff4b6e30', label: '▼ Lowered' },
     Initiated:  { color: '#00c8ff', bg: '#00c8ff18', border: '#00c8ff30', label: '● Initiated' },
   };

@@ -77,7 +77,7 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
 
   const fieldLabelStyle: React.CSSProperties = {
     fontSize: 10,
-    color: '#8b93a8',
+    color: 'var(--text-secondary)',
     textTransform: 'uppercase',
     letterSpacing: '0.07em',
     fontFamily: 'Space Mono, monospace',
@@ -88,10 +88,10 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
   const inputStyle: React.CSSProperties = {
     width: '100%',
     boxSizing: 'border-box',
-    background: '#161922',
-    border: '1px solid #1e2230',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border)',
     borderRadius: 6,
-    color: '#e2e6f0',
+    color: 'var(--text-primary)',
     fontSize: 13,
     padding: '9px 12px',
     outline: 'none',
@@ -111,19 +111,19 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
         style={{
           position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50,
           width: 460,
-          background: '#0f1117', borderLeft: '1px solid #1e2230',
+          background: 'var(--bg-surface)', borderLeft: '1px solid var(--border)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}
       >
         {/* Header */}
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #1e2230', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 500, color: '#e2e6f0' }}>Add account</div>
-            <div style={{ fontSize: 12, color: '#8b93a8', marginTop: 3 }}>
+            <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)' }}>Add account</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>
               Track cash, retirement balances, crypto, or credit card debt alongside your portfolio.
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b93a8', fontSize: 20, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 20, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
         </div>
 
         {/* Form */}
@@ -147,8 +147,8 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
                       fontFamily: 'Space Mono, monospace',
                       cursor: 'pointer',
                       background: active ? `${color}18` : 'transparent',
-                      color: active ? color : '#8b93a8',
-                      border: `1px solid ${active ? `${color}40` : '#1e2230'}`,
+                      color: active ? color : 'var(--text-secondary)',
+                      border: `1px solid ${active ? `${color}40` : 'var(--border)'}`,
                       transition: 'all 0.15s',
                     }}
                   >
@@ -180,7 +180,7 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
           <div>
             <span style={fieldLabelStyle}>{isCard ? 'Current balance owed' : 'Current balance'}</span>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <span style={{ position: 'absolute', left: 12, color: '#8b93a8', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
+              <span style={{ position: 'absolute', left: 12, color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
               <input
                 type="number"
                 min={0}
@@ -238,7 +238,7 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
                 <div>
                   <span style={fieldLabelStyle}>Min payment (optional)</span>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                    <span style={{ position: 'absolute', left: 12, color: '#8b93a8', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
+                    <span style={{ position: 'absolute', left: 12, color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
                     <input
                       type="number"
                       min={0}
@@ -256,7 +256,7 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
                 <div>
                   <span style={fieldLabelStyle}>Statement balance (optional)</span>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                    <span style={{ position: 'absolute', left: 12, color: '#8b93a8', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
+                    <span style={{ position: 'absolute', left: 12, color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
                     <input
                       type="number"
                       min={0}
@@ -277,10 +277,10 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
         </div>
 
         {/* Actions */}
-        <div style={{ padding: '16px 24px 20px', borderTop: '1px solid #1e2230', display: 'flex', gap: 8 }}>
+        <div style={{ padding: '16px 24px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
           <button
             onClick={onClose}
-            style={{ flex: 1, background: 'none', border: '1px solid #1e2230', borderRadius: 8, color: '#e2e6f0', fontSize: 12, padding: '9px 0', cursor: 'pointer' }}
+            style={{ flex: 1, background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, padding: '9px 0', cursor: 'pointer' }}
           >
             Cancel
           </button>
@@ -289,10 +289,10 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
             disabled={!canSave}
             style={{
               flex: 2,
-              background: canSave ? '#e2e6f0' : '#1e2230',
+              background: canSave ? 'var(--text-primary)' : 'var(--border)',
               border: 'none',
               borderRadius: 8,
-              color: canSave ? '#08090d' : '#8b93a8',
+              color: canSave ? 'var(--bg-surface)' : 'var(--text-secondary)',
               fontSize: 12,
               fontWeight: 500,
               padding: '9px 0',

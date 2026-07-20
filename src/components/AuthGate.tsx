@@ -37,15 +37,15 @@ export function AuthGate() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#08090d',
+      background: 'var(--bg-base)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       fontFamily: "'DM Sans', sans-serif",
     }}>
       <div style={{
-        background: '#0f1117',
-        border: '1px solid #1e2230',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border)',
         borderRadius: 12,
         padding: '40px 48px',
         width: 380,
@@ -56,14 +56,14 @@ export function AuthGate() {
         {/* Brand */}
         <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 20, letterSpacing: 2 }}>
           <span style={{ color: '#00c8ff' }}>INVEST</span>
-          <span style={{ color: '#e2e6f0' }}>AI</span>
+          <span style={{ color: 'var(--text-primary)' }}>AI</span>
         </div>
 
         <div>
-          <div style={{ color: '#e2e6f0', fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
+          <div style={{ color: 'var(--text-primary)', fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
             Admin access
           </div>
-          <div style={{ color: '#8b93a8', fontSize: 13 }}>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
             Enter your email to receive a magic link. Readers can access the dashboard without logging in.
           </div>
         </div>
@@ -90,11 +90,11 @@ export function AuthGate() {
                 onChange={e => setEmail(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSendLink()}
                 style={{
-                  background: '#161922',
-                  border: '1px solid #1e2230',
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
                   borderRadius: 6,
                   padding: '10px 14px',
-                  color: '#e2e6f0',
+                  color: 'var(--text-primary)',
                   fontSize: 14,
                   outline: 'none',
                   fontFamily: "'DM Sans', sans-serif",
@@ -104,8 +104,8 @@ export function AuthGate() {
                 onClick={handleSendLink}
                 disabled={stage === 'sending' || !email.trim()}
                 style={{
-                  background: stage === 'sending' ? '#1e2230' : '#00c8ff',
-                  color: stage === 'sending' ? '#8b93a8' : '#08090d',
+                  background: stage === 'sending' ? 'var(--border)' : '#00c8ff',
+                  color: stage === 'sending' ? 'var(--text-secondary)' : '#08090d',
                   border: 'none',
                   borderRadius: 6,
                   padding: '10px 0',
@@ -128,7 +128,7 @@ export function AuthGate() {
           </>
         )}
 
-        <div style={{ color: '#8b93a8', fontSize: 12, borderTop: '1px solid #1e2230', paddingTop: 16 }}>
+        <div style={{ color: 'var(--text-secondary)', fontSize: 12, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
           Not an admin? <a
             href="/"
             style={{ color: '#00c8ff', textDecoration: 'none' }}
