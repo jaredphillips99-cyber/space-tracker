@@ -75,11 +75,16 @@ function useLinkedPortfolioValue(): {
   value: number | null;
   loading: boolean;
   hasPositions: boolean;
+  // The Portfolio tab's "Cash available" figure — already persisted in
+  // user_preferences.cash_amount and loaded by usePortfolioSync. Surfaced here
+  // so Net Worth can show it as a synthetic, read-only linked row. Null when
+  // anonymous or unset.
+  cashValue: number | null;
   // Top sector concentrations (% of portfolio value) — lightweight context for
   // the AI analysis call, not a full position list.
   sectorWeights: { sector: string; pct: number }[];
 } {
-  const { savedPositions, loading: syncLoading, isAuthenticated } = usePortfolioSync();
+  const { savedPositions, savedCashAmount, loading: syncLoading, isAuthenticated } = usePortfolioSync();
   const [value, setValue]     = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [positions, setPositions] = useState<PortfolioPosition[]>([]);
@@ -154,7 +159,15 @@ function useLinkedPortfolioValue(): {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncLoading, positions]);
 
-  return { value, loading, hasPositions: positions.length > 0, sectorWeights };
+  return {
+    value,
+    loading,
+    hasPositions: positions.length > 0,
+    // Only surfaced for authenticated users — anonymous portfolio cash lives in
+    // sessionStorage and isn't read here (matches savedCashAmount being null).
+    cashValue: isAuthenticated ? savedCashAmount : null,
+    sectorWeights,
+  };
 }
 
 // ─── Inline balance editor ──────────────────────────────────────────────────────
@@ -553,11 +566,42 @@ export default function NetWorthTab() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError]     = useState('');
 
+  // ── Synthetic "Cash (Portfolio)" row ──────────────────────────────────────
+  // A read-only mirror of the Portfolio tab's cash balance — parallel to the
+  // holdings_link row. Never persisted; skipped entirely when cash is 0/null
+  // (same pattern that hides holdings_link when it has no value). Deliberately
+  // NOT deduped against any manual 'cash' account — if the user has both, both
+  // show; reconciling is their call (the inline note makes the source clear).
+  const portfolioCashRow: NetWorthAccount | null =
+    linked.cashValue != null && linked.cashValue > 0
+      ? {
+          id: 'portfolio-cash-link',
+          kind: 'portfolio_cash_link',
+          label: 'Cash (Portfolio)',
+          balance: linked.cashValue,
+          balanceUpdatedAt: null,
+          linked: true,
+          sortOrder: 0.5,   // slot right after the holdings_link row (sortOrder 0)
+        }
+      : null;
+
+  // Accounts as displayed = persisted accounts + the synthetic cash row,
+  // inserted immediately after the holdings_link row when present.
+  const displayAccounts: NetWorthAccount[] = useMemo(() => {
+    const base = accounts ?? [];
+    if (!portfolioCashRow) return base;
+    const idx = base.findIndex(a => a.kind === 'holdings_link');
+    return idx === -1
+      ? [portfolioCashRow, ...base]
+      : [...base.slice(0, idx + 1), portfolioCashRow, ...base.slice(idx + 1)];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, linked.cashValue]);
+
   // ── Totals — null/undefined balances count as 0, never crash ──────────────
   // Net worth = assets − credit card balances. Card balances stay stored as
   // positive amounts owed; the subtraction happens only here, at render.
   const { total, assetTotal, liabilityTotal, assetSegments, liabilitySegments } = useMemo(() => {
-    const accs = accounts ?? [];
+    const accs = displayAccounts;
     const segs = accs.map(a => ({
       account: a,
       value: a.kind === 'holdings_link' ? (linked.value ?? 0) : (a.balance ?? 0),
@@ -573,7 +617,7 @@ export default function NetWorthTab() {
       assetSegments:     assets.filter(x => x.value > 0),
       liabilitySegments: debts.filter(x => x.value > 0),
     };
-  }, [accounts, linked.value]);
+  }, [displayAccounts, linked.value]);
 
   // ── 30-day cash flow — cards with a balance owed and a due date set ────────
   // A card with no due date simply doesn't appear here; a paid-off card has
@@ -809,8 +853,10 @@ export default function NetWorthTab() {
           </button>
         </div>
 
-        {(accounts ?? []).map(account => {
-          const isLinked = account.kind === 'holdings_link';
+        {displayAccounts.map(account => {
+          const isLinked   = account.kind === 'holdings_link';
+          const isCashLink = account.kind === 'portfolio_cash_link';
+          const isReadOnly = isLinked || isCashLink;   // synthetic, non-editable rows
           const isCard   = account.kind === 'credit_card';
           const { label: kindLabel, color } = KIND_DISPLAY[account.kind];
 
@@ -849,7 +895,10 @@ export default function NetWorthTab() {
                 </span>
 
                 {/* Label */}
-                <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span
+                  style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={isCashLink ? "Synced from your Portfolio tab's cash balance — edit it there." : undefined}
+                >
                   {account.label}
                   {isLinked && (
                     <Link
@@ -859,12 +908,25 @@ export default function NetWorthTab() {
                       view portfolio →
                     </Link>
                   )}
+                  {isCashLink && (
+                    <Link
+                      to="/portfolio"
+                      title="Synced from your Portfolio tab's cash balance — edit it there."
+                      style={{ marginLeft: 10, fontSize: 11, color: '#06b6d4', textDecoration: 'none' }}
+                    >
+                      edit on portfolio →
+                    </Link>
+                  )}
                 </span>
 
                 {/* Value */}
                 {isLinked ? (
                   <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', color: linked.value == null && linked.hasPositions ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
                     {linked.loading ? '…' : linked.value != null ? fmtUSD(linked.value) : '—'}
+                  </span>
+                ) : isCashLink ? (
+                  <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', color: 'var(--text-primary)' }}>
+                    {fmtUSD(account.balance ?? 0)}
                   </span>
                 ) : (
                   <BalanceCell
@@ -876,11 +938,11 @@ export default function NetWorthTab() {
 
                 {/* Updated */}
                 <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace', width: 82, textAlign: 'right', flexShrink: 0 }}>
-                  {isLinked ? 'auto-synced' : fmtUpdated(account.balanceUpdatedAt)}
+                  {isReadOnly ? 'auto-synced' : fmtUpdated(account.balanceUpdatedAt)}
                 </span>
 
                 {/* Remove */}
-                {isLinked ? (
+                {isReadOnly ? (
                   <span style={{ width: 22, flexShrink: 0 }} />
                 ) : (
                   <button

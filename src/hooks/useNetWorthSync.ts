@@ -3,7 +3,11 @@ import { supabase } from '../lib/supabase';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-export type AccountKind = 'holdings_link' | 'cash' | 'balance' | 'crypto' | 'credit_card';
+// 'portfolio_cash_link' is a synthetic, render-only kind (never persisted to
+// the accounts table) — a read-only mirror of the Portfolio tab's cash balance,
+// built in NetWorthTab. It's part of the union only so KIND_DISPLAY and account
+// rendering type-check against it.
+export type AccountKind = 'holdings_link' | 'portfolio_cash_link' | 'cash' | 'balance' | 'crypto' | 'credit_card';
 
 export interface NetWorthAccount {
   id: string;

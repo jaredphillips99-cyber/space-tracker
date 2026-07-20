@@ -36,6 +36,12 @@ export interface PortfolioSyncReturn {
   savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences) => Promise<void>;
   // Whether we have an authenticated user (and therefore can persist)
   isAuthenticated:   boolean;
+  // True once the initial supabase.auth.getSession() call has completed —
+  // regardless of whether a session exists. This is the single source of
+  // truth for "has auth been resolved yet?"; Portfolio.tsx derives its gate
+  // logic from this instead of calling getSession() itself (which previously
+  // raced this hook's own auth check and caused unreliable preference loads).
+  authResolved:      boolean;
   // Set (non-null) whenever the most recent Supabase write failed — e.g. a
   // missing column from an un-run migration. Surfaced in the UI so a failed
   // save is never silent again; cleared automatically on the next successful write.
@@ -52,6 +58,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   const [savedPreferences,   setSavedPreferences]   = useState<InvestorPreferences | null>(null);  // NEW
   const [loading,            setLoading]            = useState(true);
   const [userId,             setUserId]             = useState<string | null>(null);
+  const [authResolved,       setAuthResolved]       = useState(false);
   const [syncError,          setSyncError]          = useState<string | null>(null);
 
   // Debounce refs so rapid UI changes don't hammer Supabase
@@ -63,10 +70,12 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setUserId(data.session?.user?.id ?? null);
+      setAuthResolved(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
       setUserId(session?.user?.id ?? null);
+      setAuthResolved(true);
     });
 
     return () => subscription.unsubscribe();
@@ -92,6 +101,10 @@ export function usePortfolioSync(): PortfolioSyncReturn {
           .eq('user_id', userId)
           .order('created_at', { ascending: true });
 
+        // Permanent diagnostics — cheap, and makes any future load issue
+        // visible from devtools alone without needing a repro build.
+        console.info('[portfolio-sync] positions load result:', { userId, count: posRows?.length ?? 0 });
+
         if (posErr) {
           console.warn('[portfolio-sync] positions load failed:', posErr.message);
           setSyncError(`Positions failed to load: ${posErr.message}`);
@@ -112,6 +125,8 @@ export function usePortfolioSync(): PortfolioSyncReturn {
           .select('*')
           .eq('user_id', userId)
           .maybeSingle();
+
+        console.info('[portfolio-sync] prefs load result:', { userId, found: !!prefRow, prefRow });
 
         if (prefErr) {
           console.warn('[portfolio-sync] prefs load failed:', prefErr.message);
@@ -285,6 +300,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
     savePositions,
     savePreferences,
     isAuthenticated: !!userId,
+    authResolved,
     syncError,
   };
 }

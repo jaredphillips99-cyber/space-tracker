@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { useState } from 'react';
 import { PortfolioAuthGate } from '../components/PortfolioAuthGate';
 import { usePortfolioSync } from '../hooks/usePortfolioSync';
 import PortfolioTab from '../components/compare/PortfolioTab';
@@ -7,34 +6,28 @@ import PortfolioTab from '../components/compare/PortfolioTab';
 type AuthStatus = 'loading' | 'authenticated' | 'anonymous' | 'gate';
 
 export function Portfolio() {
-  const [authStatus, setAuthStatus] = useState<AuthStatus>('loading');
+  // usePortfolioSync is the single source of truth for auth resolution — it
+  // owns the one supabase.auth.getSession() call. Portfolio no longer runs its
+  // own uncoordinated getSession(), which used to race the hook's internal
+  // check and let PortfolioTab seed from sessionStorage/defaults before the
+  // Supabase-loaded values arrived (the "sometimes it saves" bug).
   const sync = usePortfolioSync();
+  const [gateDismissed, setGateDismissed] = useState(
+    () => sessionStorage.getItem('portfolio_gate_dismissed') === '1'
+  );
 
-  useEffect(() => {
-    // Check for existing session on mount
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        setAuthStatus('authenticated');
-      } else {
-        // No session → show gate (unless they've already dismissed it this session)
-        const dismissed = sessionStorage.getItem('portfolio_gate_dismissed');
-        setAuthStatus(dismissed ? 'anonymous' : 'gate');
-      }
-    });
-
-    // React to auth state changes (e.g. magic-link callback)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (session) {
-        setAuthStatus('authenticated');
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+  // Derived — never trusts a second, independent auth check.
+  const authStatus: AuthStatus = !sync.authResolved
+    ? 'loading'
+    : sync.isAuthenticated
+      ? 'authenticated'
+      : gateDismissed
+        ? 'anonymous'
+        : 'gate';
 
   function handleContinueAnonymously() {
     sessionStorage.setItem('portfolio_gate_dismissed', '1');
-    setAuthStatus('anonymous');
+    setGateDismissed(true);
   }
 
   if (authStatus === 'loading') {

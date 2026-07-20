@@ -955,3 +955,69 @@ request body.
   NetWorthTab), pages/* (Dashboard, NetWorth, Portfolio)
 
 ---
+
+### July 20, 2026 — Preferences persistence race fix · sync diagnostics · Portfolio cash in Net Worth
+
+**Bug fixed: Portfolio preferences not reliably loading/persisting (frontend
+auth race — NOT an RLS/migration/DB issue)**
+  Confirmed via direct Supabase inspection that `user_preferences` has all
+  required columns, writes succeed, and SELECT/UPDATE/INSERT RLS policies all
+  correctly scope to `auth.uid() = user_id` — reads/writes were never blocked.
+  Root cause was two uncoordinated auth checks: `src/pages/Portfolio.tsx` ran
+  its own `supabase.auth.getSession()` to gate rendering, while
+  `usePortfolioSync.ts` ran a separate `getSession()` to resolve its userId.
+  PortfolioTab could mount and seed from sessionStorage/defaults before the
+  sync hook's own auth check resolved — timing-dependent, hence the
+  "sometimes it saves, sometimes it doesn't" behavior.
+  Fix: `usePortfolioSync` is now the single source of truth for auth
+  resolution — it exports a new `authResolved: boolean` (true once its
+  internal getSession completes, regardless of whether a session exists).
+  Portfolio.tsx no longer calls getSession itself; it derives authStatus
+  ('loading'/'authenticated'/'anonymous'/'gate') from the hook's
+  `authResolved` + `isAuthenticated`. Gate/anonymous behavior
+  (sessionStorage 'portfolio_gate_dismissed' fallback) preserved exactly;
+  anonymous users still fall back to sessionStorage unchanged. PortfolioTab's
+  seed effect (`if (!isAuthenticated || syncSeeded.current) return; if
+  (syncedPositions === null) return;`) was already correct — it was only ever
+  being fed an unreliable isAuthenticated value.
+
+**New: permanent sync diagnostics**
+  Added `console.info` logging in usePortfolioSync's load() after both the
+  positions and preferences selects (`[portfolio-sync] positions/prefs load
+  result:` with userId/count/found/prefRow). Permanent — makes any future
+  load issue diagnosable from devtools alone.
+
+**New: Portfolio "Cash available" now feeds Net Worth total**
+  `useLinkedPortfolioValue()` in NetWorthTab now also surfaces
+  `savedCashAmount` from usePortfolioSync (already persisted in
+  `user_preferences.cash_amount`). A synthetic, read-only account row
+  (kind `'portfolio_cash_link'`, label "Cash (Portfolio)", teal #06b6d4)
+  is injected right after the holdings_link row — parallel to how
+  holdings_link is handled: not editable from Net Worth, its own colored
+  segment in the composition bar, included in the total, and skipped entirely
+  when cash is 0/null. Inline "edit on portfolio →" link + tooltip clarify
+  the sync source. NOT deduped against any manual 'cash' account by design —
+  both show if present; reconciling is the user's call. Only surfaced for
+  authenticated users (anonymous portfolio cash lives in sessionStorage and
+  isn't read here). `AccountKind` union gained `'portfolio_cash_link'` (a
+  render-only kind, never persisted) so KIND_DISPLAY type-checks; ADDABLE_KINDS
+  in AddAccountPanel is unchanged so it's never user-addable.
+
+**Optional RLS dedupe migration — handed off, NOT run by Claude Code**
+  `supabase_migration_dedupe_preferences_policies.sql` (idempotent) drops the
+  older duplicate `user_preferences` policy set (verbose "Users can …" names)
+  and keeps one concise SELECT/UPDATE/INSERT each. Pure cleanup — access is
+  unchanged. Run manually in the Supabase SQL Editor.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. No behavior
+change for anonymous Portfolio users (still sessionStorage). Net Worth total
+includes Portfolio cash without double-counting a manual cash account (they're
+intentionally separate rows). Cash-available debounce + visibilitychange/
+pagehide flush in usePortfolioSync untouched.
+
+**Files modified:** src/hooks/usePortfolioSync.ts · src/pages/Portfolio.tsx ·
+  src/hooks/useNetWorthSync.ts · src/components/networth/kindDisplay.ts ·
+  src/components/networth/NetWorthTab.tsx · CLAUDE.md
+**Files created (handed off):** supabase_migration_dedupe_preferences_policies.sql
+
+---
