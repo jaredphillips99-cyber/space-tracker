@@ -110,8 +110,13 @@ Anthropic API → /api/portfolio.ts (portfolio features, non-streaming)
   Model: claude-sonnet-4-6
   Request types: "macro_risk" | "macro_scenario" | "trim" | "trim_memo" | "sector_explore" | "cash_deploy" | "networth_analysis"
   max_tokens: 1200 (macro_risk) · 1000 (macro_scenario) · 800 (trim) · 800 (trim_memo) · 600 (sector_explore) · 900 (networth_analysis Tier 1) · 1400 (networth_analysis Tier 2)
-  No vercel.json maxDuration needed — all calls complete in <10s.
-  trim_memo takes 10-15s due to web search round-trip — expected, within 60s limit.
+  vercel.json maxDuration: 60s covers all api/* functions.
+  cash_deploy and macro_risk are the ONLY calls with live web access — they
+  include the web_search_20250305 tool, so a round-trip can take 10-20s
+  (well within the 60s limit). Every other request type is tool-free. Their
+  responses can interleave server_tool_use / web_search_tool_result / text
+  blocks, so the handler filters for type === 'text' and joins; tool-free
+  types keep the single-block content[0].text read.
   networth_analysis shares this same 20-calls/hour bucket — it does not get
   its own rate limit; it's the same endpoint as everything else above.
 
@@ -666,158 +671,6 @@ use the real paths from the session.
 
 ## Session Log
 
----
-
-### July 16, 2026 — Portfolio Table UX & Sync Reliability Fixes
-
-**New: Editable Shares / Avg Price columns**
-  Positions table now shows Shares and Avg Price as separate, click-to-edit
-  columns instead of a single static Cost Basis field. Values commit inline
-  via handleUpdatePosition() — no more remove-and-re-add to adjust a holding.
-
-**Bug fixed: removed positions reappearing after refresh (anonymous users)**
-  usePortfolioSync's sessionStorage-persist effect skipped writing whenever
-  the portfolio ended up fully empty with no sector targets set — clearing
-  your last position(s) looked like it worked but silently reverted on
-  reload. Removed the guard; an emptied portfolio now persists correctly.
-
-**Bug fixed: remove (×) button clipped off-screen**
-  Adding the Shares/Avg Price columns widened rows past the container, and
-  `overflow:hidden` silently clipped the × column entirely. Table now scrolls
-  horizontally in its own wrapper with the remove column pinned via
-  `position: sticky; right: 0`, always reachable regardless of width.
-
-**Layout: widened positions table, shrank simulation panel**
-  Grid ratio flipped from `2fr/3fr` to `13fr/7fr` (left/right), and the table
-  now uses `table-layout: fixed` with an explicit `<colgroup>` so all columns
-  (including Allocation) fit without horizontal scroll on normal screens.
-
-**Bug fixed: preferences not persisting across sign-ins**
-  Root cause: `user_preferences` table likely missing `cash_amount` /
-  `preferences` jsonb columns from an unrun migration — Supabase silently
-  rejected the upsert (console.warn only, never surfaced). Added idempotent
-  `supabase_migration_preferences_fix.sql` (run manually in Supabase SQL
-  Editor) and a `syncError` state shown as a red banner in the UI so a
-  failed save/load is never silent again.
-
-**Bug fixed: simulation panel crash ("site going black")**
-  Reproduced via headless-browser scripting. Root cause: a failed ticker
-  price lookup returned `price: 0` (not `null`); `?? null` doesn't catch `0`,
-  so a failed lookup was treated as a real $0 price — dividing cash by $0
-  produced Infinity/NaN inside the simulation math. Fixed fetchPrice() to
-  check `entry.fetchError` explicitly. Also added a React ErrorBoundary
-  around the /portfolio route so any future render crash degrades to a
-  recoverable card instead of blanking the page.
-
-**Files modified:** src/components/compare/PortfolioTab.tsx ·
-  src/hooks/usePortfolioSync.ts · src/pages/Portfolio.tsx · src/App.tsx ·
-  src/components/ErrorBoundary.tsx (new) ·
-  supabase_migration_preferences_fix.sql (new)
-
----
-
-### July 16, 2026 — Earnings-Driven "Needs Attention" Sidebar (spec'd, not yet built)
-
-**Problem identified:** The Dashboard sidebar's staleness signal (analyzedAt > 30
-days) is a weak proxy — it flags age, not whether there's actually new data
-(an earnings report) to analyze. At time of writing, every analyzed stock is
-already >30 days stale, making the existing flag useless for prioritization.
-
-**Decision: replace stale-tracking with earnings-date-driven tracking**
-  Two prompts were written for Claude Code (not yet executed):
-  1. **Upcoming Earnings tracker** — add `calendarEvents` module to the
-     yahoo-finance2 quoteSummary call in api/prices.ts, exposing
-     `nextEarningsDate: string | null` per ticker. New sidebar panel listing
-     tickers with upcoming earnings, sorted soonest-first, with dueSoon
-     (within 7 days) and reportLikelyOut (earnings passed, analyzedAt
-     predates it) status tiers.
-  2. **Superseding prompt — unified "Needs Attention" panel** — this fully
-     replaces the What's New stale/awaiting logic in SidePanel/index.tsx
-     rather than running alongside it. Three-tier status computed at
-     render (never stored):
-       - `reportDue` (red, highest priority) — earnings passed,
-         analyzedAt null or predates it. Tag: "⚠ re-run analysis"
-       - `earningsSoon` (amber) — earnings within 7 days.
-         Tag: "⏱ earnings in Nd"
-       - `staleFallback` (dim gray, lowest priority) — only for tickers
-         where Yahoo has no earnings date at all AND analyzedAt >30 days.
-         Kept as a fallback net so tickers with no earnings-calendar
-         coverage (e.g. some pre-revenue names) don't silently disappear
-         from tracking.
-     Sort order: reportDue → earningsSoon → staleFallback. Anything not
-     matching a tier is dropped from the panel entirely (list only shows
-     actionable/upcoming items, not full 31-ticker status).
-     Empty state: "All caught up" instead of blank panel.
-
-  **Rationale for not just deleting stale-tracking outright:** it still
-  covers tickers Yahoo's earnings calendar doesn't reach — without a
-  fallback tier, those rows would go stale forever with no indicator.
-
-**Status:** Prompt written and reviewed, not yet run through Claude Code.
-Next session: execute the "Needs Attention" prompt, verify calendarEvents
-field path in yahoo-finance2's types before implementation, confirm
-`npx tsc --noEmit` passes, then deploy and spot-check that the first
-post-deploy render is sane (all 31 tickers currently stale, so initial
-panel population should be checked by hand rather than assumed correct).
-
-**Files to be modified (not yet touched):** api/prices.ts,
-src/components/SidePanel/index.tsx
-
----
-
----
-
-### July 16, 2026 — Net Worth Tab (Stage 1.5.1) — spec'd + credit card liabilities
-
-**New: Net Worth tab (aggregation-only, no AI calls in v1)**
-  New top-level tab at /networth alongside Dashboard/Portfolio. Introduces
-  an `accounts` table (Supabase, RLS user-scoped) modeling net worth as a
-  set of accounts of different kinds:
-    - `holdings_link` (linked: true) — a single synthetic row whose value is
-      never stored; it's read live from the existing Portfolio tab's
-      positions + prices, same source PortfolioTab uses for its own total.
-    - `cash` / `balance` / `crypto` — manually-entered balances with a label,
-      editable inline, timestamped on edit.
-  Total net worth = linked Portfolio value + sum of all other account
-  balances. Breakdown shown as a stacked bar, one segment per account,
-  colored by kind.
-
-  New files: src/hooks/useNetWorthSync.ts (mirrors usePortfolioSync.ts's
-  debounce + visibilitychange/pagehide flush pattern), NetWorthTab.tsx,
-  NetWorthAuthGate.tsx, AddAccountPanel.tsx, kindDisplay.ts, NetWorth.tsx.
-  Route wrapped in the existing ErrorBoundary, same as /portfolio.
-
-**New: Credit card liability tracking**
-  Extended `accounts.kind` to include `credit_card`, with new nullable
-  columns: `apr`, `due_date`, `min_payment`, `statement_balance`. The
-  existing `balance` column doubles as "amount owed" for these rows — no
-  sign flip stored; liability-ness is applied only at aggregation/display
-  time (net worth = assets − sum of credit_card balances).
-
-  Accounts list shows balance/APR/due date/min payment per card, with
-  left-border urgency coloring computed at render (never stored): red
-  (due ≤5d), amber (due 6–14d), gray (further out or no due date). New
-  "30-day cash flow" section lists upcoming due dates soonest-first with a
-  rollup warning when minimum payments are due within 5 days.
-
-  Migrations: `supabase_migration_accounts.sql`,
-  `supabase_migration_credit_cards.sql` (both idempotent, run manually in
-  Supabase SQL Editor before deploying the corresponding code).
-
-**Status:** Built and deployed — confirmed live in the July 17 2026 project
-export (routes wired into App.tsx, NetWorthTab/AddAccountPanel/kindDisplay
-all present). This CLAUDE.md entry previously said "not yet executed"; that
-was stale relative to the code. Lesson: update this log at the point of
-deploy, not just at the point of spec'ing, or the doc drifts behind reality.
-
-**Files to be created/modified (not yet touched):**
-  src/hooks/useNetWorthSync.ts · src/components/networth/NetWorthTab.tsx ·
-  src/components/networth/AddAccountPanel.tsx ·
-  src/components/networth/kindDisplay.ts · src/components/networth/NetWorthAuthGate.tsx ·
-  src/pages/NetWorth.tsx · src/App.tsx · src/components/Layout/index.tsx
-
----
-
 ### July 17, 2026 — Net Worth AI Analysis (two-tier) — spec'd via Claude Code prompt
 
 **Project state check:** Pulled the latest project export
@@ -826,16 +679,12 @@ sidebar and full Net Worth tab (including credit card liabilities) are
 already built and routed — both were still marked "not yet executed" in
 this file as of the July 16 entries. Corrected those entries above. Two
 unresolved items surfaced during the review, not yet addressed:
-  - `src/api/analyze.ts` and `src/api/prices.ts` still exist as stray files
-    (dated May 21). Per the API Architecture rule above, Vercel only
-    deploys from `api/*.ts` at root — these are dead weight and a
-    repeat of the exact footgun that caused the July 9 preferences bug.
-    Should be deleted.
+ unresolved items surfaced during the review, not yet addressed:
   - `api/edgar.ts` (611 lines) exists alongside the documented
-    `api/edgar-proxy.ts` (51 lines). Only `edgar-proxy.ts` is referenced
-    in this file's API Architecture section. Unclear whether `edgar.ts` is
-    an older implementation, a live alternate path, or dead code — needs a
-    deliberate look before more EDGAR-adjacent work happens.
+    `api/edgar-proxy.ts` (51 lines). Confirmed July 21: grepped the full
+    frontend and every file in api/ — nothing imports or references
+    edgar.ts anywhere. It's dead code, not a live alternate path. Should
+    be deleted; safe to do so.
 
 **New: Net Worth AI Analysis, two tiers**
   Extends the Net Worth tab (currently aggregation-only, no AI) with an
@@ -1020,4 +869,133 @@ pagehide flush in usePortfolioSync untouched.
   src/components/networth/NetWorthTab.tsx · CLAUDE.md
 **Files created (handed off):** supabase_migration_dedupe_preferences_policies.sql
 
+### July 21, 2026 — Portfolio Sync Regression: Introduced, Diagnosed, Reverted
+
+**What happened:** Session started to fix two reported bugs — Net Worth's
+cash figure auto-pulling from Portfolio with no way to zero it out, and
+investor preferences (account type, sector targets, cash, risk profile)
+resetting when navigating away from the Portfolio tab and back.
+
+**Cash decoupling — implemented, then reverted as collateral:**
+Removed the synthetic, read-only "Cash (Portfolio)" row that NetWorthTab
+auto-injected from Portfolio's cash_amount on every render, plus the
+`portfolio_cash_link` account kind. Net Worth cash was meant to become a
+normal, independently editable `cash` account (already supported by
+AddAccountPanel). This part worked correctly but got bundled into the same
+file changes as the regression below and was reverted along with it —
+**still needs to be redone**, carefully, on its own.
+
+**Preferences fix — regressed the app, root-caused, reverted:**
+Misdiagnosed the preferences bug as a sequential-`await` race in
+`usePortfolioSync`'s load() (positions resolving before preferences), and
+changed PortfolioTab's seed effect to gate on `syncLoading` instead of
+`syncedPositions === null`. This was a mistake: it hadn't been confirmed
+against the live app first, and it coupled `syncSeeded.current` (shared by
+both the seed effect AND the positions-save effect) to preferences loading
+— so positions stopped saving too. The actual preferences bug had **already
+been correctly fixed** in the July 20 session ("Improving site onboarding
+and portfolio management") via the `authResolved` single-source-of-truth
+fix in `usePortfolioSync`/`Portfolio.tsx` — that seed-effect gate had been
+explicitly reviewed and confirmed fine at the time. This session's change
+overrode working logic without re-verifying the bug still existed.
+
+Compounded the mistake by layering a Context Provider (hoisting
+`usePortfolioSync` to mount once at the app root instead of per-page) and
+optimistic local-state updates on top of the unverified first change,
+before confirming root cause. Architecturally reasonable ideas, wrong time
+to introduce them.
+
+**Resolution:** Reverted all 7 touched files (`PortfolioTab.tsx`,
+`NetWorthTab.tsx`, `useNetWorthSync.ts`, `kindDisplay.ts`,
+`usePortfolioSync.ts`, `App.tsx`, `Portfolio.tsx`) to their exact
+pre-session state from a clean project zip, and deleted the new
+`PortfolioSyncContext.tsx` file entirely. App is back to the known-good
+July 20 state.
+
+**Still open / not addressed this session:**
+- The Net Worth cash decoupling fix (see above) — redo on top of the
+  restored baseline, in isolation.
+- A `portfolio:1` 404 seen in console during debugging — cause never
+  identified, may be unrelated to the sync bugs above.
+- Testing occurred against `portfolio-analysis-six.vercel.app`, which does
+  NOT match the documented canonical production URL
+  (`stock-tracker-five-tau.vercel.app`). Never confirmed whether these are
+  the same Vercel project under different aliases or genuinely different
+  deployments — worth resolving before further debugging, since testing
+  against a stale/different deployment would produce misleading symptoms.
+
+**Lesson:** Before changing sync/timing-sensitive logic that a prior
+session already fixed and confirmed, re-verify the bug still reproduces on
+the current deployed build first — don't re-diagnose from theory alone,
+and don't layer further architecture changes on an unverified fix.
 ---
+
+### July 22, 2026 — Thematic Framework panel + web-search-grounded cash deploy & macro risk
+
+**New: thematic conviction layer (theme taxonomy + panel)**
+  Adds a third classification axis alongside the dashboard Sector pills and the
+  portfolio GICS taxonomy — do NOT conflate the three. `src/config/themes.ts`
+  (parallel to gics.ts) defines 4 top-level themes (space_economy,
+  ai_infrastructure, defense, clean_energy_nuclear) and 12 sub-themes, with
+  `THEME_DISPLAY` / `SUBTHEME_DISPLAY` / `THEME_COLORS` (reuses SECTOR_COLORS
+  from src/types — not redefined), a static `TICKER_THEME_MAP` for the tracked
+  universe (crossover names RDW/BKSY resolve to space_economy primary, KTOS to
+  defense), and `classifyTickerTheme()` which returns null off-universe.
+  `ThematicFrameworkPanel.tsx` (modeled on SectorTargetsPanel) is a 460px
+  slide-in with one card per theme: color-coded left border, actual-weight bar,
+  collapsible sub-theme breakdown, and a 3-state segmented control
+  (Lean in / Neutral / Avoid). NO numeric target here — conviction is
+  directional; the numeric side stays in SectorTargetsPanel. Opened from a new
+  "Theme conviction" button (neutral violet #9a7dff) next to Set/Edit targets
+  in the Sector Concentration chart header. Onboarding modal left unchanged —
+  its cards are strictly per-tab, not per-feature.
+
+**Data model — ThemePreferences (three-state lean)**
+  `type ThemeStance = 'lean_in' | 'neutral' | 'avoid'` + `ThemePreferences`
+  (one stance per theme) in PortfolioTab.tsx. Defaults all four to `neutral`
+  (`DEFAULT_THEME_PREFERENCES`) — no assumed lean-in. Persisted through the
+  existing usePortfolioSync path (same debounce + visibilitychange/pagehide
+  flush): `savePreferences()` gained a 5th `themePreferences` arg, written to a
+  new `user_preferences.theme_preferences` jsonb column. Anonymous users fall
+  back to sessionStorage (`SessionCache.themePreferences`), consistent with the
+  rest of Portfolio-tab state.
+
+**New: web search grounding for cash_deploy + macro_risk ONLY**
+  Those two request types now include `tools: [{ type: 'web_search_20250305',
+  name: 'web_search' }]` in the Anthropic call; every other type stays
+  tool-free (no added latency). The handler branches: for the two web types it
+  filters `data.content` for `type === 'text'` blocks and joins them (tool-use
+  blocks can now precede text); all other types keep the single-block
+  `content[0].text` read. `buildFreshnessBlock(hasWebAccess)` gained a
+  parameter — the two web calls pass `true` (instructing 2-4 targeted searches,
+  cite briefly), everything else defaults to the old no-live-access wording.
+
+**New: buildThemeBlock() + external-ticker permission**
+  `buildThemeBlock(themePreferences, themeActuals)` (near buildPreferenceBlock)
+  emits a THEMATIC CONVICTION block wired into `buildCashDeployPrompt()` and
+  `buildMacroRiskPrompt()` only (not trim/trim_memo/sector_explore). LEAN IN is
+  a priority signal; **AVOID is a HARD prohibition** (never recommend, even to
+  fill a gap) — same enforcement posture as CASH_GROUNDING_RULE. Both prompts'
+  new-idea sections now explicitly permit tickers outside the tracked 31-stock
+  universe (marked "not currently tracked in this app", allocation expressed as
+  % of cash since they have no SHARE PURCHASE ESTIMATE), with a direct
+  instruction not to default to generic mega-caps — the fix for the recurring
+  MSFT/AMZN/BRK.B pattern.
+
+**Privacy:** `themeActuals` (percentages) and `themePreferences` (stance enums)
+  are the only new payload fields — no dollars, no share counts. Portfolio-tab
+  percentage-only rule holds; the net-worth dollar exception was not touched.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` both pass.
+
+**Migration handed off (NOT run by Claude Code):**
+  `supabase_migration_theme_preferences.sql` — `ADD COLUMN IF NOT EXISTS
+  theme_preferences jsonb` on user_preferences (idempotent, nullable, existing
+  RLS covers it). usePortfolioSync selects '*', so a missing column degrades to
+  null (all-neutral) rather than crashing until the migration runs.
+
+**Files created:** src/config/themes.ts ·
+  src/components/compare/ThematicFrameworkPanel.tsx ·
+  supabase_migration_theme_preferences.sql
+**Files modified:** api/portfolio.ts · src/components/compare/PortfolioTab.tsx ·
+  src/hooks/usePortfolioSync.ts · src/pages/Portfolio.tsx · CLAUDE.md

@@ -11,6 +11,8 @@ import {
   type TopLevelSector,
   type SubSector,
 } from '../../config/gics';
+import ThematicFrameworkPanel from './ThematicFrameworkPanel';
+import { classifyTickerTheme } from '../../config/themes';
 
 // ─── Session cache (anonymous fallback only) ──────────────────────────────────
 
@@ -22,6 +24,7 @@ interface SessionCache {
   liveData: Record<string, { price: number | null; loading: boolean; error: boolean }>;
   sectorTargets: SectorTargets;
   accountType: AccountType;
+  themePreferences?: ThemePreferences;   // NEW: anonymous thematic-conviction fallback
   savedAt: number;
 }
 
@@ -61,10 +64,11 @@ export interface PortfolioTabSyncProps {
   syncedSectorTargets: SectorTargets | null;
   syncedCashAmount:    number | null;               // NEW: persisted cash balance
   syncedPreferences:   InvestorPreferences | null;   // NEW: persisted investor preferences
+  syncedThemePreferences: ThemePreferences | null;   // NEW: persisted thematic conviction
   syncLoading:         boolean;
   isAuthenticated:     boolean;
   onSavePositions:     (positions: PortfolioPosition[]) => Promise<void>;
-  onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences) => Promise<void>;
+  onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences, themePreferences: ThemePreferences) => Promise<void>;
   syncError?:          string | null;  // NEW: surfaced when a Supabase write/load fails
 }
 
@@ -124,6 +128,32 @@ export const DEFAULT_PREFERENCES: InvestorPreferences = {
   maxPositionSizePct: 15,
   newMoneyCadence: 'lump_sum',
   exclusions: [],
+};
+
+// ─── Thematic conviction ─────────────────────────────────────────────────────
+// Directional lean on each of the four macro themes the portfolio is built
+// around — kept SEPARATE from InvestorPreferences (risk/style) and from GICS
+// sector targets (numeric %). This is conviction, not a percentage target:
+// three states per theme, no numbers. Feeds buildThemeBlock() server-side to
+// prioritize LEAN IN themes and hard-block AVOID themes in new-idea generation.
+
+export type ThemeStance = 'lean_in' | 'neutral' | 'avoid';
+
+export interface ThemePreferences {
+  space_economy: ThemeStance;
+  ai_infrastructure: ThemeStance;
+  defense: ThemeStance;
+  clean_energy_nuclear: ThemeStance;
+}
+
+// Default every theme to neutral — the universe is thematically curated, but
+// the investor must still state conviction explicitly rather than us assuming
+// lean-in everywhere.
+export const DEFAULT_THEME_PREFERENCES: ThemePreferences = {
+  space_economy: 'neutral',
+  ai_infrastructure: 'neutral',
+  defense: 'neutral',
+  clean_energy_nuclear: 'neutral',
 };
 
 const RISK_LABELS: Record<RiskTolerance, { label: string; desc: string }> = {
@@ -489,6 +519,7 @@ export default function PortfolioTab({
   syncedSectorTargets = null,
   syncedCashAmount    = null,
   syncedPreferences   = null,
+  syncedThemePreferences = null,
   syncLoading         = false,
   isAuthenticated     = false,
   onSavePositions     = async () => {},
@@ -507,6 +538,8 @@ export default function PortfolioTab({
   const [acctPanelOpen, setAcctPanelOpen] = useState(false);
   const [investorPreferences, setInvestorPreferences] = useState<InvestorPreferences>(DEFAULT_PREFERENCES);
   const [prefsPanelOpen, setPrefsPanelOpen] = useState(false);
+  const [themePreferences, setThemePreferences] = useState<ThemePreferences>(_session.themePreferences ?? DEFAULT_THEME_PREFERENCES);
+  const [themePanelOpen, setThemePanelOpen] = useState(false);
 
   // Add form
   const [addTicker, setAddTicker] = useState('');
@@ -585,8 +618,11 @@ export default function PortfolioTab({
     if (syncedPreferences) {
       setInvestorPreferences(syncedPreferences);
     }
+    if (syncedThemePreferences) {
+      setThemePreferences(syncedThemePreferences);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, syncedPositions, syncedAccountType, syncedSectorTargets, syncedPreferences]);
+  }, [isAuthenticated, syncedPositions, syncedAccountType, syncedSectorTargets, syncedPreferences, syncedThemePreferences]);
 
   // ─── Persist positions ────────────────────────────────────────────────────
   // Authenticated: write to Supabase (debounced in hook)
@@ -598,7 +634,7 @@ export default function PortfolioTab({
     } else {
       // Always persist, even when the portfolio is emptied out — otherwise a
       // removed position can silently reappear from stale sessionStorage.
-      saveSession({ positions, liveData, sectorTargets, accountType, savedAt: Date.now() });
+      saveSession({ positions, liveData, sectorTargets, accountType, themePreferences, savedAt: Date.now() });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions]);
@@ -607,12 +643,12 @@ export default function PortfolioTab({
   useEffect(() => {
     if (!syncSeeded.current && isAuthenticated) return;
     if (isAuthenticated) {
-      onSavePreferences(accountType, sectorTargets, cashAmount, investorPreferences);
+      onSavePreferences(accountType, sectorTargets, cashAmount, investorPreferences, themePreferences);
     } else {
-      saveSession({ positions, liveData, sectorTargets, accountType, savedAt: Date.now() });
+      saveSession({ positions, liveData, sectorTargets, accountType, themePreferences, savedAt: Date.now() });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountType, sectorTargets, cashAmount, investorPreferences]);
+  }, [accountType, sectorTargets, cashAmount, investorPreferences, themePreferences]);
 
   // ─── Price fetching ───────────────────────────────────────────────────────
 
@@ -678,6 +714,27 @@ export default function PortfolioTab({
     const acc: SubSectorActuals = {};
     for (const p of computed) {
       if (p.subSector) acc[p.subSector] = (acc[p.subSector] ?? 0) + p.portfolioWeightPct;
+    }
+    return acc;
+  }
+
+  // Aggregate portfolio weight by macro theme. Positions outside the tracked
+  // universe (classifyTickerTheme → null) fall into no theme bucket — same
+  // single-counting discipline as sector actuals. Percentages only.
+  function getThemeActuals(computed: ComputedPosition[]): Record<string, number> {
+    const acc: Record<string, number> = {};
+    for (const p of computed) {
+      const t = classifyTickerTheme(p.ticker);
+      if (t) acc[t.theme] = (acc[t.theme] ?? 0) + p.portfolioWeightPct;
+    }
+    return acc;
+  }
+
+  function getSubThemeActuals(computed: ComputedPosition[]): Record<string, number> {
+    const acc: Record<string, number> = {};
+    for (const p of computed) {
+      const t = classifyTickerTheme(p.ticker);
+      if (t) acc[t.subTheme] = (acc[t.subTheme] ?? 0) + p.portfolioWeightPct;
     }
     return acc;
   }
@@ -756,6 +813,8 @@ export default function PortfolioTab({
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? sectorActuals : undefined,
           subSectorActuals: Object.keys(subSectorActuals).length > 0 ? subSectorActuals : undefined,
+          themeActuals: getThemeActuals(computed),
+          themePreferences,
           cashContext: cashCtx,
         }),
       });
@@ -1123,6 +1182,8 @@ export default function PortfolioTab({
           preferences: investorPreferences,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? sectorActuals : undefined,
+          themeActuals: getThemeActuals(computed),
+          themePreferences,
           cashContext: cashCtx,
         }),
       });
@@ -1184,6 +1245,8 @@ export default function PortfolioTab({
   const computed = getComputed();
   const sectorActuals = getSectorActuals(computed);
   const subSectorActuals = getSubSectorActuals(computed);
+  const themeActuals = getThemeActuals(computed);
+  const subThemeActuals = getSubThemeActuals(computed);
   const simImpact = getSimSectorImpact(sectorActuals);
   // totalValue = positions market value only (not including cash)
   const totalValue = computed.reduce((s, p) => s + (p.currentValue ?? 0), 0);
@@ -1263,6 +1326,14 @@ export default function PortfolioTab({
         actuals={sectorActuals} subSectorActuals={subSectorActuals}
         targets={sectorTargets}
         onSave={t => { setSectorTargets(t); setMacroRisk(null); }}
+      />
+
+      {/* Thematic conviction panel */}
+      <ThematicFrameworkPanel
+        open={themePanelOpen} onClose={() => setThemePanelOpen(false)}
+        themeActuals={themeActuals} subThemeActuals={subThemeActuals}
+        value={themePreferences}
+        onSave={p => { setThemePreferences(p); setMacroRisk(null); setCashResult(null); }}
       />
 
       {/* Account type panel */}
@@ -1569,6 +1640,9 @@ export default function PortfolioTab({
                   <span style={{ fontSize: 13 }}>↗</span> Explore gaps
                 </button>
               )}
+              <button onClick={() => setThemePanelOpen(true)} style={{ background: '#7c5cff14', border: '1px solid #7c5cff55', borderRadius: 6, color: '#9a7dff', fontSize: 11, padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }} title="Set directional conviction (lean in / neutral / avoid) on each macro theme">
+                <span style={{ fontSize: 13 }}>◈</span> Theme conviction
+              </button>
               <button onClick={() => setTargetsOpen(true)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 11, padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ fontSize: 13 }}>⇌</span>{hasTargets ? 'Edit targets' : 'Set targets'}
               </button>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import type { PortfolioPosition, AccountType, InvestorPreferences } from '../components/compare/PortfolioTab';
+import type { PortfolioPosition, AccountType, InvestorPreferences, ThemePreferences } from '../components/compare/PortfolioTab';
 import type { SectorTargets } from '../components/compare/SectorTargetsPanel';
 
 // ─── DB row shapes ─────────────────────────────────────────────────────────────
@@ -19,6 +19,7 @@ interface PrefsRow {
   sector_targets: SectorTargets;
   cash_amount?: number;                    // NEW: persisted uninvested cash balance
   preferences?: InvestorPreferences | null; // NEW: standing risk/style profile
+  theme_preferences?: ThemePreferences | null; // NEW: thematic conviction (lean/neutral/avoid)
 }
 
 // ─── Hook return shape ─────────────────────────────────────────────────────────
@@ -30,10 +31,11 @@ export interface PortfolioSyncReturn {
   savedSectorTargets: SectorTargets | null;
   savedCashAmount:   number | null;    // NEW
   savedPreferences:  InvestorPreferences | null;  // NEW
+  savedThemePreferences: ThemePreferences | null; // NEW
   loading:           boolean;
   // Write helpers — called by PortfolioTab after every mutation
   savePositions:     (positions: PortfolioPosition[]) => Promise<void>;
-  savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences) => Promise<void>;
+  savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences, themePreferences: ThemePreferences) => Promise<void>;
   // Whether we have an authenticated user (and therefore can persist)
   isAuthenticated:   boolean;
   // True once the initial supabase.auth.getSession() call has completed —
@@ -56,6 +58,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   const [savedSectorTargets, setSavedSectorTargets] = useState<SectorTargets | null>(null);
   const [savedCashAmount,    setSavedCashAmount]    = useState<number | null>(null);   // NEW
   const [savedPreferences,   setSavedPreferences]   = useState<InvestorPreferences | null>(null);  // NEW
+  const [savedThemePreferences, setSavedThemePreferences] = useState<ThemePreferences | null>(null);  // NEW
   const [loading,            setLoading]            = useState(true);
   const [userId,             setUserId]             = useState<string | null>(null);
   const [authResolved,       setAuthResolved]       = useState(false);
@@ -137,6 +140,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
           setSavedSectorTargets(row.sector_targets ?? {});
           setSavedCashAmount(row.cash_amount ?? 0);   // NEW
           setSavedPreferences(row.preferences ?? null);  // NEW
+          setSavedThemePreferences(row.theme_preferences ?? null);  // NEW
         }
       } finally {
         setLoading(false);
@@ -202,30 +206,33 @@ export function usePortfolioSync(): PortfolioSyncReturn {
     sectorTargets: SectorTargets;
     cashAmount: number;
     preferences: InvestorPreferences;
+    themePreferences: ThemePreferences;
   } | null>(null);
 
   const writePrefsNow = useCallback((uid: string, payload: NonNullable<typeof pendingPrefsWrite.current>) => {
     return supabase
       .from('user_preferences')
       .upsert({
-        user_id:        uid,
-        account_type:   payload.accountType,
-        sector_targets: payload.sectorTargets,
-        cash_amount:    payload.cashAmount,
-        preferences:    payload.preferences,
-        updated_at:     new Date().toISOString(),
+        user_id:           uid,
+        account_type:      payload.accountType,
+        sector_targets:    payload.sectorTargets,
+        cash_amount:       payload.cashAmount,
+        preferences:       payload.preferences,
+        theme_preferences: payload.themePreferences,
+        updated_at:        new Date().toISOString(),
       }, { onConflict: 'user_id' });
   }, []);
 
   const savePreferences = useCallback(async (
-    accountType:   AccountType,
-    sectorTargets: SectorTargets,
-    cashAmount:    number,               // NEW
-    preferences:   InvestorPreferences,  // NEW
+    accountType:      AccountType,
+    sectorTargets:    SectorTargets,
+    cashAmount:       number,               // NEW
+    preferences:      InvestorPreferences,  // NEW
+    themePreferences: ThemePreferences,     // NEW
   ) => {
     if (!userId) return;
 
-    pendingPrefsWrite.current = { accountType, sectorTargets, cashAmount, preferences };
+    pendingPrefsWrite.current = { accountType, sectorTargets, cashAmount, preferences, themePreferences };
 
     if (prefsTimer.current) clearTimeout(prefsTimer.current);
     prefsTimer.current = setTimeout(async () => {
@@ -296,6 +303,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
     savedSectorTargets,
     savedCashAmount,     // NEW
     savedPreferences,    // NEW
+    savedThemePreferences, // NEW
     loading,
     savePositions,
     savePreferences,

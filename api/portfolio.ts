@@ -135,9 +135,66 @@ const CASH_GROUNDING_RULE = 'Only reference the exact percentages and share/left
 // specifics (dates, "current" events) as if verified. Computed fresh inside
 // the function (not a module-level constant) so it's correct per-request even
 // on a warm serverless instance that outlives a single invocation.
-function buildFreshnessBlock(): string {
+// hasWebAccess: passed true ONLY for the two request types that now include the
+// web_search tool (cash_deploy, macro_risk). Every other call still gets the
+// no-live-access wording so it doesn't fabricate "as of" specifics.
+function buildFreshnessBlock(hasWebAccess: boolean = false): string {
   const today = new Date().toISOString().slice(0, 10);
+  if (hasWebAccess) {
+    return `\nTODAY'S DATE: ${today}. You have live web search access for this request — use it to ground recommendations in actual current market conditions, sector sentiment, and recent developments rather than relying solely on training data. Search for a small number of specific, targeted queries (2-4) rather than broad ones — e.g. current outlook for a specific sub-theme or macro factor relevant to this portfolio's gaps, not generic "stock market news". Cite what you found briefly and naturally in your reasoning; do not pad the response with search-result summaries.\n`;
+  }
   return `\nTODAY'S DATE: ${today}. Your training data has a fixed cutoff and this call has no live web or news access. Do not state or imply specific recent events, dates, or "as of" claims beyond what's provided in this prompt — reason about mechanisms, structure, and the portfolio data given rather than asserting current specifics you can't verify. If timing matters, anchor to the date given here, not an assumed one.\n`;
+}
+
+// ─── Thematic conviction block ─────────────────────────────────────────────────
+// Mirrors buildPreferenceBlock/buildAccountBlock: a standing directional lean on
+// each of the four macro themes, injected into the new-idea prompts only
+// (cash_deploy, macro_risk). LEAN IN is a priority signal; AVOID is a HARD
+// prohibition — same enforcement posture as CASH_GROUNDING_RULE and the
+// account-type hard rules, not a soft nudge. Percentages + stance enums only;
+// no dollar figures ever reach this block (Portfolio-tab privacy rule holds).
+
+type ThemeStance = 'lean_in' | 'neutral' | 'avoid';
+
+interface ThemePreferences {
+  space_economy: ThemeStance;
+  ai_infrastructure: ThemeStance;
+  defense: ThemeStance;
+  clean_energy_nuclear: ThemeStance;
+}
+
+const THEME_ORDER: (keyof ThemePreferences)[] = [
+  'space_economy',
+  'ai_infrastructure',
+  'defense',
+  'clean_energy_nuclear',
+];
+
+const STANCE_LABEL: Record<ThemeStance, string> = {
+  lean_in: 'LEAN IN',
+  neutral: 'NEUTRAL',
+  avoid:   'AVOID',
+};
+
+function buildThemeBlock(themePreferences?: ThemePreferences, themeActuals?: Record<string, number>): string {
+  if (!themePreferences) return '';
+
+  const lines = THEME_ORDER.map(theme => {
+    const actual = themeActuals?.[theme] ?? 0;
+    return `  ${theme}: ${actual.toFixed(1)}% of portfolio | ${STANCE_LABEL[themePreferences[theme]]}`;
+  }).join('\n');
+
+  return `
+THEMATIC CONVICTION:
+${lines}
+
+When recommending new positions, prioritize themes marked LEAN IN even if
+they are not the most underweight by raw percentage — conviction stated by
+the investor takes priority over pure gap-filling math. Do NOT recommend
+new positions in a theme marked AVOID under any circumstances, even to
+fill a sector gap. NEUTRAL themes are fine to include but should not be
+the primary rationale for a pick.
+`;
 }
 
 // ─── Sector ETF candidate pool ─────────────────────────────────────────────────
@@ -252,7 +309,7 @@ function buildMacroRiskPrompt(body: RequestBody): string {
 
   const hasCash = cashContext && cashContext.cashWeightPct > 0;
 
-  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildFreshnessBlock()}
+  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildThemeBlock(body.themePreferences, body.themeActuals)}${buildFreshnessBlock(true)}
 You are a portfolio risk analyst. Analyze the following portfolio and provide a structured macro risk assessment. Do not include a top-level heading — start directly with the first section.
 
 PORTFOLIO:
@@ -278,6 +335,8 @@ The portfolio has ${cashContext!.cashWeightPct.toFixed(1)}% dry powder available
 ${!hasCash && sectorTargets && sectorActuals ? `### Sector Opportunity Watchlist
 For any sector that is significantly underweight (gap ≥ 3pp vs target), suggest 2-3 specific stocks the investor could consider to close the gap. Format each as:
 **TICKER** — one-sentence rationale · Risk: Low/Medium/High
+
+You are not restricted to this app's tracked 31-stock universe — if a name outside that list better fits an underweight, high-conviction theme given current conditions, recommend it. Clearly mark any such pick as "not currently tracked in this app" so the investor knows it would be added as an external/manual position rather than one with live pricing already wired up. Do not default to large, generically "safe" names (e.g. broad mega-cap tech or diversified conglomerates) unless a specific thematic or risk-reduction rationale — grounded in what you find via search — actually calls for that kind of name over a more targeted one.
 
 If no sectors are significantly underweight, write: "Portfolio is reasonably aligned with targets — no major gaps to fill."
 ` : ''}
@@ -584,7 +643,7 @@ function buildCashDeployPrompt(body: RequestBody): string {
     }
   }
 
-  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildFreshnessBlock()}
+  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildThemeBlock(body.themePreferences, body.themeActuals)}${buildFreshnessBlock(true)}
 You are a portfolio analyst. The investor has uninvested cash representing ${cashPct.toFixed(1)}% of their expanded portfolio and wants to know the best way to deploy it to improve their risk profile and sector balance.
 
 CURRENT PORTFOLIO (excluding cash):
@@ -598,7 +657,9 @@ Recommend 2-3 specific ${useFunds ? 'funds where the FUND CANDIDATE POOL above h
 - Why it reduces portfolio risk or fills a meaningful gap
 - Approximate portion of the cash to allocate (as % of available cash, must sum to ~100%)
 - If account type requires whole shares AND this ticker appears in the SHARE PURCHASE ESTIMATES above, state the exact share count and any leftover cash. Otherwise state the allocation as a percentage of the cash only — never ask the user for a price or their total balance.
-
+${useFunds ? '' : `
+You are not restricted to this app's tracked 31-stock universe — if a name outside that list better fits an underweight, high-conviction theme given current conditions, recommend it. Clearly mark any such pick as "not currently tracked in this app" so the investor knows it would be added as an external/manual position rather than one with live pricing already wired up. An external ticker will not appear in SHARE PURCHASE ESTIMATES, so express its allocation as a percentage of the cash. Do not default to large, generically "safe" names (e.g. broad mega-cap tech or diversified conglomerates) unless a specific thematic or risk-reduction rationale — grounded in what you find via search — actually calls for that kind of name over a more targeted one.
+`}
 Prioritize: filling underweight sectors, reducing concentration, and adding defensive diversification where appropriate.
 
 ### Sector Impact
@@ -896,6 +957,8 @@ interface RequestBody {
   exploreSector?: string;
   cashContext?: CashContext;      // NEW: present whenever cash is set
   preferences?: InvestorPreferences; // NEW: standing risk/style profile
+  themePreferences?: ThemePreferences;      // NEW: directional macro-theme conviction (cash_deploy + macro_risk)
+  themeActuals?: Record<string, number>;    // NEW: current theme weights (percentages only) — mirrors sectorActuals
   // networth_analysis only:
   accounts?: NetWorthAccountPayload[];
   portfolioContext?: { topSectorWeights?: { sector: string; pct: number }[] };
@@ -955,7 +1018,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     max_tokens = 600;
   }
 
+  // Web search grounding is scoped to the two new-idea request types only —
+  // cash_deploy and macro_risk. Every other type stays tool-free (no added
+  // latency, no multi-block response handling needed).
+  const useWebSearch = type === 'cash_deploy' || type === 'macro_risk';
+
   try {
+    const requestBody: Record<string, unknown> = {
+      model: 'claude-sonnet-4-6',
+      max_tokens,
+      messages: [{ role: 'user', content: prompt }],
+    };
+    if (useWebSearch) {
+      requestBody.tools = [{ type: 'web_search_20250305', name: 'web_search' }];
+    }
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -963,11 +1040,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'x-api-key': process.env.ANTHROPIC_API_KEY ?? '',
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens,
-        messages: [{ role: 'user', content: prompt }],
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -976,7 +1049,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const data = await response.json();
-    const result = data.content?.[0]?.text ?? '';
+    // With the web_search tool enabled, data.content can interleave
+    // server_tool_use / web_search_tool_result blocks with text blocks — so
+    // filter for text and join. Tool-free types keep the original single-block
+    // read (they never produce anything but one text block).
+    const result = useWebSearch
+      ? (data.content ?? [])
+          .filter((block: any) => block.type === 'text')
+          .map((block: any) => block.text)
+          .join('\n')
+      : data.content?.[0]?.text ?? '';
 
     if (type === 'sector_explore') {
       try {
