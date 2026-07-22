@@ -194,7 +194,82 @@ the investor takes priority over pure gap-filling math. Do NOT recommend
 new positions in a theme marked AVOID under any circumstances, even to
 fill a sector gap. NEUTRAL themes are fine to include but should not be
 the primary rationale for a pick.
+
+These four themes are a conviction OVERLAY, not the boundary of what you
+may recommend. Every other GICS sector (financials, health care,
+materials, real estate, consumer discretionary, consumer staples,
+utilities, and communication services outside satellite/earth
+observation) carries NO stance from this list — evaluate them purely on
+diversification merit, sector gap, and risk-reduction value, exactly as
+you would before this thematic layer existed. A good diversification
+pick from an unlisted sector is not in competition with a LEAN IN theme
+pick — recommend both when the portfolio's data supports it, don't treat
+this list as a reason to crowd non-theme sectors out entirely.
 `;
+}
+
+// Mirrors src/config/gics.ts's TopLevelSector keys (excluding 'diversified'
+// and 'other', which aren't recommendable sectors). Kept as a local literal
+// rather than imported — same duplication convention as SECTOR_ETF_MAP and
+// ThemePreferences above, to avoid a cross-directory api/↔src/ import in a
+// Vercel serverless function.
+const ALL_GICS_SECTORS = [
+  'information_technology',
+  'industrials',
+  'energy',
+  'communication_services',
+  'financials',
+  'consumer_discretionary',
+  'consumer_staples',
+  'health_care',
+  'materials',
+  'real_estate',
+  'utilities',
+] as const;
+
+// A few illustrative sub-sector examples per top-level GICS sector, for the
+// 8 sectors outside the dashboard's four themes — gives Claude concrete
+// texture instead of reaching for one generic mega-cap per sector when a
+// diversification gap opens up. NOT exhaustive; mirrors the granularity
+// (not the content) of src/config/gics.ts's SUBSECTOR_DISPLAY.
+const SECTOR_TEXTURE_HINTS: Partial<Record<typeof ALL_GICS_SECTORS[number], string>> = {
+  financials: 'e.g. regional banks, asset managers, insurers, exchanges/fintech infrastructure',
+  consumer_discretionary: 'e.g. auto manufacturers, ecommerce, homebuilders, leisure/travel',
+  consumer_staples: 'e.g. food & beverage, household products, food/drug retail',
+  health_care: 'e.g. pharma, biotech, medical devices, health insurers',
+  materials: 'e.g. specialty chemicals, industrial metals & mining, packaging',
+  real_estate: 'e.g. data center REITs, industrial/logistics REITs, residential REITs',
+  utilities: 'e.g. regulated electric utilities, water utilities, multi-utilities — outside the nuclear-operator names already in this portfolio\'s tracked universe',
+  communication_services: 'e.g. broadband/telecom carriers, traditional media, interactive/gaming — outside satellite/earth-observation, which is already covered by this portfolio\'s space theme',
+};
+
+// Always lists ALL 12 GICS sectors, not just ones with a held position —
+// fixes a real gap where an unheld sector (with or without a target) was
+// completely invisible to cash_deploy/macro_risk, so Claude had no data
+// suggesting unexplored territory existed. Mirrors SectorTargetsPanel's
+// own June 4 fix (always show all 12 sectors client-side) — this carries
+// that same fix through to what the AI actually sees.
+function buildSectorAlignmentBlock(
+  sectorTargets?: Record<string, number | null>,
+  sectorActuals?: Record<string, number>,
+  includeTextureHints: boolean = false,
+): string {
+  if (!sectorTargets && !sectorActuals) return '';
+
+  const rows = ALL_GICS_SECTORS.map(sector => {
+    const actual = sectorActuals?.[sector] ?? 0;
+    const target = sectorTargets?.[sector];
+    const delta = target != null ? (actual - target).toFixed(1) : null;
+    const status = target != null
+      ? ` | target ${target}% | ${Number(delta) > 0 ? 'OVERWEIGHT +' : 'underweight '}${delta}pp`
+      : (actual === 0 ? ' | no target | UNEXPLORED — zero current exposure' : ' | no target');
+    const texture = includeTextureHints && SECTOR_TEXTURE_HINTS[sector]
+      ? ` (${SECTOR_TEXTURE_HINTS[sector]})`
+      : '';
+    return `  ${sector}: actual ${actual.toFixed(1)}%${status}${texture}`;
+  }).join('\n');
+
+  return `\nSECTOR TARGET ALIGNMENT (all 12 GICS sectors — sectors marked UNEXPLORED have zero current exposure and are candidates worth considering on diversification merit alone):\n${rows}\n`;
 }
 
 // ─── Sector ETF candidate pool ─────────────────────────────────────────────────
@@ -276,15 +351,7 @@ function buildMacroRiskPrompt(body: RequestBody): string {
     `${p.ticker} | ${p.sector}${p.subSector ? ' / ' + p.subSector : ''} | ${p.weightPct}% | gain: ${p.gainPct >= 0 ? '+' : ''}${p.gainPct}%${p.inUniverse ? ' | in-universe' : ' | external'}`
   ).join('\n');
 
-  let targetSection = '';
-  if (sectorTargets && sectorActuals) {
-    const rows = Object.entries(sectorActuals).map(([sector, actual]) => {
-      const target = sectorTargets[sector];
-      const delta = target != null ? (actual! - target).toFixed(1) : null;
-      return `  ${sector}: actual ${actual?.toFixed(1)}%${target != null ? ` | target ${target}% | delta ${Number(delta) > 0 ? '+' : ''}${delta}pp` : ' | no target'}`;
-    }).join('\n');
-    targetSection = `\nSECTOR TARGET ALIGNMENT:\n${rows}\n`;
-  }
+  const targetSection = buildSectorAlignmentBlock(sectorTargets, sectorActuals, false);
 
   let subSectorSection = '';
   if (subSectorActuals && Object.keys(subSectorActuals).length > 0) {
@@ -336,7 +403,7 @@ ${!hasCash && sectorTargets && sectorActuals ? `### Sector Opportunity Watchlist
 For any sector that is significantly underweight (gap ≥ 3pp vs target), suggest 2-3 specific stocks the investor could consider to close the gap. Format each as:
 **TICKER** — one-sentence rationale · Risk: Low/Medium/High
 
-You are not restricted to this app's tracked 31-stock universe — if a name outside that list better fits an underweight, high-conviction theme given current conditions, recommend it. Clearly mark any such pick as "not currently tracked in this app" so the investor knows it would be added as an external/manual position rather than one with live pricing already wired up. Do not default to large, generically "safe" names (e.g. broad mega-cap tech or diversified conglomerates) unless a specific thematic or risk-reduction rationale — grounded in what you find via search — actually calls for that kind of name over a more targeted one.
+You are not restricted to this app's tracked 31-stock universe — if a name outside that list better fits an underweight, high-conviction theme given current conditions, recommend it. This applies equally to the 8 GICS sectors outside this portfolio's four core themes — an external, untracked name in financials, health care, or another non-theme sector is just as valid a recommendation as an external name inside a theme, if it's the best fit for a real gap. Clearly mark any such pick as "not currently tracked in this app" so the investor knows it would be added as an external/manual position rather than one with live pricing already wired up. Do not default to large, generically "safe" names (e.g. broad mega-cap tech or diversified conglomerates) unless a specific thematic or risk-reduction rationale — grounded in what you find via search — actually calls for that kind of name over a more targeted one.
 
 If no sectors are significantly underweight, write: "Portfolio is reasonably aligned with targets — no major gaps to fill."
 ` : ''}
@@ -597,15 +664,7 @@ function buildCashDeployPrompt(body: RequestBody): string {
     `${p.ticker} | ${p.sector}${p.subSector ? ' / ' + p.subSector : ''} | ${p.weightPct}% | gain: ${p.gainPct >= 0 ? '+' : ''}${p.gainPct}%${p.inUniverse ? ' | in-universe' : ' | external'}`
   ).join('\n');
 
-  let targetSection = '';
-  if (sectorTargets && sectorActuals) {
-    const rows = Object.entries(sectorActuals).map(([sector, actual]) => {
-      const target = sectorTargets[sector];
-      const delta = target != null ? ((actual ?? 0) - target).toFixed(1) : null;
-      return `  ${sector}: actual ${(actual ?? 0).toFixed(1)}%${target != null ? ` | target ${target}% | ${Number(delta) > 0 ? 'OVERWEIGHT +' : 'underweight '}${delta}pp` : ' | no target'}`;
-    }).join('\n');
-    targetSection = `\nSECTOR TARGET ALIGNMENT:\n${rows}\n`;
-  }
+  const targetSection = buildSectorAlignmentBlock(sectorTargets, sectorActuals, true);
 
   const cashPct = cashContext?.cashWeightPct ?? 0;
   let shareSection = '';
@@ -658,7 +717,7 @@ Recommend 2-3 specific ${useFunds ? 'funds where the FUND CANDIDATE POOL above h
 - Approximate portion of the cash to allocate (as % of available cash, must sum to ~100%)
 - If account type requires whole shares AND this ticker appears in the SHARE PURCHASE ESTIMATES above, state the exact share count and any leftover cash. Otherwise state the allocation as a percentage of the cash only — never ask the user for a price or their total balance.
 ${useFunds ? '' : `
-You are not restricted to this app's tracked 31-stock universe — if a name outside that list better fits an underweight, high-conviction theme given current conditions, recommend it. Clearly mark any such pick as "not currently tracked in this app" so the investor knows it would be added as an external/manual position rather than one with live pricing already wired up. An external ticker will not appear in SHARE PURCHASE ESTIMATES, so express its allocation as a percentage of the cash. Do not default to large, generically "safe" names (e.g. broad mega-cap tech or diversified conglomerates) unless a specific thematic or risk-reduction rationale — grounded in what you find via search — actually calls for that kind of name over a more targeted one.
+You are not restricted to this app's tracked 31-stock universe — if a name outside that list better fits an underweight, high-conviction theme given current conditions, recommend it. This applies equally to the 8 GICS sectors outside this portfolio's four core themes — an external, untracked name in financials, health care, or another non-theme sector is just as valid a recommendation as an external name inside a theme, if it's the best fit for a real gap. Clearly mark any such pick as "not currently tracked in this app" so the investor knows it would be added as an external/manual position rather than one with live pricing already wired up. An external ticker will not appear in SHARE PURCHASE ESTIMATES, so express its allocation as a percentage of the cash. Do not default to large, generically "safe" names (e.g. broad mega-cap tech or diversified conglomerates) unless a specific thematic or risk-reduction rationale — grounded in what you find via search — actually calls for that kind of name over a more targeted one.
 `}
 Prioritize: filling underweight sectors, reducing concentration, and adding defensive diversification where appropriate.
 

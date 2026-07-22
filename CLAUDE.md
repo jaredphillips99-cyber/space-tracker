@@ -999,3 +999,49 @@ and don't layer further architecture changes on an unverified fix.
   supabase_migration_theme_preferences.sql
 **Files modified:** api/portfolio.ts · src/components/compare/PortfolioTab.tsx ·
   src/hooks/usePortfolioSync.ts · src/pages/Portfolio.tsx · CLAUDE.md
+
+---
+
+### July 22, 2026 (patch) — Decouple theme conviction from sector breadth
+
+**Bug:** cash_deploy / macro_risk only ever surfaced names inside the four
+curated themes — never the other 8 GICS sectors. Two root causes in
+`api/portfolio.ts`, both fixed here (server-only patch, no client edits):
+
+  1. `buildThemeBlock()` had no counterbalance — it instructed on LEAN IN /
+     AVOID but said nothing about the 8 non-theme sectors, so they were
+     silently crowded out. Added an explicit "these four themes are a
+     conviction OVERLAY, not the boundary" paragraph: non-theme sectors carry
+     NO stance and are judged on diversification merit; a good non-theme pick
+     is not in competition with a LEAN IN pick.
+  2. The sector-alignment table was built from `Object.entries(sectorActuals)`,
+     which only contains HELD sectors — an unheld sector (even one with a
+     target set) was invisible to the prompt, so Claude couldn't recommend
+     into a gap it was never shown.
+
+**New shared helper `buildSectorAlignmentBlock()`** replaces the duplicated
+`targetSection` logic in both `buildCashDeployPrompt()` (texture hints ON) and
+`buildMacroRiskPrompt()` (hints OFF — its watchlist is tighter on word budget).
+It always lists ALL 12 GICS sectors from a new local `ALL_GICS_SECTORS` literal
+(duplicated, not imported across api/↔src/ — same convention as
+`ThemePreferences` / `SECTOR_ETF_MAP`), tagging zero-exposure sectors
+`UNEXPLORED`. `SECTOR_TEXTURE_HINTS` gives per-sector sub-sector examples for
+the 8 non-theme sectors so Claude reaches for specific names, not a generic
+mega-cap. Outer behavior preserved: the client only sends
+`sectorTargets`/`sectorActuals` when `hasTargets` is true (both gated on it),
+so a user who never set targets still gets no wall of no-target rows —
+`buildSectorAlignmentBlock`'s `if (!sectorTargets && !sectorActuals) return ''`
+handles that, so the call-site guard was dropped.
+
+**Also:** extended the existing "not restricted to the 31-stock universe"
+paragraph (both prompts) with one clause making explicit that external/untracked
+names in the 8 non-theme sectors are just as valid as external names inside a
+theme.
+
+**Scope:** only `buildThemeBlock()`, `buildCashDeployPrompt()`, and
+`buildMacroRiskPrompt()` touched. No change to sector_explore, trim, trim_memo,
+or macro_scenario. `SECTOR_TEXTURE_HINTS` / `ALL_GICS_SECTORS` are static
+literals — no user data, no dollar figures introduced. `npx tsc --noEmit` and
+`npm run build` pass.
+
+**Files modified:** api/portfolio.ts · CLAUDE.md
