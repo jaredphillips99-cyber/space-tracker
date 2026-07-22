@@ -8,7 +8,9 @@ import {
   type Theme,
   type SubTheme,
 } from '../../config/themes';
-import type { ThemePreferences, ThemeStance } from './PortfolioTab';
+import { SECTOR_DISPLAY, type TopLevelSector } from '../../config/gics';
+import { NON_THEME_SECTORS } from './PortfolioTab';
+import type { ThemePreferences, ThemeStance, SectorConviction } from './PortfolioTab';
 
 // ─── Thematic Framework Panel ────────────────────────────────────────────────
 // Slide-in panel (same shell/width/save-cancel pattern as SectorTargetsPanel)
@@ -24,8 +26,10 @@ interface Props {
   onClose: () => void;
   themeActuals: Record<string, number>;     // theme → actual % of portfolio
   subThemeActuals: Record<string, number>;  // subTheme → actual % of portfolio
+  sectorActuals: Record<string, number>;    // GICS sector → actual % of portfolio
   value: ThemePreferences;
-  onSave: (prefs: ThemePreferences) => void;
+  sectorValue: SectorConviction;
+  onSave: (prefs: ThemePreferences, sectors: SectorConviction) => void;
 }
 
 const STANCES: { key: ThemeStance; label: string }[] = [
@@ -47,22 +51,31 @@ export default function ThematicFrameworkPanel({
   onClose,
   themeActuals,
   subThemeActuals,
+  sectorActuals,
   value,
+  sectorValue,
   onSave,
 }: Props) {
   const [draft, setDraft] = useState<ThemePreferences>(value);
+  const [sectorDraft, setSectorDraft] = useState<SectorConviction>(sectorValue);
   const [expanded, setExpanded] = useState<Set<Theme>>(new Set());
 
   useEffect(() => {
     setDraft(value);
-  }, [value, open]);
+    setSectorDraft(sectorValue);
+  }, [value, sectorValue, open]);
 
   if (!open) return null;
 
   const maxActual = Math.max(...THEME_ORDER.map(t => themeActuals[t] ?? 0), 1);
+  const maxSectorActual = Math.max(...NON_THEME_SECTORS.map(s => sectorActuals[s] ?? 0), 1);
 
   function setStance(theme: Theme, stance: ThemeStance) {
     setDraft(prev => ({ ...prev, [theme]: stance }));
+  }
+
+  function setSectorStance(sector: TopLevelSector, stance: ThemeStance) {
+    setSectorDraft(prev => ({ ...prev, [sector]: stance }));
   }
 
   function toggleExpand(theme: Theme) {
@@ -74,7 +87,7 @@ export default function ThematicFrameworkPanel({
   }
 
   function handleSave() {
-    onSave(draft);
+    onSave(draft, sectorDraft);
     onClose();
   }
 
@@ -85,6 +98,9 @@ export default function ThematicFrameworkPanel({
       defense: 'neutral',
       clean_energy_nuclear: 'neutral',
     });
+    setSectorDraft(
+      NON_THEME_SECTORS.reduce((acc, s) => { acc[s] = 'neutral'; return acc; }, {} as SectorConviction),
+    );
     setExpanded(new Set());
   }
 
@@ -214,6 +230,82 @@ export default function ThematicFrameworkPanel({
                     })}
                   </div>
                 )}
+              </div>
+            );
+          })}
+
+          {/* ── Other GICS sectors (outside the four themes) ── */}
+          <div style={{ margin: '4px 2px 10px', paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+              Other GICS sectors
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 3, lineHeight: 1.4 }}>
+              Conviction on sectors outside the four themes — a Lean in here makes that sector a
+              first-class diversification candidate for cash deployment.
+            </div>
+          </div>
+
+          {NON_THEME_SECTORS.map(sector => {
+            const info = SECTOR_DISPLAY[sector];
+            const color = info.color;
+            const actual = sectorActuals[sector] ?? 0;
+            const stance = sectorDraft[sector] ?? 'neutral';
+
+            return (
+              <div
+                key={sector}
+                style={{
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderLeftWidth: 3,
+                  borderLeftColor: color,
+                  borderRadius: 8,
+                  padding: '10px 14px',
+                  marginBottom: 10,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{info.label}</span>
+                  </span>
+                  <span style={{ fontSize: 12, fontFamily: 'Space Mono, monospace', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                    {actual > 0.05 ? `${actual.toFixed(1)}%` : '—'}
+                  </span>
+                </div>
+
+                <div style={{ height: 5, background: 'var(--bg-inset)', borderRadius: 3, overflow: 'hidden', margin: '8px 0 10px' }}>
+                  <div style={{ height: '100%', width: `${Math.min(100, (actual / maxSectorActual) * 100)}%`, background: color, borderRadius: 3, transition: 'width 0.2s' }} />
+                </div>
+
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {STANCES.map(s => {
+                    const active = stance === s.key;
+                    const ac = stanceColor(s.key, color);
+                    return (
+                      <button
+                        key={s.key}
+                        onClick={() => setSectorStance(sector, s.key)}
+                        style={{
+                          flex: 1,
+                          padding: '5px 0',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontFamily: 'Space Mono, monospace',
+                          letterSpacing: '0.03em',
+                          cursor: 'pointer',
+                          transition: 'all 0.12s',
+                          border: active ? `1px solid ${ac}` : '1px solid var(--border)',
+                          background: active ? `${ac}22` : 'transparent',
+                          color: active ? ac : 'var(--text-secondary)',
+                          fontWeight: active ? 600 : 400,
+                        }}
+                      >
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}

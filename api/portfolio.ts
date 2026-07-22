@@ -176,35 +176,74 @@ const STANCE_LABEL: Record<ThemeStance, string> = {
   avoid:   'AVOID',
 };
 
-function buildThemeBlock(themePreferences?: ThemePreferences, themeActuals?: Record<string, number>): string {
-  if (!themePreferences) return '';
+// The 8 GICS sectors outside the four curated themes — the investor can now set
+// the same lean_in/neutral/avoid conviction on these (see SectorConviction in
+// PortfolioTab.tsx). Duplicated here (not imported) — same api/↔src/ convention
+// as ThemePreferences / SECTOR_ETF_MAP above.
+const NON_THEME_SECTORS = [
+  'financials',
+  'health_care',
+  'materials',
+  'real_estate',
+  'consumer_discretionary',
+  'consumer_staples',
+  'utilities',
+  'communication_services',
+] as const;
 
-  const lines = THEME_ORDER.map(theme => {
-    const actual = themeActuals?.[theme] ?? 0;
-    return `  ${theme}: ${actual.toFixed(1)}% of portfolio | ${STANCE_LABEL[themePreferences[theme]]}`;
-  }).join('\n');
+type SectorConviction = Partial<Record<string, ThemeStance>>;
 
-  return `
-THEMATIC CONVICTION:
-${lines}
+// Emits both the four-theme conviction AND the non-theme sector conviction, with
+// one shared rule set. LEAN IN (theme OR sector) is a priority signal; AVOID is
+// a HARD prohibition; NEUTRAL is eligible-but-not-primary. Sector actual weights
+// are derived from the positions payload (percentages already), so no extra
+// field is sent. Renders when either conviction map is present.
+function buildThemeBlock(
+  themePreferences?: ThemePreferences,
+  themeActuals?: Record<string, number>,
+  sectorConviction?: SectorConviction,
+  positions?: PositionPayload[],
+): string {
+  if (!themePreferences && !sectorConviction) return '';
 
-When recommending new positions, prioritize themes marked LEAN IN even if
-they are not the most underweight by raw percentage — conviction stated by
-the investor takes priority over pure gap-filling math. Do NOT recommend
-new positions in a theme marked AVOID under any circumstances, even to
-fill a sector gap. NEUTRAL themes are fine to include but should not be
-the primary rationale for a pick.
+  let themeSection = '';
+  if (themePreferences) {
+    const lines = THEME_ORDER.map(theme => {
+      const actual = themeActuals?.[theme] ?? 0;
+      return `  ${theme}: ${actual.toFixed(1)}% of portfolio | ${STANCE_LABEL[themePreferences[theme]]}`;
+    }).join('\n');
+    themeSection = `\nTHEMATIC CONVICTION (four curated themes):\n${lines}\n`;
+  }
 
-These four themes are a conviction OVERLAY, not the boundary of what you
-may recommend. Every other GICS sector (financials, health care,
-materials, real estate, consumer discretionary, consumer staples,
-utilities, and communication services outside satellite/earth
-observation) carries NO stance from this list — evaluate them purely on
-diversification merit, sector gap, and risk-reduction value, exactly as
-you would before this thematic layer existed. A good diversification
-pick from an unlisted sector is not in competition with a LEAN IN theme
-pick — recommend both when the portfolio's data supports it, don't treat
-this list as a reason to crowd non-theme sectors out entirely.
+  let sectorSection = '';
+  if (sectorConviction) {
+    // Sum position weights per sector for display context.
+    const sectorActuals: Record<string, number> = {};
+    for (const p of positions ?? []) {
+      sectorActuals[p.sector] = (sectorActuals[p.sector] ?? 0) + p.weightPct;
+    }
+    const lines = NON_THEME_SECTORS.map(sector => {
+      const stance = sectorConviction[sector] ?? 'neutral';
+      const actual = sectorActuals[sector] ?? 0;
+      return `  ${sector}: ${actual.toFixed(1)}% of portfolio | ${STANCE_LABEL[stance]}`;
+    }).join('\n');
+    sectorSection = `\nSECTOR CONVICTION (GICS sectors outside the four themes — utilities/communication_services here mean the broad sector beyond the nuclear-operator and satellite names already in the tracked universe):\n${lines}\n`;
+  }
+
+  return `${themeSection}${sectorSection}
+Apply the same rules to BOTH lists above (themes and sectors):
+- Prioritize anything marked LEAN IN — whether a theme or a sector — even if it
+  is not the most underweight by raw percentage. Stated conviction takes
+  priority over pure gap-filling math.
+- Do NOT recommend new positions in any theme OR sector marked AVOID under any
+  circumstances, even to fill a gap.
+- NEUTRAL entries are fully eligible: judge them on diversification merit,
+  sector gap, and risk-reduction value, exactly as you would without this
+  layer. A NEUTRAL sector is NOT discouraged — it simply carries no explicit
+  lean.
+- A LEAN IN sector and a LEAN IN theme are NOT in competition — recommend
+  across both when the portfolio's data supports it. Do not treat the theme
+  list as a reason to crowd non-theme sectors out entirely.
 `;
 }
 
@@ -269,7 +308,7 @@ function buildSectorAlignmentBlock(
     return `  ${sector}: actual ${actual.toFixed(1)}%${status}${texture}`;
   }).join('\n');
 
-  return `\nSECTOR TARGET ALIGNMENT (all 12 GICS sectors — sectors marked UNEXPLORED have zero current exposure and are candidates worth considering on diversification merit alone):\n${rows}\n`;
+  return `\nSECTOR TARGET ALIGNMENT (all 11 GICS sectors — sectors marked UNEXPLORED have zero current exposure and are candidates worth considering on diversification merit alone):\n${rows}\n`;
 }
 
 // ─── Sector ETF candidate pool ─────────────────────────────────────────────────
@@ -376,7 +415,7 @@ function buildMacroRiskPrompt(body: RequestBody): string {
 
   const hasCash = cashContext && cashContext.cashWeightPct > 0;
 
-  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildThemeBlock(body.themePreferences, body.themeActuals)}${buildFreshnessBlock(true)}
+  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildThemeBlock(body.themePreferences, body.themeActuals, body.sectorConviction, body.positions)}${buildFreshnessBlock(true)}
 You are a portfolio risk analyst. Analyze the following portfolio and provide a structured macro risk assessment. Do not include a top-level heading — start directly with the first section.
 
 PORTFOLIO:
@@ -702,7 +741,7 @@ function buildCashDeployPrompt(body: RequestBody): string {
     }
   }
 
-  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildThemeBlock(body.themePreferences, body.themeActuals)}${buildFreshnessBlock(true)}
+  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildThemeBlock(body.themePreferences, body.themeActuals, body.sectorConviction, body.positions)}${buildFreshnessBlock(true)}
 You are a portfolio analyst. The investor has uninvested cash representing ${cashPct.toFixed(1)}% of their expanded portfolio and wants to know the best way to deploy it to improve their risk profile and sector balance.
 
 CURRENT PORTFOLIO (excluding cash):
@@ -1018,6 +1057,7 @@ interface RequestBody {
   preferences?: InvestorPreferences; // NEW: standing risk/style profile
   themePreferences?: ThemePreferences;      // NEW: directional macro-theme conviction (cash_deploy + macro_risk)
   themeActuals?: Record<string, number>;    // NEW: current theme weights (percentages only) — mirrors sectorActuals
+  sectorConviction?: SectorConviction;      // NEW: lean/neutral/avoid on the 8 non-theme GICS sectors
   // networth_analysis only:
   accounts?: NetWorthAccountPayload[];
   portfolioContext?: { topSectorWeights?: { sector: string; pct: number }[] };

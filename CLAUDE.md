@@ -1045,3 +1045,58 @@ literals — no user data, no dollar figures introduced. `npx tsc --noEmit` and
 `npm run build` pass.
 
 **Files modified:** api/portfolio.ts · CLAUDE.md
+
+---
+
+### July 22, 2026 (patch 2) — Sector conviction: lean/neutral/avoid on the 8 non-theme GICS sectors
+
+**Why:** theme conviction only covered the four curated themes, so the other 8
+GICS sectors could only ever be picked up "on merit" by the model. The investor
+wanted to actively express lean-in / avoid on those sectors too and have it flow
+into "where to deploy my cash?". This makes a diversification bet (e.g. lean in
+to health care) a first-class input, not something the model reaches for on its
+own.
+
+**Model:** `NON_THEME_SECTORS` (financials, health_care, materials, real_estate,
+consumer_discretionary, consumer_staples, utilities, communication_services) +
+`SectorConviction` (Partial<Record<TopLevelSector, ThemeStance>>) +
+`DEFAULT_SECTOR_CONVICTION` (all neutral) in PortfolioTab.tsx. Same ThemeStance
+vocabulary as themes. utilities/communication_services mean the BROAD sector
+beyond the nuclear-operator / satellite names already in the tracked universe
+(clarified in panel copy and prompt).
+
+**Persistence:** mirrors theme_preferences exactly (proven-safe additive
+pattern, per the sync-regression lessons) — new independent
+`user_preferences.sector_conviction` jsonb column, threaded through
+usePortfolioSync (`savedSectorConviction`, 6th `savePreferences` arg),
+Portfolio.tsx, and the anonymous SessionCache. Seed merges the persisted row
+over DEFAULT_SECTOR_CONVICTION so a row missing a newly-added sector key still
+resolves to neutral. The working theme-sync path was NOT modified.
+
+**Panel:** ThematicFrameworkPanel gained an "Other GICS sectors" section below
+the four theme cards — one compact card per sector (SECTOR_DISPLAY color/label,
+actual-weight bar, lean/neutral/avoid segmented control). onSave now returns
+both `(themePrefs, sectorConviction)`.
+
+**Server (api/portfolio.ts):** `buildThemeBlock()` now emits BOTH a THEMATIC
+CONVICTION list and a SECTOR CONVICTION list under one shared rule set (LEAN IN
+prioritized, AVOID hard-blocked, NEUTRAL fully eligible on merit, LEAN-IN theme
+and LEAN-IN sector not in competition). Sector actual weights are derived from
+the `positions` payload — no new actuals field sent. Wired into cash_deploy +
+macro_risk only (both already call buildThemeBlock). Also fixed the earlier
+cosmetic "12 GICS sectors" → "11" wording in buildSectorAlignmentBlock.
+
+**Privacy:** only new payload field is `sectorConviction` (stance enums) — no
+dollars, no share counts. Portfolio-tab percentage-only rule holds.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass.
+
+**Migration handed off (NOT run by Claude Code):**
+  `supabase_migration_sector_conviction.sql` — `ADD COLUMN IF NOT EXISTS
+  sector_conviction jsonb` on user_preferences (idempotent, nullable, existing
+  RLS covers it). Missing column degrades to null (all-neutral) until run.
+
+**Files created:** supabase_migration_sector_conviction.sql
+**Files modified:** api/portfolio.ts · src/components/compare/PortfolioTab.tsx ·
+  src/components/compare/ThematicFrameworkPanel.tsx · src/hooks/usePortfolioSync.ts ·
+  src/pages/Portfolio.tsx · CLAUDE.md

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import type { PortfolioPosition, AccountType, InvestorPreferences, ThemePreferences } from '../components/compare/PortfolioTab';
+import type { PortfolioPosition, AccountType, InvestorPreferences, ThemePreferences, SectorConviction } from '../components/compare/PortfolioTab';
 import type { SectorTargets } from '../components/compare/SectorTargetsPanel';
 
 // ─── DB row shapes ─────────────────────────────────────────────────────────────
@@ -20,6 +20,7 @@ interface PrefsRow {
   cash_amount?: number;                    // NEW: persisted uninvested cash balance
   preferences?: InvestorPreferences | null; // NEW: standing risk/style profile
   theme_preferences?: ThemePreferences | null; // NEW: thematic conviction (lean/neutral/avoid)
+  sector_conviction?: SectorConviction | null;  // NEW: non-theme GICS sector conviction
 }
 
 // ─── Hook return shape ─────────────────────────────────────────────────────────
@@ -32,10 +33,11 @@ export interface PortfolioSyncReturn {
   savedCashAmount:   number | null;    // NEW
   savedPreferences:  InvestorPreferences | null;  // NEW
   savedThemePreferences: ThemePreferences | null; // NEW
+  savedSectorConviction: SectorConviction | null; // NEW
   loading:           boolean;
   // Write helpers — called by PortfolioTab after every mutation
   savePositions:     (positions: PortfolioPosition[]) => Promise<void>;
-  savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences, themePreferences: ThemePreferences) => Promise<void>;
+  savePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences, themePreferences: ThemePreferences, sectorConviction: SectorConviction) => Promise<void>;
   // Whether we have an authenticated user (and therefore can persist)
   isAuthenticated:   boolean;
   // True once the initial supabase.auth.getSession() call has completed —
@@ -59,6 +61,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
   const [savedCashAmount,    setSavedCashAmount]    = useState<number | null>(null);   // NEW
   const [savedPreferences,   setSavedPreferences]   = useState<InvestorPreferences | null>(null);  // NEW
   const [savedThemePreferences, setSavedThemePreferences] = useState<ThemePreferences | null>(null);  // NEW
+  const [savedSectorConviction, setSavedSectorConviction] = useState<SectorConviction | null>(null);  // NEW
   const [loading,            setLoading]            = useState(true);
   const [userId,             setUserId]             = useState<string | null>(null);
   const [authResolved,       setAuthResolved]       = useState(false);
@@ -141,6 +144,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
           setSavedCashAmount(row.cash_amount ?? 0);   // NEW
           setSavedPreferences(row.preferences ?? null);  // NEW
           setSavedThemePreferences(row.theme_preferences ?? null);  // NEW
+          setSavedSectorConviction(row.sector_conviction ?? null);  // NEW
         }
       } finally {
         setLoading(false);
@@ -207,6 +211,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
     cashAmount: number;
     preferences: InvestorPreferences;
     themePreferences: ThemePreferences;
+    sectorConviction: SectorConviction;
   } | null>(null);
 
   const writePrefsNow = useCallback((uid: string, payload: NonNullable<typeof pendingPrefsWrite.current>) => {
@@ -219,6 +224,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
         cash_amount:       payload.cashAmount,
         preferences:       payload.preferences,
         theme_preferences: payload.themePreferences,
+        sector_conviction: payload.sectorConviction,
         updated_at:        new Date().toISOString(),
       }, { onConflict: 'user_id' });
   }, []);
@@ -229,10 +235,11 @@ export function usePortfolioSync(): PortfolioSyncReturn {
     cashAmount:       number,               // NEW
     preferences:      InvestorPreferences,  // NEW
     themePreferences: ThemePreferences,     // NEW
+    sectorConviction: SectorConviction,     // NEW
   ) => {
     if (!userId) return;
 
-    pendingPrefsWrite.current = { accountType, sectorTargets, cashAmount, preferences, themePreferences };
+    pendingPrefsWrite.current = { accountType, sectorTargets, cashAmount, preferences, themePreferences, sectorConviction };
 
     if (prefsTimer.current) clearTimeout(prefsTimer.current);
     prefsTimer.current = setTimeout(async () => {
@@ -304,6 +311,7 @@ export function usePortfolioSync(): PortfolioSyncReturn {
     savedCashAmount,     // NEW
     savedPreferences,    // NEW
     savedThemePreferences, // NEW
+    savedSectorConviction, // NEW
     loading,
     savePositions,
     savePreferences,

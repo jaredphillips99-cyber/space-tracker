@@ -25,6 +25,7 @@ interface SessionCache {
   sectorTargets: SectorTargets;
   accountType: AccountType;
   themePreferences?: ThemePreferences;   // NEW: anonymous thematic-conviction fallback
+  sectorConviction?: SectorConviction;   // NEW: anonymous non-theme sector conviction fallback
   savedAt: number;
 }
 
@@ -65,10 +66,11 @@ export interface PortfolioTabSyncProps {
   syncedCashAmount:    number | null;               // NEW: persisted cash balance
   syncedPreferences:   InvestorPreferences | null;   // NEW: persisted investor preferences
   syncedThemePreferences: ThemePreferences | null;   // NEW: persisted thematic conviction
+  syncedSectorConviction: SectorConviction | null;   // NEW: persisted non-theme sector conviction
   syncLoading:         boolean;
   isAuthenticated:     boolean;
   onSavePositions:     (positions: PortfolioPosition[]) => Promise<void>;
-  onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences, themePreferences: ThemePreferences) => Promise<void>;
+  onSavePreferences:   (accountType: AccountType, sectorTargets: SectorTargets, cashAmount: number, preferences: InvestorPreferences, themePreferences: ThemePreferences, sectorConviction: SectorConviction) => Promise<void>;
   syncError?:          string | null;  // NEW: surfaced when a Supabase write/load fails
 }
 
@@ -155,6 +157,32 @@ export const DEFAULT_THEME_PREFERENCES: ThemePreferences = {
   defense: 'neutral',
   clean_energy_nuclear: 'neutral',
 };
+
+// The 8 GICS sectors that sit OUTSIDE the four curated themes. The investor can
+// express the same lean_in/neutral/avoid conviction on these as on the themes,
+// so a diversification bet (e.g. "lean in to health care") is a first-class
+// input to cash_deploy / macro_risk rather than something the model only
+// reaches for on its own. Uses the same ThemeStance vocabulary. Note utilities
+// and communication_services partially overlap the clean-energy and space
+// themes (nuclear operators / satellite) — conviction here means the broader
+// sector beyond those already-tracked names (clarified in the panel + prompt).
+export const NON_THEME_SECTORS: TopLevelSector[] = [
+  'financials',
+  'health_care',
+  'materials',
+  'real_estate',
+  'consumer_discretionary',
+  'consumer_staples',
+  'utilities',
+  'communication_services',
+];
+
+export type SectorConviction = Partial<Record<TopLevelSector, ThemeStance>>;
+
+export const DEFAULT_SECTOR_CONVICTION: SectorConviction = NON_THEME_SECTORS.reduce(
+  (acc, s) => { acc[s] = 'neutral'; return acc; },
+  {} as SectorConviction,
+);
 
 const RISK_LABELS: Record<RiskTolerance, { label: string; desc: string }> = {
   conservative: { label: 'Conservative', desc: 'Avoid speculative/pre-revenue names' },
@@ -520,6 +548,7 @@ export default function PortfolioTab({
   syncedCashAmount    = null,
   syncedPreferences   = null,
   syncedThemePreferences = null,
+  syncedSectorConviction = null,
   syncLoading         = false,
   isAuthenticated     = false,
   onSavePositions     = async () => {},
@@ -539,6 +568,9 @@ export default function PortfolioTab({
   const [investorPreferences, setInvestorPreferences] = useState<InvestorPreferences>(DEFAULT_PREFERENCES);
   const [prefsPanelOpen, setPrefsPanelOpen] = useState(false);
   const [themePreferences, setThemePreferences] = useState<ThemePreferences>(_session.themePreferences ?? DEFAULT_THEME_PREFERENCES);
+  const [sectorConviction, setSectorConviction] = useState<SectorConviction>(
+    { ...DEFAULT_SECTOR_CONVICTION, ..._session.sectorConviction },
+  );
   const [themePanelOpen, setThemePanelOpen] = useState(false);
 
   // Add form
@@ -621,8 +653,13 @@ export default function PortfolioTab({
     if (syncedThemePreferences) {
       setThemePreferences(syncedThemePreferences);
     }
+    if (syncedSectorConviction) {
+      // Merge over defaults so a persisted row missing a newly-added sector key
+      // still resolves that sector to neutral rather than undefined.
+      setSectorConviction({ ...DEFAULT_SECTOR_CONVICTION, ...syncedSectorConviction });
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, syncedPositions, syncedAccountType, syncedSectorTargets, syncedPreferences, syncedThemePreferences]);
+  }, [isAuthenticated, syncedPositions, syncedAccountType, syncedSectorTargets, syncedPreferences, syncedThemePreferences, syncedSectorConviction]);
 
   // ─── Persist positions ────────────────────────────────────────────────────
   // Authenticated: write to Supabase (debounced in hook)
@@ -634,7 +671,7 @@ export default function PortfolioTab({
     } else {
       // Always persist, even when the portfolio is emptied out — otherwise a
       // removed position can silently reappear from stale sessionStorage.
-      saveSession({ positions, liveData, sectorTargets, accountType, themePreferences, savedAt: Date.now() });
+      saveSession({ positions, liveData, sectorTargets, accountType, themePreferences, sectorConviction, savedAt: Date.now() });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions]);
@@ -643,12 +680,12 @@ export default function PortfolioTab({
   useEffect(() => {
     if (!syncSeeded.current && isAuthenticated) return;
     if (isAuthenticated) {
-      onSavePreferences(accountType, sectorTargets, cashAmount, investorPreferences, themePreferences);
+      onSavePreferences(accountType, sectorTargets, cashAmount, investorPreferences, themePreferences, sectorConviction);
     } else {
-      saveSession({ positions, liveData, sectorTargets, accountType, themePreferences, savedAt: Date.now() });
+      saveSession({ positions, liveData, sectorTargets, accountType, themePreferences, sectorConviction, savedAt: Date.now() });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountType, sectorTargets, cashAmount, investorPreferences, themePreferences]);
+  }, [accountType, sectorTargets, cashAmount, investorPreferences, themePreferences, sectorConviction]);
 
   // ─── Price fetching ───────────────────────────────────────────────────────
 
@@ -815,6 +852,7 @@ export default function PortfolioTab({
           subSectorActuals: Object.keys(subSectorActuals).length > 0 ? subSectorActuals : undefined,
           themeActuals: getThemeActuals(computed),
           themePreferences,
+          sectorConviction,
           cashContext: cashCtx,
         }),
       });
@@ -1184,6 +1222,7 @@ export default function PortfolioTab({
           sectorActuals: hasTargets ? sectorActuals : undefined,
           themeActuals: getThemeActuals(computed),
           themePreferences,
+          sectorConviction,
           cashContext: cashCtx,
         }),
       });
@@ -1332,8 +1371,10 @@ export default function PortfolioTab({
       <ThematicFrameworkPanel
         open={themePanelOpen} onClose={() => setThemePanelOpen(false)}
         themeActuals={themeActuals} subThemeActuals={subThemeActuals}
+        sectorActuals={sectorActuals}
         value={themePreferences}
-        onSave={p => { setThemePreferences(p); setMacroRisk(null); setCashResult(null); }}
+        sectorValue={sectorConviction}
+        onSave={(p, s) => { setThemePreferences(p); setSectorConviction(s); setMacroRisk(null); setCashResult(null); }}
       />
 
       {/* Account type panel */}
