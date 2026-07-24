@@ -30,7 +30,12 @@ analysis pipeline.
 - react-markdown + remark-gfm for rendering all AI output cards
 
 ## Production URL
-https://stock-tracker-five-tau.vercel.app
+https://portfolio-analysis-six.vercel.app
+(Corrected July 24, 2026 — the previously documented stock-tracker-five-tau.vercel.app
+is confirmed DEAD: missing VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY env vars,
+throws a fatal Supabase init exception on load. Do not test against it or use
+it in deploy instructions. See July 24 session log entry for how this was
+diagnosed.)
 
 ---
 
@@ -1100,3 +1105,61 @@ dollars, no share counts. Portfolio-tab percentage-only rule holds.
 **Files modified:** api/portfolio.ts · src/components/compare/PortfolioTab.tsx ·
   src/components/compare/ThematicFrameworkPanel.tsx · src/hooks/usePortfolioSync.ts ·
   src/pages/Portfolio.tsx · CLAUDE.md
+
+---
+
+### July 24, 2026 — Production URL corrected · newswire pipeline discovered undocumented · silent-empty-state diagnostics added
+
+**Production URL resolved (July 21's open item):** Confirmed via live inspection
+that `stock-tracker-five-tau.vercel.app` (the previously documented URL) is
+DEAD — missing `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` env vars, throws a
+fatal Supabase client init exception on load, nothing renders past a blank
+shell. `portfolio-analysis-six.vercel.app` is confirmed live and correct:
+`/api/prices`, `newswire_items`, and `analyses` all return HTTP 200. These are
+NOT aliases of the same deployment — five-tau is stale/misconfigured and
+should not be used for testing or referenced in deploy docs going forward.
+
+**Undocumented feature discovered: full newswire pipeline already exists.**
+While investigating why no news feed was visible in the sidebar, found that
+`.github/workflows/newswire.yml` (cron, weekdays 7:30am ET), `scripts/
+newswire.mjs` (pulls Yahoo Finance RSS per ticker, zero Claude API cost,
+zero API key, filters to last 24h, upserts to a `newswire_items` Supabase
+table), and `src/hooks/useNewswire.ts` (reads latest run's items, wired into
+SidePanel's "TODAY'S WIRE" section) were all already built and deployed —
+none of this was ever logged in this file. Origin/session of the original
+build is unknown. This CLAUDE.md entry is the first documentation of it.
+
+**Bug found: TODAY'S WIRE renders nothing on the live site.** The Supabase
+`newswire_items` query returns 200 (not an error) but the sidebar section
+never appears, meaning `newswireItems.length === 0` after a successful query.
+Two possible causes, not yet distinguished:
+  1. The GitHub Actions cron has never successfully written rows (never
+     triggered, missing repo secrets `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`,
+     or failing silently before the write)
+  2. RLS on `newswire_items` allows the `service_role` insert (used by the
+     script) but has no SELECT policy for `anon` (used by the browser), so
+     every write succeeds and every read comes back empty
+  Root cause NOT yet confirmed — next session should check GitHub Actions run
+  history for "Daily Newswire" and row count in Supabase Table Editor for
+  `newswire_items` before making further changes here.
+
+**Fix applied regardless of root cause:** `useNewswire.ts` previously failed
+completely silently — no console output on either an error or a successful-
+but-empty result, making this exact bug undiagnosable without manually
+inspecting the network tab. Added permanent `console.info('[newswire] load
+result: ...')` diagnostic logging for all three outcomes (error / 0 rows /
+success with counts), mirroring the `usePortfolioSync` diagnostic pattern
+from July 20. No UI changes — matches the established preference for
+console-level diagnostics over visible banners for this class of issue.
+
+**Verification:** Not yet deployed/tested against live Supabase state —
+`npx tsc --noEmit` should be run before deploy per usual.
+
+**Files modified:** src/hooks/useNewswire.ts · CLAUDE.md
+
+**Next session:** confirm root cause via the two checks above, then apply the
+actual fix — either an `anon` SELECT policy migration on `newswire_items`, or
+a manual `workflow_dispatch` trigger + secrets check on the GitHub Actions
+side. Also still open from earlier sessions: delete `api/edgar.ts` (confirmed
+dead code), and the Net Worth AI Analysis Claude Code prompt (spec'd July 17,
+execution status unconfirmed).

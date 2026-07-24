@@ -222,6 +222,10 @@ async function main() {
   // For now we insert in pages of 50 and ignore duplicates so the script is
   // safe to re-run even before the constraint is updated.
   const PAGE = 50;
+  let succeededCount = 0;
+  let failedPages    = 0;
+  const writeErrors  = [];
+
   for (let i = 0; i < allItems.length; i += PAGE) {
     const page = allItems.slice(i, i + PAGE);
     const { error } = await supabase
@@ -229,12 +233,27 @@ async function main() {
       .upsert(page, { onConflict: 'ticker,url', ignoreDuplicates: true });
 
     if (error) {
+      failedPages += 1;
+      writeErrors.push(`page ${Math.floor(i / PAGE) + 1}: ${error.message}`);
       console.error(`[newswire] Supabase write failed (page ${Math.floor(i / PAGE) + 1}):`, error.message);
-      // Continue writing remaining pages rather than hard-failing
+      // Continue attempting remaining pages rather than hard-failing mid-run,
+      // but we no longer report success at the end if anything failed.
+    } else {
+      succeededCount += page.length;
     }
   }
 
-  console.log(`[newswire] ✓ Wrote ${allItems.length} items to Supabase for ${runDate}`);
+  if (failedPages > 0) {
+    console.error(
+      `[newswire] ✗ ${failedPages} page(s) failed to write (${succeededCount}/${allItems.length} items ` +
+      `actually written for ${runDate}). Errors:\n  ${writeErrors.join('\n  ')}`
+    );
+    console.error('[newswire] Exiting with failure so this shows up as a failed run, not a false green check.');
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`[newswire] ✓ Wrote ${succeededCount} items to Supabase for ${runDate}`);
   console.log('[newswire] Done.');
 }
 
