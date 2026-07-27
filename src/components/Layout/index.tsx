@@ -8,7 +8,8 @@ import OnboardingModal, { hasOnboarded } from '../Onboarding/OnboardingModal';
 import type { Sector } from '../../types';
 
 const NAV_LINKS = [
-  { to: '/', label: 'Dashboard' },
+  { to: '/', label: 'News' },
+  { to: '/dashboard', label: 'Dashboard' },
   { to: '/portfolio', label: 'Portfolio' },
   { to: '/networth', label: 'Net Worth' },
 ];
@@ -26,7 +27,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const [showOnboarding, setShowOnboarding] = useState(() => !hasOnboarded());
 
-  const isDashboard = location.pathname === '/';
+  const isDashboard = location.pathname === '/dashboard';
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--bg-base)' }}>

@@ -1,11 +1,10 @@
-import { useLivePrice } from '../hooks/useLivePrice';
 import { PriceTable } from '../components/PriceTable';
 import { SidePanel } from '../components/SidePanel';
 import { useStore } from '../store/useStore';
 
 export function Dashboard() {
-  useLivePrice();
-
+  // useLivePrice() is called once at the App level (App.tsx) — prices are
+  // needed by the News landing page too, so the fetch is hoisted there.
   const pricesLoadingState = useStore((s) => s.pricesLoadingState);
 
   return (

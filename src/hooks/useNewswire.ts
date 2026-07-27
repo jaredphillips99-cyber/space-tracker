@@ -11,6 +11,15 @@ export interface NewswireItem {
   url: string | null;
   run_date: string;
   created_at: string;
+  published_at: string | null;
+}
+
+// ─── Sentiment dot color ──────────────────────────────────────────────────────
+// Single source of truth — used by both the SidePanel teaser and the News tab.
+export function sentimentColor(sentiment: NewswireItem['sentiment']): string {
+  if (sentiment === 'positive') return '#00e676';
+  if (sentiment === 'negative') return '#ff4b6e';
+  return 'var(--text-secondary)';
 }
 
 interface UseNewswireResult {

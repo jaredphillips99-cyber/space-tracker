@@ -60,7 +60,7 @@ const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // User-Agent required — without it Yahoo returns an HTML "will be right back" page
 const USER_AGENT =
-  'Mozilla/5.0 (compatible; InvestAI-Newswire/1.0; +https://stock-tracker-five-tau.vercel.app)';
+  'Mozilla/5.0 (compatible; InvestAI-Newswire/1.0; +https://portfolio-analysis-six.vercel.app)';
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
 
@@ -188,6 +188,7 @@ async function main() {
     console.log(`  ${ticker}: ${rssItems.length} item(s) in last 24h`);
 
     for (const item of rssItems) {
+      const publishedAt = item.pubDate ? new Date(item.pubDate) : null;
       allItems.push({
         ticker,
         sector,
@@ -196,6 +197,7 @@ async function main() {
         sentiment: 'neutral',     // neutral for all RSS-sourced items
         url:       item.link.trim(),
         run_date:  runDate,
+        published_at: publishedAt && !isNaN(publishedAt.getTime()) ? publishedAt.toISOString() : null,
       });
     }
   });

@@ -4,8 +4,7 @@ import { useStore } from '../../store/useStore';
 import { TICKERS } from '../../config/tickers';
 import { isAnalysisStale, SECTOR_COLORS } from '../../types';
 import type { TickerConfig } from '../../types';
-import { useNewswire } from '../../hooks/useNewswire';
-import type { NewswireItem } from '../../hooks/useNewswire';
+import { useNewswire, sentimentColor } from '../../hooks/useNewswire';
 
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -59,13 +58,6 @@ function fmtRunDate(isoDate: string | null): string {
   if (isoDate === today.toISOString().split('T')[0]) return 'Today';
   if (isoDate === yesterday.toISOString().split('T')[0]) return 'Yesterday';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-// ─── Sentiment dot color ──────────────────────────────────────────────────────
-function sentimentColor(sentiment: NewswireItem['sentiment']): string {
-  if (sentiment === 'positive') return '#00e676';
-  if (sentiment === 'negative') return '#ff4b6e';
-  return 'var(--text-secondary)';
 }
 
 // ─── Needs Attention ──────────────────────────────────────────────────────────
@@ -218,7 +210,7 @@ export function SidePanel() {
               Loading…
             </div>
           ) : (
-            newswireItems.map((item) => {
+            newswireItems.slice(0, 3).map((item) => {
               const tickerConfig = TICKERS.find((t) => t.ticker === item.ticker);
               const sectorColor = tickerConfig
                 ? (SECTOR_COLORS[tickerConfig.sectors[0] as keyof typeof SECTOR_COLORS] ?? 'var(--text-primary)')
@@ -281,6 +273,27 @@ export function SidePanel() {
                 </button>
               );
             })
+          )}
+
+          {!newswireLoading && newswireItems.length > 0 && (
+            <button
+              onClick={() => navigate('/')}
+              className="w-full text-left px-4 py-2 transition-colors"
+              style={{
+                fontFamily: 'Space Mono, monospace',
+                color: 'var(--text-muted)',
+                fontSize: 10,
+                letterSpacing: '0.08em',
+                background: 'none',
+                border: 'none',
+                borderBottom: '1px solid var(--border-muted)',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)'; }}
+            >
+              See all news →
+            </button>
           )}
         </div>
       )}
