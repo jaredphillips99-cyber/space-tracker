@@ -1163,3 +1163,126 @@ a manual `workflow_dispatch` trigger + secrets check on the GitHub Actions
 side. Also still open from earlier sessions: delete `api/edgar.ts` (confirmed
 dead code), and the Net Worth AI Analysis Claude Code prompt (spec'd July 17,
 execution status unconfirmed).
+
+---
+
+### July 27, 2026 — News tab is the new landing page (front-page ranking, zero API cost)
+
+**New: full News tab at `/`, Dashboard moved to `/dashboard`.** The sidebar's
+"TODAY'S WIRE" teaser grew into a front-page-style News tab. Ranking uses only
+data already in hand — `LivePrice.marketCap` / `changePercent` from the store
+plus the existing `newswire_items` archive — so NO LLM calls and no new API
+cost. Three tiers, computed by a pure, unit-testable `rankFrontPage()`:
+  - **Lead stories** — highest market-cap tickers with coverage in the last 72h.
+  - **Also moving** — any ticker (regardless of cap) with an outsized 1-day move
+    (≥5% abs), so a big event at a small name surfaces even though it can't
+    out-rank NVDA on cap alone.
+  - **Feed** — everything else, reverse-chronological, paginated (300/page).
+  Stories are deduped by URL (same story fetched under multiple tickers merges
+  its ticker/sector badges; first-seen headline/timestamp wins).
+
+**Price fetch hoisted to App level.** `useLivePrice()` now runs once in
+`App.tsx` (alongside `useSupabaseSync()`) instead of only in `Dashboard.tsx` —
+the News landing page needs prices for ranking, and the hook is
+staleness-guarded so hoisting causes no duplicate fetches. `Dashboard.tsx` no
+longer calls it.
+
+**published_at added to the newswire pipeline.** New nullable
+`newswire_items.published_at timestamptz` column (+ published_at / created_at
+indexes). `scripts/newswire.mjs` now captures each RSS item's `pubDate` into it;
+rows whose pubDate fails to parse (and all existing rows) stay null and fall
+back to `created_at` for sorting — harmless. **Migration was run manually in
+Supabase this session**; real timestamps populate once the cron next fires.
+
+**SidePanel shrunk to a teaser.** "TODAY'S WIRE" now renders only the first 3
+items plus a "See all news →" link to `/`. `sentimentColor()` moved from
+SidePanel into `useNewswire.ts` and exported as the single source of truth
+(SidePanel + NewsFeed both consume it). NEEDS ATTENTION / RECENTLY ANALYZED
+unchanged.
+
+**Nav + routing:** NAV_LINKS reordered to News · Dashboard · Portfolio · Net
+Worth. Sector filter pill bar gate changed from `location.pathname === '/'` to
+`=== '/dashboard'` (it's Dashboard-specific and Dashboard no longer lives at
+`/`). Logo `<Link to="/">` now doubles as "go to News".
+
+**Also fixed:** `scripts/newswire.mjs` User-Agent string still pointed at the
+dead `stock-tracker-five-tau.vercel.app` — corrected to the live
+`portfolio-analysis-six.vercel.app` (cosmetic UA identifier only).
+
+**Privacy:** untouched — News ranking reads only public market data + the
+newswire archive; no dollars/shares involved anywhere.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Browser-verified
+locally (dummy Supabase env): `/` renders News with no pill bar, `/dashboard`
+renders the unchanged Watchlist with the pill bar, nav order correct, News
+error path degrades gracefully to an inline message (no crash). Committed
+(`4ef8178`), pushed, and deployed to Vercel production (READY).
+
+**Files created:** `supabase_migration_newswire_published_at.sql` ·
+  src/hooks/useNewsArchive.ts · src/lib/newsRanking.ts ·
+  src/components/NewsFeed/index.tsx · src/pages/News.tsx
+**Files modified:** scripts/newswire.mjs · src/hooks/useNewswire.ts ·
+  src/App.tsx · src/pages/Dashboard.tsx · src/components/Layout/index.tsx ·
+  src/components/SidePanel/index.tsx · CLAUDE.md
+---
+
+### July 28, 2026 — Filter generic/listicle noise out of the News tab
+
+**Root cause:** the RSS newswire pipeline had no materiality signal — every
+Yahoo RSS item was written verbatim, so content-mill listicles ("3 Stocks to
+Buy," "X vs Y," dividend roundups) sat alongside real material news. Worse,
+`rankFrontPage()` ranked Lead Stories purely by `maxMarketCap`, so NVDA's
+largest-cap headline always won Lead regardless of whether anything actually
+happened.
+
+**Heuristic classification at ingestion (zero Claude cost).** Added a
+classification section to `scripts/newswire.mjs` after `parseRssItems()`:
+  - `MATERIAL_PATTERNS` — regex per material category (earnings, guidance,
+    contract_partnership, regulatory_legal, ma_corporate, executive,
+    product_technology, analyst_rating_change, recall). A material match ALWAYS
+    wins — sets `category`, `is_generic=false` — even over a known content-mill
+    domain.
+  - `GENERIC_HEADLINE_PATTERNS` — listicle/"stocks to buy"/"vs"/"here's why"
+    shapes.
+  - `GENERIC_SOURCE_DOMAINS` — soft signal only (fool.com, zacks.com,
+    insidermonkey.com, 247wallst.com, simplywall.st, gurufocus.com,
+    moneymorning.com); checked only after material patterns, overridable by a
+    material match.
+  - `classifyHeadline(title, link)` returns `{ category, isGeneric }`; items
+    matching neither pass through unflagged (category null, is_generic false) —
+    we only drop what we're fairly confident is noise. No Claude API calls,
+    consistent with the rest of this pipeline.
+  Each ingested item is now tagged with `category` + `is_generic`; a run log
+  reports how many were flagged. Generic items are still WRITTEN to Supabase
+  (flagged, not dropped at ingestion) so the heuristic stays adjustable without
+  re-running ingestion and leaves a debugging trail.
+
+**Schema:** new `category text` + `is_generic boolean not null default false`
+columns on `newswire_items` (plus an `is_generic` index).
+`supabase_migration_newswire_classification.sql` handed off — NOT run by Claude
+Code. MUST be run in the Supabase SQL Editor before the next scheduled cron
+fires, or the insert will fail on the unknown columns. Existing rows default to
+`is_generic=false` / `category=null` and simply age out of the 72h window rather
+than being retroactively reclassified.
+
+**Filtering + ranking (app side).** `NewswireItem` (useNewswire.ts) and
+`NewsStory` (newsRanking.ts) gained `category` / `is_generic`. `dedupeByUrl()`
+now `continue`s past any `is_generic` item — flagged content is DROPPED entirely
+from the News tab (not demoted to a toggle), so lead/movers/feed all inherit the
+filter automatically. Lead Stories now sort by materiality-category-presence
+FIRST (has a category → ranks above uncategorized), market cap as tiebreaker —
+previously market cap only. Category is carried through the dedupe merge
+(first-seen category wins).
+
+**Revisit if needed:** the heuristic can be tuned (add/remove patterns or
+domains) without a schema change if it proves too aggressive or too loose in
+practice.
+
+**Privacy:** untouched — only public headline metadata (category / is_generic)
+added; no dollar/share figures anywhere.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass.
+
+**Files created:** supabase_migration_newswire_classification.sql
+**Files modified:** scripts/newswire.mjs · src/hooks/useNewswire.ts ·
+  src/lib/newsRanking.ts · CLAUDE.md

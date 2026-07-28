@@ -12,6 +12,8 @@ export interface NewswireItem {
   run_date: string;
   created_at: string;
   published_at: string | null;
+  category: string | null;
+  is_generic: boolean;
 }
 
 // ─── Sentiment dot color ──────────────────────────────────────────────────────

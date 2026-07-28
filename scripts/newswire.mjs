@@ -113,6 +113,95 @@ function parseRssItems(xml) {
   return items;
 }
 
+// ─── Headline classification (heuristic, zero API cost) ──────────────────────
+//
+// Two independent signals:
+//   1. Material-category patterns — if a headline matches one of these, it's
+//      real news. This ALWAYS wins over the generic/domain signals below,
+//      even if the source domain is a known content mill.
+//   2. Generic/listicle patterns + known low-signal domains — if neither of
+//      these fire and no material pattern matched, the item is left alone
+//      (uncategorized but not flagged) rather than guessing wrong.
+
+const MATERIAL_PATTERNS = [
+  { category: 'earnings', re: /\b(q[1-4]|first|second|third|fourth)[\s-]?quarter\b.*\b(earnings|results|revenue)\b/i },
+  { category: 'earnings', re: /\bearnings\s+(report|release|call)\b/i },
+  { category: 'earnings', re: /\b(beats?|misses?|tops?)\s+(estimates|expectations|consensus)\b/i },
+  { category: 'earnings', re: /\breports?\s+(quarterly|annual|q[1-4])\s+(results|earnings)\b/i },
+  { category: 'guidance', re: /\b(raises|cuts|lowers|updates|withdraws|reaffirms)\s+(guidance|outlook|forecast)\b/i },
+  { category: 'contract_partnership', re: /\b(awarded|wins|signs?)\b.*\b(contract|deal|agreement)\b/i },
+  { category: 'contract_partnership', re: /\bpartners?\s+with\b/i },
+  { category: 'contract_partnership', re: /\bstrikes?\s+(a\s+)?deal\b/i },
+  { category: 'regulatory_legal', re: /\b(fda|sec|doj|ftc)\b.*\b(approv|clear|investigat|charg|fil)/i },
+  { category: 'regulatory_legal', re: /\b(lawsuit|settlement|investigation|subpoena)\b/i },
+  { category: 'regulatory_legal', re: /\bfiles?\s+(a\s+)?(lawsuit|complaint)\b/i },
+  { category: 'ma_corporate', re: /\b(acquir(e|es|ed|ing|sition)|merger|buyout|to\s+be\s+acquired)\b/i },
+  { category: 'ma_corporate', re: /\bspin[\s-]?off\b/i },
+  { category: 'executive', re: /\b(names?|appoints?)\s+new\s+(ceo|cfo|coo|president)\b/i },
+  { category: 'executive', re: /\bceo\b.*\b(resigns?|steps?\s+down|departs?)\b/i },
+  { category: 'product_technology', re: /\bunveils?|\blaunches?\s+(new\s+)?(product|platform|service)\b/i },
+  { category: 'analyst_rating_change', re: /\b(upgrades?|downgrades?)\b.*\b(rating|price\s+target)\b/i },
+  { category: 'analyst_rating_change', re: /\b(raises?|cuts?)\s+price\s+target\b/i },
+  { category: 'recall', re: /\brecall(s|ed|ing)?\b/i },
+];
+
+const GENERIC_HEADLINE_PATTERNS = [
+  /^\d+\s+(top|best|hot|undervalued|overlooked|high-yield)\s+.*stocks?\b/i,
+  /\bstocks?\s+to\s+(buy|watch|sell|avoid)\b/i,
+  /^(is|should you buy|should you sell|why is)\b.*\bstock\b/i,
+  /\bbest\s+ideas?\s+list\b/i,
+  /\b(vs\.?|versus)\b.*\b(stock|which)\b/i,
+  /\bwhich\s+(stock|is)\s+(a\s+)?better\b/i,
+  /^here'?s\s+why\b/i,
+  /\breasons?\s+to\s+(buy|sell|avoid)\b/i,
+  /\bhigh-yield\s+dividend\s+stocks?\b/i,
+  /\betf\s+(was\s+)?(built|designed)\s+to\b/i,
+  /^\d+\s+stocks?\b.*\b(buy|hold|sell)\b/i,
+  /\bdividend\s+stocks?\s+(with|for)\b/i,
+];
+
+// Known low-signal syndication sources. Soft signal only — checked after
+// material patterns, and can still be overridden by a material match.
+const GENERIC_SOURCE_DOMAINS = [
+  'fool.com',
+  'zacks.com',
+  'insidermonkey.com',
+  '247wallst.com',
+  'simplywall.st',
+  'gurufocus.com',
+  'moneymorning.com',
+];
+
+function extractDomain(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Classifies a headline into { category, isGeneric }.
+ * A material-pattern match always wins (category set, isGeneric false),
+ * even over a generic-source domain. Otherwise, a generic headline pattern
+ * or a known low-signal domain flags isGeneric true. If nothing matches
+ * either way, the item passes through unflagged (category null, isGeneric
+ * false) — we only drop items we're fairly confident are noise.
+ */
+function classifyHeadline(title, link) {
+  for (const { category, re } of MATERIAL_PATTERNS) {
+    if (re.test(title)) {
+      return { category, isGeneric: false };
+    }
+  }
+
+  const domain = extractDomain(link);
+  const genericByPattern = GENERIC_HEADLINE_PATTERNS.some((re) => re.test(title));
+  const genericByDomain = GENERIC_SOURCE_DOMAINS.includes(domain);
+
+  return { category: null, isGeneric: genericByPattern || genericByDomain };
+}
+
 /**
  * Fetches the Yahoo Finance RSS feed for one ticker and returns items
  * published within the last MAX_AGE_MS milliseconds.
@@ -181,6 +270,7 @@ async function main() {
 
   const runDate  = todayISODate();
   const allItems = [];
+  let genericCount = 0;
 
   // Build one task per ticker, then drain with a concurrency cap
   const tasks = TICKERS.map(({ ticker, sector }) => async () => {
@@ -189,15 +279,20 @@ async function main() {
 
     for (const item of rssItems) {
       const publishedAt = item.pubDate ? new Date(item.pubDate) : null;
+      const cleanHeadline = item.title.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+      const { category, isGeneric } = classifyHeadline(cleanHeadline, item.link);
+      if (isGeneric) genericCount++;
       allItems.push({
         ticker,
         sector,
-        headline:  item.title.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim(),
+        headline:  cleanHeadline,
         summary:   '',            // no Claude call — summary left blank
         sentiment: 'neutral',     // neutral for all RSS-sourced items
         url:       item.link.trim(),
         run_date:  runDate,
         published_at: publishedAt && !isNaN(publishedAt.getTime()) ? publishedAt.toISOString() : null,
+        category,
+        is_generic: isGeneric,
       });
     }
   });
@@ -205,6 +300,7 @@ async function main() {
   await pLimit(tasks, CONCURRENCY);
 
   console.log(`[newswire] Total items to write: ${allItems.length}`);
+  console.log(`[newswire] Flagged ${genericCount} generic/listicle item(s) out of ${allItems.length}`);
 
   if (allItems.length === 0) {
     console.log('[newswire] No news in last 24h — nothing to write. Done.');

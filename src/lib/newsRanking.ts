@@ -10,6 +10,7 @@ export interface NewsStory {
   publishedAt: string;     // published_at ?? created_at, always resolved
   maxMarketCap: number;    // 0 if no price data available for any ticker
   maxAbsMovePercent: number;
+  category: string | null; // material-news category from ingestion classifier, null if uncategorized
 }
 
 export interface RankedFrontPage {
@@ -28,6 +29,7 @@ function dedupeByUrl(items: NewswireItem[], prices: Record<string, LivePrice>): 
 
   for (const item of items) {
     if (!item.url) continue;
+    if (item.is_generic) continue; // drop listicle/content-mill items entirely
     const publishedAt = item.published_at ?? item.created_at;
     const price = prices[item.ticker];
     const marketCap = price?.marketCap ?? 0;
@@ -39,6 +41,7 @@ function dedupeByUrl(items: NewswireItem[], prices: Record<string, LivePrice>): 
       if (!existing.sectors.includes(item.sector)) existing.sectors.push(item.sector);
       existing.maxMarketCap = Math.max(existing.maxMarketCap, marketCap);
       existing.maxAbsMovePercent = Math.max(existing.maxAbsMovePercent, absMove);
+      if (!existing.category && item.category) existing.category = item.category;
       // keep the earliest-seen headline/publishedAt for the group
       continue;
     }
@@ -52,6 +55,7 @@ function dedupeByUrl(items: NewswireItem[], prices: Record<string, LivePrice>): 
       publishedAt,
       maxMarketCap: marketCap,
       maxAbsMovePercent: absMove,
+      category: item.category,
     });
   }
 
@@ -70,7 +74,12 @@ export function rankFrontPage(
   const older = stories.filter((s) => new Date(s.publishedAt).getTime() < cutoff);
 
   const lead = [...recent]
-    .sort((a, b) => b.maxMarketCap - a.maxMarketCap)
+    .sort((a, b) => {
+      const aMaterial = a.category ? 1 : 0;
+      const bMaterial = b.category ? 1 : 0;
+      if (aMaterial !== bMaterial) return bMaterial - aMaterial;
+      return b.maxMarketCap - a.maxMarketCap;
+    })
     .slice(0, LEAD_COUNT);
   const leadUrls = new Set(lead.map((s) => s.url));
 
