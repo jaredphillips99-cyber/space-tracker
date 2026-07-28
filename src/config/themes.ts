@@ -32,6 +32,9 @@ export type SubTheme =
   | 'ai_compute_and_semis'
   | 'ai_power_and_cooling'
   | 'ai_applications'
+  | 'hyperscale_cloud'
+  | 'ai_networking_and_hardware'
+  | 'cybersecurity'
   // Defense
   | 'aerospace_defense_primes'
   | 'small_sat_and_isr'
@@ -59,6 +62,9 @@ export const SUBTHEME_DISPLAY: Record<SubTheme, { label: string; parent: Theme }
   ai_compute_and_semis:            { label: 'AI Compute & Semis',             parent: 'ai_infrastructure' },
   ai_power_and_cooling:            { label: 'AI Power & Cooling',             parent: 'ai_infrastructure' },
   ai_applications:                 { label: 'AI Applications & Platforms',    parent: 'ai_infrastructure' },
+  hyperscale_cloud:                { label: 'Hyperscale Cloud',               parent: 'ai_infrastructure' },
+  ai_networking_and_hardware:      { label: 'AI Networking & Hardware',       parent: 'ai_infrastructure' },
+  cybersecurity:                   { label: 'Cybersecurity',                  parent: 'ai_infrastructure' },
   // Defense
   aerospace_defense_primes:        { label: 'Aerospace & Defense Primes',     parent: 'defense' },
   small_sat_and_isr:               { label: 'Small-Sat & ISR',               parent: 'defense' },
@@ -107,6 +113,7 @@ export const TICKER_THEME_MAP: Record<string, { theme: Theme; subTheme: SubTheme
   SATS: { theme: 'space_economy', subTheme: 'satellite_and_earth_observation' },
   PL:   { theme: 'space_economy', subTheme: 'satellite_and_earth_observation' },
   BKSY: { theme: 'space_economy', subTheme: 'satellite_and_earth_observation' }, // crossover: defense (small_sat_and_isr)
+  SPCX: { theme: 'space_economy', subTheme: 'launch_and_space_systems' }, // crossover: ai_infrastructure via xAI/Colossus
 
   // ── AI infrastructure ──
   NVDA: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
@@ -118,6 +125,25 @@ export const TICKER_THEME_MAP: Record<string, { theme: Theme; subTheme: SubTheme
   VRT:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
   MOD:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
   PLTR: { theme: 'ai_infrastructure', subTheme: 'ai_applications' },
+  MSFT: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
+  GOOGL:{ theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
+  AMZN: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
+  META: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
+  ANET: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
+  MU:   { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
+  SMCI: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
+  AVGO: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
+  INTC: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
+  DELL: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
+  PWR:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' }, // crossover: clean_energy_nuclear grid work
+  ETN:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
+  EQIX: { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
+  GNRC: { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
+  CRWD: { theme: 'ai_infrastructure', subTheme: 'cybersecurity' },
+  PANW: { theme: 'ai_infrastructure', subTheme: 'cybersecurity' },
+  NET:  { theme: 'ai_infrastructure', subTheme: 'cybersecurity' },
+  ZS:   { theme: 'ai_infrastructure', subTheme: 'cybersecurity' },
+  FTNT: { theme: 'ai_infrastructure', subTheme: 'cybersecurity' },
 
   // ── Defense ──
   LHX:  { theme: 'defense', subTheme: 'aerospace_defense_primes' },

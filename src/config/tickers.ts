@@ -75,6 +75,14 @@ export const TICKERS: TickerConfig[] = [
     fiscalYearEnd: 'December',
     specialNotes: 'Drone and hypersonics programs; HASTE competitor to RKLB',
   },
+  {
+    ticker: 'SPCX',
+    name: 'SpaceX (Space Exploration Technologies)',
+    sectors: ['space', 'ai_infrastructure'],
+    description: 'Reusable rockets, Starship, and Starlink satellite broadband',
+    fiscalYearEnd: 'December',
+    specialNotes: "IPO'd on Nasdaq June 2026. Acquired xAI (Grok) in early 2026, adding a gigawatt-scale AI data center business (Colossus) — the source of the ai_infrastructure crossover tag.",
+  },
 
   // ── AI Infrastructure (9) ─────────────────────────────────────────────────
   {
@@ -240,6 +248,147 @@ export const TICKERS: TickerConfig[] = [
     sectors: ['defense'],
     description: 'Small UAS and Switchblade loitering munition; proven combat use in Ukraine',
     fiscalYearEnd: 'April',
+  },
+
+  // ── AI Infrastructure: Hyperscalers (4) ──────────────────────────────────
+  {
+    ticker: 'MSFT',
+    name: 'Microsoft',
+    sectors: ['ai_infrastructure'],
+    description: 'Azure hyperscaler; largest OpenAI infrastructure partner and backer',
+    fiscalYearEnd: 'June',
+  },
+  {
+    ticker: 'GOOGL',
+    name: 'Alphabet',
+    sectors: ['ai_infrastructure'],
+    description: 'Google Cloud hyperscaler; custom TPU silicon and Gemini models',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'AMZN',
+    name: 'Amazon',
+    sectors: ['ai_infrastructure'],
+    description: 'AWS hyperscaler; Trainium/Inferentia custom AI chips, Anthropic partnership',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'META',
+    name: 'Meta Platforms',
+    sectors: ['ai_infrastructure'],
+    description: 'Self-build AI infrastructure at hyperscale; Llama models, massive GPU capex',
+    fiscalYearEnd: 'December',
+  },
+
+  // ── AI Infrastructure: Compute, Networking & Hardware (6) ─────────────────
+  {
+    ticker: 'ANET',
+    name: 'Arista Networks',
+    sectors: ['ai_infrastructure'],
+    description: 'High-speed networking switches for AI data center clusters',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'MU',
+    name: 'Micron Technology',
+    sectors: ['ai_infrastructure'],
+    description: 'HBM and DRAM memory supplier for AI accelerators',
+    fiscalYearEnd: 'August',
+  },
+  {
+    ticker: 'SMCI',
+    name: 'Super Micro Computer',
+    sectors: ['ai_infrastructure'],
+    description: 'AI server and rack integration; Nvidia reference-design manufacturer',
+    fiscalYearEnd: 'June',
+  },
+  {
+    ticker: 'AVGO',
+    name: 'Broadcom',
+    sectors: ['ai_infrastructure'],
+    description: 'Custom AI ASICs (Google TPU, Meta MTIA) and networking silicon',
+    fiscalYearEnd: 'October',
+  },
+  {
+    ticker: 'INTC',
+    name: 'Intel',
+    sectors: ['ai_infrastructure'],
+    description: 'x86 CPUs and Gaudi AI accelerators; 18A foundry buildout',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'DELL',
+    name: 'Dell Technologies',
+    sectors: ['ai_infrastructure'],
+    description: 'AI server and infrastructure integrator with a large enterprise AI backlog',
+    fiscalYearEnd: 'January',
+  },
+
+  // ── AI Infrastructure: Power & Buildout (4) ──────────────────────────────
+  {
+    ticker: 'PWR',
+    name: 'Quanta Services',
+    sectors: ['ai_infrastructure', 'clean_energy'],
+    description: 'Electrical grid and power infrastructure construction for data centers and utilities',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'ETN',
+    name: 'Eaton Corporation',
+    sectors: ['ai_infrastructure'],
+    description: 'Electrical power management and distribution equipment for data centers',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'EQIX',
+    name: 'Equinix',
+    sectors: ['ai_infrastructure'],
+    description: 'Data center colocation and interconnection REIT; direct AI infrastructure landlord',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'GNRC',
+    name: 'Generac Holdings',
+    sectors: ['ai_infrastructure'],
+    description: 'Backup power generators and energy systems for data center resilience',
+    fiscalYearEnd: 'December',
+  },
+
+  // ── Cyber (5) ─────────────────────────────────────────────────────────────
+  {
+    ticker: 'CRWD',
+    name: 'CrowdStrike',
+    sectors: ['cyber'],
+    description: 'Cloud-native endpoint detection and response; Falcon platform',
+    fiscalYearEnd: 'January',
+  },
+  {
+    ticker: 'PANW',
+    name: 'Palo Alto Networks',
+    sectors: ['cyber'],
+    description: 'Network security platform; increasingly AI-driven SOC tooling',
+    fiscalYearEnd: 'July',
+  },
+  {
+    ticker: 'NET',
+    name: 'Cloudflare',
+    sectors: ['cyber'],
+    description: 'Edge network security and performance; growing AI inference/edge compute business',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'ZS',
+    name: 'Zscaler',
+    sectors: ['cyber'],
+    description: 'Cloud-native zero trust security platform',
+    fiscalYearEnd: 'July',
+  },
+  {
+    ticker: 'FTNT',
+    name: 'Fortinet',
+    sectors: ['cyber'],
+    description: 'Network security hardware and software; SASE and firewall appliances',
+    fiscalYearEnd: 'December',
   },
 ];
 

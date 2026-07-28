@@ -1,12 +1,14 @@
 # Space Tracker — Claude Project Instructions
 
 ## What This Is
-A 31-stock investment analysis dashboard for tracking the space economy,
-AI infrastructure, defense, and clean energy/nuclear sectors. Personal
-research tool built in React + Vite + Tailwind, deployed on Vercel.
+A curated-universe investment analysis dashboard for tracking the space
+economy, AI infrastructure, defense, clean energy/nuclear, and cyber sectors.
+Personal research tool built in React + Vite + Tailwind, deployed on Vercel.
+(The ticker count is not a fixed number — the universe grows; refer to the
+"tracked universe" rather than a hard-coded count.)
 
-The goal is a two-zone dashboard: a live price watchlist for all 31 stocks
-at a glance, and a sidebar showing what's new/stale. Clicking any stock
+The goal is a two-zone dashboard: a live price watchlist for the full tracked
+universe at a glance, and a sidebar showing what's new/stale. Clicking any stock
 opens a deep dive with AI-generated earnings analysis — a snapshot of key
 numbers, a What Happened summary, Bull Case, Bear Case, and Key Catalysts
 extracted from the most recent SEC filing.
@@ -142,7 +144,7 @@ along their AI pivot actually is vs. peers like IREN.
 ## Current Status (Stage 1) — as of May 28 2026
 
 ### Working and Deployed
-- Live price watchlist: all 31 stocks, real Yahoo Finance prices
+- Live price watchlist: the full tracked universe, real Yahoo Finance prices
 - Sector filter pills: ALL / SPACE / AI INFRA / DEFENSE / CLEAN ENERGY
 - Default sort: 1D% change descending
 - 52-week range bar on every row

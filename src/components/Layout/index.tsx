@@ -15,7 +15,7 @@ const NAV_LINKS = [
 ];
 
 // lng_export intentionally excluded
-const SECTORS: Sector[] = ['space', 'ai_infrastructure', 'defense', 'clean_energy'];
+const SECTORS: Sector[] = ['space', 'ai_infrastructure', 'defense', 'clean_energy', 'cyber'];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location        = useLocation();

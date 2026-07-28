@@ -1,12 +1,13 @@
 // ─── Sectors ─────────────────────────────────────────────────────────────────
 
-export type Sector = 'space' | 'ai_infrastructure' | 'defense' | 'clean_energy';
+export type Sector = 'space' | 'ai_infrastructure' | 'defense' | 'clean_energy' | 'cyber';
 
 export const SECTOR_LABELS: Record<Sector, string> = {
   space: 'Space',
   ai_infrastructure: 'AI Infra',
   defense: 'Defense',
   clean_energy: 'Clean Energy',
+  cyber: 'Cyber',
 };
 
 export const SECTOR_COLORS: Record<Sector, string> = {
@@ -14,6 +15,7 @@ export const SECTOR_COLORS: Record<Sector, string> = {
   ai_infrastructure: '#a259ff',
   defense: '#f97316',
   clean_energy: '#00e676',
+  cyber: '#ff4b6e',
 };
 
 // ─── Ticker Config ────────────────────────────────────────────────────────────

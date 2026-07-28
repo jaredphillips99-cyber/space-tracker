@@ -1,9 +1,11 @@
 # InvestAI — CLAUDE.md
 
 ## What This Project Is
-A 31-stock investment analysis dashboard tracking four sectors: space economy,
-AI infrastructure, defense, and clean energy/nuclear. Built in React + Vite +
-Tailwind, deployed on Vercel. Personal research tool, eventually semi-public.
+A curated-universe investment analysis dashboard tracking five sectors: space
+economy, AI infrastructure, defense, clean energy/nuclear, and cyber. Built in
+React + Vite + Tailwind, deployed on Vercel. Personal research tool, eventually
+semi-public. (Ticker count is intentionally not treated as a fixed number in
+prose — the universe grows; say "tracked universe," not a hard-coded count.)
 
 ## Site Name
 InvestAI — displayed in the header as INVEST (cyan #00c8ff) + AI (white #e2e4ef)
@@ -43,7 +45,7 @@ diagnosed.)
 
 ### Page 1: Dashboard (/)
 Two zones:
-1. Price Table: all 31 stocks, sortable, scannable. Default sort: 1D% change
+1. Price Table: the full tracked universe, sortable, scannable. Default sort: 1D% change
    descending. Sector filter pills in sub-header (ALL / SPACE / AI INFRA /
    DEFENSE / CLEAN ENERGY). Pills only render on the Dashboard route — they
    disappear when on the Portfolio page.
@@ -273,7 +275,7 @@ VITE_SUPABASE_ANON_KEY  → Vercel dashboard → Settings → Environment Variab
 
 ## Key File Locations
 src/types/index.ts                             canonical data schema + SECTOR_COLORS
-src/config/tickers.ts                          31-stock universe, sector assignments
+src/config/tickers.ts                          tracked universe, sector assignments
 src/config/gics.ts                             GICS two-tier taxonomy + classifyTicker()
 src/store/useStore.ts                          Zustand store, all global state
 src/App.tsx                                    router — routes: / · /stock/:ticker · /portfolio · /admin
@@ -333,7 +335,7 @@ interface PortfolioPosition {
   // currentValue, unrealizedGainPct, portfolioWeightPct
 }
 
-Tickers outside the 31-stock universe get an "EXT" badge.
+Tickers outside the tracked universe get an "EXT" badge.
 
 ### Privacy Rules — Hard (do not relax)
 Never send dollar amounts, share counts, or cost basis to the API.
@@ -675,264 +677,6 @@ use the real paths from the session.
 ---
 
 ## Session Log
-
-### July 17, 2026 — Net Worth AI Analysis (two-tier) — spec'd via Claude Code prompt
-
-**Project state check:** Pulled the latest project export
-(`space-tracker-2026-07-17T18-00-37.zip`) and confirmed the Needs Attention
-sidebar and full Net Worth tab (including credit card liabilities) are
-already built and routed — both were still marked "not yet executed" in
-this file as of the July 16 entries. Corrected those entries above. Two
-unresolved items surfaced during the review, not yet addressed:
- unresolved items surfaced during the review, not yet addressed:
-  - `api/edgar.ts` (611 lines) exists alongside the documented
-    `api/edgar-proxy.ts` (51 lines). Confirmed July 21: grepped the full
-    frontend and every file in api/ — nothing imports or references
-    edgar.ts anywhere. It's dead code, not a live alternate path. Should
-    be deleted; safe to do so.
-
-**New: Net Worth AI Analysis, two tiers**
-  Extends the Net Worth tab (currently aggregation-only, no AI) with an
-  analysis card following the same MarkdownCard pattern as Portfolio's
-  Macro Risk card.
-  - **Tier 1 — Balance Sheet Health:** runs from account data alone (no new
-    inputs). Sections: Balance Sheet Health, Debt Priority (APR-avalanche
-    payoff ordering across credit_card accounts), Concentration & Liquidity,
-    Watch Items.
-  - **Tier 2 — Financial Plan:** unlocked by an optional, collapsed-by-
-    default "Financial profile" panel (monthly income, monthly savings
-    target, an optional goal label/date/amount). Adds Savings Rate, Debt
-    Payoff Timeline, and Runway & Trajectory sections, with an explicit
-    "not financial advice" disclaimer appended. Tier selection is computed
-    server-side from which fields are actually populated — never trusts a
-    client-sent tier flag.
-  - New request type `"networth_analysis"` on the existing `/api/portfolio.ts`
-    endpoint, sharing its 20-calls/hour rate limit bucket (not a new one).
-    max_tokens: 900 (Tier 1) / 1400 (Tier 2).
-
-**Deliberate privacy exception — Net Worth only**
-  Unlike the Portfolio tab's hard percentage-only rule, the user explicitly
-  approved sending real dollar figures (balances, APRs, income, savings
-  targets) to the API for this feature, since the Net Worth tab is
-  already admin-gated and not built for sharing. This exception is scoped
-  to `networth_analysis` only and must not be carried back into any
-  Portfolio prompt-building code. Documented inline in `api/portfolio.ts`
-  and in the "Privacy Rules — Hard" section above.
-
-**Estimated token cost:** ~$0.014/call (Tier 1, ~1,250 input + ~675 output
-tokens) and ~$0.020/call (Tier 2, ~1,300 input + ~1,050 output tokens) at
-claude-sonnet-4-6 rates ($3/M input, $15/M output). Trivial at personal-use
-volumes — output-dominated cost, consistent with the other request types
-on this endpoint.
-
-**Data layer:** New `user_financial_profile` table (user_id, monthly_income,
-monthly_savings_target, goal_label, goal_target_date, goal_target_amount,
-updated_at — all nullable except user_id), RLS-scoped to auth.uid(). SQL
-migration handed to the user directly (not run by Claude Code) as
-`supabase_migration_financial_profile.sql` — run manually in Supabase SQL
-Editor before deploying. `useFinancialProfile.ts` should treat a missing
-table/column as a `syncError`, not a crash, since Claude Code implements
-the app code without running the migration itself.
-
-**Status:** Claude Code prompt written and handed off, not yet executed.
-Next session: confirm the Supabase migration was run → run the Claude Code
-prompt → `npx tsc --noEmit` → verify Tier 1 works with zero profile fields
-set and Tier 2 only activates with income/savings actually populated →
-confirm no dollar figures leaked into any other portfolio.ts request type
-→ deploy. Also worth using this session to resolve the two stray-file
-issues noted above before they cause a second silent-drop bug.
-
-**Files to be created/modified (not yet touched):**
-  src/hooks/useFinancialProfile.ts (new) ·
-  src/components/networth/NetWorthTab.tsx (modified — profile panel + analysis card) ·
-  api/portfolio.ts (modified — new request type, buildNetWorthPrompt())
-
----
-### July 19, 2026 — Onboarding modal · purchase merging · $ prefixes · dark/light theme
-
-**New: First-visit onboarding modal**
-  src/components/Onboarding/OnboardingModal.tsx — fires once, gated by
-  localStorage `investai_onboarded_v1` (set on any dismiss: ×, backdrop, or
-  "Got it"). One card per tab (Dashboard / Portfolio / Net Worth) with copy
-  drawn from this file's tab specs, accent-colored left borders (cyan/violet/
-  green). Re-openable anytime via a new "?" icon button in the top nav.
-
-**New: Add purchase to existing position (PortfolioTab)**
-  The add-position row now detects when the entered ticker is already held:
-  relabels to "Add purchase to existing {TICKER} position", shows current
-  shares + avg cost as read-only context, and merges on submit into the SAME
-  row via weighted average:
-    totalShares = oldShares + newShares
-    newAvgCost = (oldShares*oldAvg + newShares*newCost) / totalShares
-  No duplicate rows possible; the old "{TICKER} is already added" error is
-  gone. Inline click-to-edit Shares/Avg Price columns unchanged — this is an
-  additional entry path. Data stays in sessionStorage; no schema change.
-
-**New: $ prefix on cost-basis inputs**
-  Avg Price inline editor (EditableNumberCell edit mode) and the add/purchase
-  cost input now render `$` as a sibling span outside the input — same
-  pattern as the % in SectorTargetsPanel, so it can't be clipped. Shares
-  inputs stay plain so shares vs dollars are unambiguous side by side.
-
-**New: Dark/light theme toggle**
-  Core palette converted to CSS custom properties in src/index.css: `:root`
-  holds dark defaults, `html.light` holds light overrides (--bg-base,
-  --bg-surface, --bg-elevated, --bg-panel, --bg-inset, --border,
-  --border-muted/-strong/-panel/-faint, --text-primary/-body/-secondary/
-  -tertiary/-muted/-dim, --overlay). A codemod replaced ~531 hardcoded hex
-  occurrences across all src/*.tsx with these vars — near-duplicate shades
-  (#e2e4ef/#e2e6f0, #1e2030/#1e2230, #8b8fa8/#8b93a8, etc.) were collapsed
-  into single tokens. Sun/moon toggle in the top nav next to the "?" button;
-  choice persists in localStorage `investai_theme`, defaults to dark; an
-  inline script in index.html applies the class pre-paint (no flash).
-
-  Deliberately NOT themed: accent colors (green/red/yellow, sector colors,
-  conviction/guidance badges) — same hex both modes; dark text (#08090d) on
-  bright accent buttons (cyan Run Analysis, green $ CASH, violet Save) —
-  correct contrast in both themes; semi-transparent grays (#8b93a866 etc.);
-  accent hexes inside .ts config files (SECTOR_COLORS, ACCOUNT_TYPES) which
-  are alpha-suffixed at runtime via template literals.
-
-**Verification:** `npx tsc --noEmit` and `npm run build` pass. Privacy rule
-re-checked: all six /api/portfolio call sites still send only ticker /
-sector / subSector / weightPct / gainPct / inUniverse / keyMetrics — the new
-purchase-merge flow writes to sessionStorage only, nothing new in any
-request body.
-
-**Files created:** src/components/Onboarding/OnboardingModal.tsx ·
-  src/hooks/useTheme.ts
-**Files modified:** index.html · src/index.css · CLAUDE.md ·
-  src/components/Layout/index.tsx · src/components/compare/PortfolioTab.tsx ·
-  plus theme-var conversion across: AuthGate, ConvictionBadge, ErrorBoundary,
-  PortfolioAuthGate, PriceTable, SidePanel, StockCard, StockDetail,
-  SectorTargetsPanel, networth/* (AddAccountPanel, NetWorthAuthGate,
-  NetWorthTab), pages/* (Dashboard, NetWorth, Portfolio)
-
----
-
-### July 20, 2026 — Preferences persistence race fix · sync diagnostics · Portfolio cash in Net Worth
-
-**Bug fixed: Portfolio preferences not reliably loading/persisting (frontend
-auth race — NOT an RLS/migration/DB issue)**
-  Confirmed via direct Supabase inspection that `user_preferences` has all
-  required columns, writes succeed, and SELECT/UPDATE/INSERT RLS policies all
-  correctly scope to `auth.uid() = user_id` — reads/writes were never blocked.
-  Root cause was two uncoordinated auth checks: `src/pages/Portfolio.tsx` ran
-  its own `supabase.auth.getSession()` to gate rendering, while
-  `usePortfolioSync.ts` ran a separate `getSession()` to resolve its userId.
-  PortfolioTab could mount and seed from sessionStorage/defaults before the
-  sync hook's own auth check resolved — timing-dependent, hence the
-  "sometimes it saves, sometimes it doesn't" behavior.
-  Fix: `usePortfolioSync` is now the single source of truth for auth
-  resolution — it exports a new `authResolved: boolean` (true once its
-  internal getSession completes, regardless of whether a session exists).
-  Portfolio.tsx no longer calls getSession itself; it derives authStatus
-  ('loading'/'authenticated'/'anonymous'/'gate') from the hook's
-  `authResolved` + `isAuthenticated`. Gate/anonymous behavior
-  (sessionStorage 'portfolio_gate_dismissed' fallback) preserved exactly;
-  anonymous users still fall back to sessionStorage unchanged. PortfolioTab's
-  seed effect (`if (!isAuthenticated || syncSeeded.current) return; if
-  (syncedPositions === null) return;`) was already correct — it was only ever
-  being fed an unreliable isAuthenticated value.
-
-**New: permanent sync diagnostics**
-  Added `console.info` logging in usePortfolioSync's load() after both the
-  positions and preferences selects (`[portfolio-sync] positions/prefs load
-  result:` with userId/count/found/prefRow). Permanent — makes any future
-  load issue diagnosable from devtools alone.
-
-**New: Portfolio "Cash available" now feeds Net Worth total**
-  `useLinkedPortfolioValue()` in NetWorthTab now also surfaces
-  `savedCashAmount` from usePortfolioSync (already persisted in
-  `user_preferences.cash_amount`). A synthetic, read-only account row
-  (kind `'portfolio_cash_link'`, label "Cash (Portfolio)", teal #06b6d4)
-  is injected right after the holdings_link row — parallel to how
-  holdings_link is handled: not editable from Net Worth, its own colored
-  segment in the composition bar, included in the total, and skipped entirely
-  when cash is 0/null. Inline "edit on portfolio →" link + tooltip clarify
-  the sync source. NOT deduped against any manual 'cash' account by design —
-  both show if present; reconciling is the user's call. Only surfaced for
-  authenticated users (anonymous portfolio cash lives in sessionStorage and
-  isn't read here). `AccountKind` union gained `'portfolio_cash_link'` (a
-  render-only kind, never persisted) so KIND_DISPLAY type-checks; ADDABLE_KINDS
-  in AddAccountPanel is unchanged so it's never user-addable.
-
-**Optional RLS dedupe migration — handed off, NOT run by Claude Code**
-  `supabase_migration_dedupe_preferences_policies.sql` (idempotent) drops the
-  older duplicate `user_preferences` policy set (verbose "Users can …" names)
-  and keeps one concise SELECT/UPDATE/INSERT each. Pure cleanup — access is
-  unchanged. Run manually in the Supabase SQL Editor.
-
-**Verification:** `npx tsc --noEmit` and `npm run build` pass. No behavior
-change for anonymous Portfolio users (still sessionStorage). Net Worth total
-includes Portfolio cash without double-counting a manual cash account (they're
-intentionally separate rows). Cash-available debounce + visibilitychange/
-pagehide flush in usePortfolioSync untouched.
-
-**Files modified:** src/hooks/usePortfolioSync.ts · src/pages/Portfolio.tsx ·
-  src/hooks/useNetWorthSync.ts · src/components/networth/kindDisplay.ts ·
-  src/components/networth/NetWorthTab.tsx · CLAUDE.md
-**Files created (handed off):** supabase_migration_dedupe_preferences_policies.sql
-
-### July 21, 2026 — Portfolio Sync Regression: Introduced, Diagnosed, Reverted
-
-**What happened:** Session started to fix two reported bugs — Net Worth's
-cash figure auto-pulling from Portfolio with no way to zero it out, and
-investor preferences (account type, sector targets, cash, risk profile)
-resetting when navigating away from the Portfolio tab and back.
-
-**Cash decoupling — implemented, then reverted as collateral:**
-Removed the synthetic, read-only "Cash (Portfolio)" row that NetWorthTab
-auto-injected from Portfolio's cash_amount on every render, plus the
-`portfolio_cash_link` account kind. Net Worth cash was meant to become a
-normal, independently editable `cash` account (already supported by
-AddAccountPanel). This part worked correctly but got bundled into the same
-file changes as the regression below and was reverted along with it —
-**still needs to be redone**, carefully, on its own.
-
-**Preferences fix — regressed the app, root-caused, reverted:**
-Misdiagnosed the preferences bug as a sequential-`await` race in
-`usePortfolioSync`'s load() (positions resolving before preferences), and
-changed PortfolioTab's seed effect to gate on `syncLoading` instead of
-`syncedPositions === null`. This was a mistake: it hadn't been confirmed
-against the live app first, and it coupled `syncSeeded.current` (shared by
-both the seed effect AND the positions-save effect) to preferences loading
-— so positions stopped saving too. The actual preferences bug had **already
-been correctly fixed** in the July 20 session ("Improving site onboarding
-and portfolio management") via the `authResolved` single-source-of-truth
-fix in `usePortfolioSync`/`Portfolio.tsx` — that seed-effect gate had been
-explicitly reviewed and confirmed fine at the time. This session's change
-overrode working logic without re-verifying the bug still existed.
-
-Compounded the mistake by layering a Context Provider (hoisting
-`usePortfolioSync` to mount once at the app root instead of per-page) and
-optimistic local-state updates on top of the unverified first change,
-before confirming root cause. Architecturally reasonable ideas, wrong time
-to introduce them.
-
-**Resolution:** Reverted all 7 touched files (`PortfolioTab.tsx`,
-`NetWorthTab.tsx`, `useNetWorthSync.ts`, `kindDisplay.ts`,
-`usePortfolioSync.ts`, `App.tsx`, `Portfolio.tsx`) to their exact
-pre-session state from a clean project zip, and deleted the new
-`PortfolioSyncContext.tsx` file entirely. App is back to the known-good
-July 20 state.
-
-**Still open / not addressed this session:**
-- The Net Worth cash decoupling fix (see above) — redo on top of the
-  restored baseline, in isolation.
-- A `portfolio:1` 404 seen in console during debugging — cause never
-  identified, may be unrelated to the sync bugs above.
-- Testing occurred against `portfolio-analysis-six.vercel.app`, which does
-  NOT match the documented canonical production URL
-  (`stock-tracker-five-tau.vercel.app`). Never confirmed whether these are
-  the same Vercel project under different aliases or genuinely different
-  deployments — worth resolving before further debugging, since testing
-  against a stale/different deployment would produce misleading symptoms.
-
-**Lesson:** Before changing sync/timing-sensitive logic that a prior
-session already fixed and confirmed, re-verify the bug still reproduces on
-the current deployed build first — don't re-diagnose from theory alone,
-and don't layer further architecture changes on an unverified fix.
 ---
 
 ### July 22, 2026 — Thematic Framework panel + web-search-grounded cash deploy & macro risk
@@ -1329,3 +1073,58 @@ new cron writes to carry `category` / `is_generic`.
 **Verification:** `npx tsc --noEmit` and `npm run build` pass.
 
 **Files modified:** scripts/newswire.mjs · src/lib/newsRanking.ts · CLAUDE.md
+
+---
+
+### July 28, 2026 (patch 2) — Universe expansion 31 → 50 + new Cyber dashboard pill
+
+**What:** added 19 tickers and a 5th dashboard sector pill, CYBER. All three
+classification taxonomies were updated in sync (kept deliberately separate — do
+NOT conflate): the dashboard `Sector` type/pills, the portfolio GICS
+`UNIVERSE_SECTOR_MAP`, and the thematic `TICKER_THEME_MAP`.
+
+**New tickers (19):**
+  - Space (+1): SPCX (SpaceX — IPO'd Nasdaq June 2026; `space` primary,
+    `ai_infrastructure` crossover via the early-2026 xAI/Colossus acquisition).
+  - AI-infra hyperscalers (4): MSFT, GOOGL, AMZN, META.
+  - AI-infra compute/networking/hardware (6): ANET, MU, SMCI, AVGO, INTC, DELL.
+  - AI-infra power & buildout (4): PWR (crossover `clean_energy`), ETN, EQIX, GNRC.
+  - Cyber (5): CRWD, PANW, NET, ZS, FTNT — the only names on the new `cyber` pill.
+
+**Dashboard pill layer (`src/types/index.ts` + Layout):** `Sector` gained
+`'cyber'`; SECTOR_LABELS/SECTOR_COLORS gained a Cyber entry reusing the existing
+red/pink accent `#ff4b6e` (no new hex). Layout's `SECTORS` array appended
+`'cyber'` — the pill loop is generic, no other Layout change.
+
+**GICS (`src/config/gics.ts`):** 19 entries added to `UNIVERSE_SECTOR_MAP` —
+promotions of tags already present in the `KNOWN_TICKERS` fallback (only SPCX and
+GNRC genuinely new). No `SubSector`/`SECTOR_DISPLAY` changes — every subSector
+used already existed. Header comment de-counted ("31-stock" → "Tracked universe").
+
+**Themes (`src/config/themes.ts`):** cyber + hyperscaler names stay under the
+existing `ai_infrastructure` THEME (NOT a 5th theme — the 5th category is a
+dashboard-pill concept only). Three new sub-themes added: `hyperscale_cloud`,
+`ai_networking_and_hardware`, `cybersecurity` (union + SUBTHEME_DISPLAY). 19 new
+`TICKER_THEME_MAP` entries + SPCX under space_economy.
+
+**Count de-hardcoding (per Jared):** stopped treating the universe size as a
+fixed number in prose. Replaced verbatim "31-stock"/"31 stocks" current-state
+references in CLAUDE.md and PROJECT_INSTRUCTIONS.md with "tracked universe"
+phrasing, and updated the two `api/portfolio.ts` prompt strings ("tracked
+31-stock universe" → "tracked universe") so the model isn't told a stale count.
+Historical session-log entries were left as-is (they record what was true then).
+`api/edgar.ts`'s stale "31 stocks" comment left untouched — it's confirmed dead
+code slated for deletion.
+
+**No API/EDGAR changes:** analyze.ts / portfolio.ts / prices.ts are
+ticker-agnostic; all 19 names are normal domestic 10-K/10-Q/8-K filers (SPCX
+included — a US domestic issuer, not a foreign private issuer), so no EDGAR
+special-casing.
+
+**Privacy:** untouched — no dollar/share data involved anywhere in this change.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` both pass.
+
+**Files modified:** src/types/index.ts · src/components/Layout/index.tsx ·
+  src/config/tickers.ts · src/config/gics.ts · src/config/themes.ts ·
+  api/portfolio.ts · CLAUDE.md · PROJECT_INSTRUCTIONS.md

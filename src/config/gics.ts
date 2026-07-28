@@ -229,7 +229,7 @@ export const SUBSECTOR_DISPLAY: Record<SubSector, { label: string; parent: TopLe
   multi_utilities:         { label: 'Multi-Utilities',               parent: 'utilities' },
 };
 
-// ─── 31-stock universe mapping (authoritative) ────────────────────────────────
+// ─── Tracked universe mapping (authoritative) ─────────────────────────────────
 
 export const UNIVERSE_SECTOR_MAP: Record<string, SectorTag> = {
   RKLB: { sector: 'industrials',            subSector: 'space_launch' },
@@ -262,6 +262,26 @@ export const UNIVERSE_SECTOR_MAP: Record<string, SectorTag> = {
   NXE:  { sector: 'energy',                 subSector: 'uranium_mining' },
   OKLO: { sector: 'energy',                 subSector: 'advanced_reactors' },
   NNE:  { sector: 'energy',                 subSector: 'advanced_reactors' },
+  SPCX: { sector: 'industrials',            subSector: 'space_launch' },
+  MSFT: { sector: 'information_technology', subSector: 'software' },
+  GOOGL:{ sector: 'communication_services', subSector: 'interactive_media' },
+  AMZN: { sector: 'consumer_discretionary', subSector: 'ecommerce' },
+  META: { sector: 'communication_services', subSector: 'interactive_media' },
+  ANET: { sector: 'information_technology', subSector: 'it_services' },
+  MU:   { sector: 'information_technology', subSector: 'semiconductors' },
+  SMCI: { sector: 'information_technology', subSector: 'hardware' },
+  AVGO: { sector: 'information_technology', subSector: 'semiconductors' },
+  INTC: { sector: 'information_technology', subSector: 'semiconductors' },
+  DELL: { sector: 'information_technology', subSector: 'hardware' },
+  PWR:  { sector: 'industrials',            subSector: 'construction_engineering' },
+  ETN:  { sector: 'industrials',            subSector: 'electrical_equipment' },
+  EQIX: { sector: 'real_estate',            subSector: 'data_center_reits' },
+  GNRC: { sector: 'industrials',            subSector: 'electrical_equipment' },
+  CRWD: { sector: 'information_technology', subSector: 'software' },
+  PANW: { sector: 'information_technology', subSector: 'software' },
+  NET:  { sector: 'information_technology', subSector: 'software' },
+  ZS:   { sector: 'information_technology', subSector: 'software' },
+  FTNT: { sector: 'information_technology', subSector: 'software' },
 };
 
 // ─── Extended known-ticker database (~800 tickers) ────────────────────────────
