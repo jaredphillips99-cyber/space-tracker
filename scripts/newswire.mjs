@@ -2,7 +2,7 @@
  * scripts/newswire.mjs
  *
  * Daily morning newswire for InvestAI.
- * Fetches Yahoo Finance RSS headlines for each of the 31 tickers,
+ * Fetches Yahoo Finance RSS headlines for each tracked ticker,
  * filters to the last 24 hours, and writes results to Supabase.
  *
  * Zero Claude API calls. Zero cost beyond Supabase writes.
@@ -50,6 +50,32 @@ const TICKERS = [
   // Defense
   { ticker: 'LHX',  sector: 'defense' },
   { ticker: 'AVAV', sector: 'defense' },
+
+  // Space (added in 31→50 expansion)
+  { ticker: 'SPCX', sector: 'space' },
+
+  // AI Infrastructure (added in 31→50 expansion)
+  { ticker: 'MSFT', sector: 'ai_infrastructure' },
+  { ticker: 'GOOGL', sector: 'ai_infrastructure' },
+  { ticker: 'AMZN', sector: 'ai_infrastructure' },
+  { ticker: 'META', sector: 'ai_infrastructure' },
+  { ticker: 'ANET', sector: 'ai_infrastructure' },
+  { ticker: 'MU', sector: 'ai_infrastructure' },
+  { ticker: 'SMCI', sector: 'ai_infrastructure' },
+  { ticker: 'AVGO', sector: 'ai_infrastructure' },
+  { ticker: 'INTC', sector: 'ai_infrastructure' },
+  { ticker: 'DELL', sector: 'ai_infrastructure' },
+  { ticker: 'PWR', sector: 'ai_infrastructure' },
+  { ticker: 'ETN', sector: 'ai_infrastructure' },
+  { ticker: 'EQIX', sector: 'ai_infrastructure' },
+  { ticker: 'GNRC', sector: 'ai_infrastructure' },
+
+  // Cyber (added in 31→50 expansion)
+  { ticker: 'CRWD', sector: 'cyber' },
+  { ticker: 'PANW', sector: 'cyber' },
+  { ticker: 'NET', sector: 'cyber' },
+  { ticker: 'ZS', sector: 'cyber' },
+  { ticker: 'FTNT', sector: 'cyber' },
 ];
 
 // Fetch concurrently but cap parallelism to avoid overwhelming Yahoo
@@ -206,6 +232,26 @@ const COMPANY_ALIASES = {
   NNE:  ['nano nuclear'],
   LHX:  ['l3harris'],
   AVAV: ['aerovironment'],
+  SPCX: ['spacex', 'space exploration technologies'],
+  MSFT: ['microsoft'],
+  GOOGL: ['alphabet', 'google'],
+  AMZN: ['amazon'],
+  META: ['meta platforms', 'facebook'],
+  ANET: ['arista networks', 'arista'],
+  MU:   ['micron'],
+  SMCI: ['super micro', 'supermicro'],
+  AVGO: ['broadcom'],
+  INTC: ['intel'],
+  DELL: ['dell technologies', 'dell'],
+  PWR:  ['quanta services', 'quanta'],
+  ETN:  ['eaton corporation', 'eaton'],
+  EQIX: ['equinix'],
+  GNRC: ['generac'],
+  CRWD: ['crowdstrike'],
+  PANW: ['palo alto networks'],
+  NET:  ['cloudflare'],
+  ZS:   ['zscaler'],
+  FTNT: ['fortinet'],
 };
 
 /**

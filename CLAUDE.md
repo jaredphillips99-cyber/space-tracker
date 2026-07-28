@@ -627,6 +627,13 @@ NNE  → energy / advanced_reactors
 - FLY (Firefly Aerospace) — IPO'd Aug 8 2025, CIK 0001860160. Verify EDGAR
   pipeline pulls filings correctly when analyzed.
 
+- SPCX (SpaceX) — IPO'd Nasdaq June 2026, CIK 0001181412. Same situation as FLY:
+  EDGAR history so far is mostly S-1/S-1-A/424B4 registration paperwork, not the
+  normal operating-company 10-Q/8-K cadence. A thin/empty "most recent 8-K item
+  2.02" lookup result is expected for now, not a bug. NOT added to
+  SPECULATIVE/SEDAR_ONLY/TRAINING_ONLY (those are for pre-revenue or
+  non-EDGAR-filing names — SPCX is neither, just newly public).
+
 ---
 
 ## Next Session Priorities (in order)
@@ -1128,3 +1135,47 @@ special-casing.
 **Files modified:** src/types/index.ts · src/components/Layout/index.tsx ·
   src/config/tickers.ts · src/config/gics.ts · src/config/themes.ts ·
   api/portfolio.ts · CLAUDE.md · PROJECT_INSTRUCTIONS.md
+
+---
+
+### July 28, 2026 (patch 3) — Finish 31→50: StockDetail CIK/sector maps + newswire pipeline
+
+**Two files were missed in the initial 31→50 pass** (patch 2) and still only had
+the old 31-ticker universe. Both keep manually-duplicated ticker constants that
+do NOT import from `tickers.ts`, so they don't inherit universe changes:
+
+  - **`src/components/StockDetail.tsx`** — keeps local copies "to avoid circular
+    issues." Its `CIK_MAP` had no entry for any of the 19 new tickers, so
+    "Run Analysis" threw `Unknown ticker: <X>` (line ~171) immediately for every
+    one of them on the live site — a runtime gap tsc/build can't catch. Added all
+    19 CIKs (verified against SEC `company_tickers.json`). Also added the `cyber`
+    entry to `SECTOR_COLOR_MAP` (#ff4b6e) and `SECTOR_LABEL_MAP` ('Cyber') so
+    Cyber pills render with the right accent/label instead of the fallback.
+  - **`scripts/newswire.mjs`** — plain `.mjs`, no build step, can't import
+    `tickers.ts`, so keeps its own `TICKERS` array + `COMPANY_ALIASES`. Added all
+    19 (with name aliases — needed for the `isAboutTicker()` relevance gate, esp.
+    short tickers NET/MU/PWR). Until the next GitHub Actions cron fires (weekdays
+    7:30am ET), the 19 won't appear in Today's Wire/News — expected, not a bug.
+    Also de-counted the stale header comment ("each of the 31 tickers" → "each
+    tracked ticker").
+
+**Correction to patch 2's wording:** that entry said the expansion was
+"ticker-agnostic — no API changes." True for the three API files
+(analyze/portfolio/prices), but NOT app-wide: StockDetail.tsx and newswire.mjs
+both hard-code ticker constants by hand. SPCX added to the Known Issues note
+(newly public June 2026, thin EDGAR history — like FLY; not added to
+SPECULATIVE/SEDAR_ONLY/TRAINING_ONLY).
+
+**Universe-change checklist (update ALL of these on every universe change):**
+  1. `src/config/tickers.ts` — TICKERS array
+  2. `src/config/gics.ts` — UNIVERSE_SECTOR_MAP
+  3. `src/config/themes.ts` — TICKER_THEME_MAP (+ new sub-themes)
+  4. `src/types/index.ts` + `src/components/Layout/index.tsx` — Sector type,
+     SECTOR_LABELS/COLORS, and the Layout SECTORS pill array (only on new pill)
+  5. `src/components/StockDetail.tsx` — CIK_MAP + SECTOR_COLOR_MAP/SECTOR_LABEL_MAP
+  6. `scripts/newswire.mjs` — TICKERS + COMPANY_ALIASES
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Runtime CIK gap
+verified fixed by code inspection (map lookup at StockDetail.tsx:170-171).
+
+**Files modified:** src/components/StockDetail.tsx · scripts/newswire.mjs · CLAUDE.md

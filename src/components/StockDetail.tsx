@@ -14,12 +14,14 @@ const SECTOR_COLOR_MAP: Record<string, string> = {
   ai_infrastructure: '#a259ff',
   defense:           '#f97316',
   clean_energy:      '#00e676',
+  cyber:             '#ff4b6e',
 };
 const SECTOR_LABEL_MAP: Record<string, string> = {
   space:             'Space',
   ai_infrastructure: 'AI Infra',
   defense:           'Defense',
   clean_energy:      'Clean Energy',
+  cyber:             'Cyber',
 };
 
 // ─── CIK map ──────────────────────────────────────────────────────────────────
@@ -35,6 +37,13 @@ const CIK_MAP: Record<string, string> = {
   GEV:  '0001996810', BE:   '0001664703', CCJ:  '0001009001',
   LEU:  '0001065059', NXE:  '0001698535', OKLO: '0001849056',
   NNE:  '0001923891', LHX:  '0000202058', AVAV: '0001368622',
+  SPCX: '0001181412', MSFT: '0000789019', GOOGL: '0001652044',
+  AMZN: '0001018724', META: '0001326801', ANET: '0001596532',
+  MU:   '0000723125', SMCI: '0001375365', AVGO: '0001730168',
+  INTC: '0000050863', DELL: '0001571996', PWR:  '0001050915',
+  ETN:  '0001551182', EQIX: '0001101239', GNRC: '0001474735',
+  CRWD: '0001535527', PANW: '0001327567', NET:  '0001477333',
+  ZS:   '0001713683', FTNT: '0001262039',
 };
 
 const SPECULATIVE          = new Set(['OKLO', 'NNE', 'NXE', 'SATS']);
