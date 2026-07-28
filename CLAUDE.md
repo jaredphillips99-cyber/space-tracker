@@ -1286,3 +1286,46 @@ added; no dollar/share figures anywhere.
 **Files created:** supabase_migration_newswire_classification.sql
 **Files modified:** scripts/newswire.mjs · src/hooks/useNewswire.ts ·
   src/lib/newsRanking.ts · CLAUDE.md
+
+---
+
+### July 28, 2026 (patch) — Fix ticker mis-attribution in News classification + per-ticker diversity cap
+
+**Live bug after the significance-filter deploy:** all 6 Lead Stories rendered
+tagged "NVDA" but the headlines were about unrelated companies — CTS
+Corporation, HF Sinclair, Corning, Starbucks, Microsoft. Root cause: Yahoo's
+per-symbol RSS feed isn't strictly "news about this ticker" — it also
+syndicates a general earnings-calendar / market-wrap block onto every symbol's
+page, tagged with whatever ticker the feed was requested under regardless of
+subject. `classifyHeadline()` correctly matched these as `category: 'earnings'`
+(they do contain earnings language) but never checked whether the headline was
+actually about the ticker it got filed under, so mis-tagged content passed the
+generic filter and then won Lead via NVDA's market cap.
+
+**Relevance gate (scripts/newswire.mjs):** added `COMPANY_ALIASES` (name
+aliases per tracked ticker) + `isAboutTicker(title, ticker)` — true if a
+case-insensitive alias matches OR the ticker symbol appears as a standalone
+case-sensitive token (symbols stay uppercase in headlines, avoiding false
+positives on short tickers that are also words, e.g. BE). `classifyHeadline()`
+now takes `ticker` and requires relevance before trusting ANY classification:
+a material-pattern match that isn't about its own company is dropped as
+`is_generic: true` rather than kept; an item matching no pattern is also
+flagged generic if it doesn't mention the company. Call site passes the loop's
+`ticker`.
+
+**Diversity cap (src/lib/newsRanking.ts):** `MAX_PER_TICKER = 3` +
+`selectWithDiversityCap()` applied to both Lead and Movers — skips a story once
+its primary ticker has hit the cap, preserving sort order otherwise. Prevents
+one ticker's news day from sweeping every slot without re-ranking anything.
+`feed` construction unchanged.
+
+**Note:** existing pre-classification rows in `newswire_items` aren't
+retroactively reclassified — they age out of the 72h recent window naturally.
+The classification migration from the earlier entry still must be applied for
+new cron writes to carry `category` / `is_generic`.
+
+**Privacy:** untouched — only public headline metadata; no dollars/shares.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass.
+
+**Files modified:** scripts/newswire.mjs · src/lib/newsRanking.ts · CLAUDE.md

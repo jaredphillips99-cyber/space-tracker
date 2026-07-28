@@ -172,6 +172,58 @@ const GENERIC_SOURCE_DOMAINS = [
   'moneymorning.com',
 ];
 
+// Company name aliases used to confirm a headline is actually about the
+// ticker it was fetched under, not generic market-wrap content that Yahoo
+// syndicates onto every symbol's page regardless of subject.
+const COMPANY_ALIASES = {
+  RKLB: ['rocket lab'],
+  PL:   ['planet labs'],
+  RDW:  ['redwire'],
+  LUNR: ['intuitive machines'],
+  ASTS: ['ast spacemobile'],
+  KTOS: ['kratos'],
+  BKSY: ['blacksky'],
+  FLY:  ['firefly aerospace', 'firefly'],
+  SATS: ['echostar'],
+  NVDA: ['nvidia'],
+  PLTR: ['palantir'],
+  CRWV: ['coreweave'],
+  IREN: ['iris energy'],
+  NBIS: ['nebius'],
+  CIFR: ['cipher mining'],
+  RIOT: ['riot platforms'],
+  VRT:  ['vertiv'],
+  MOD:  ['modine'],
+  CEG:  ['constellation energy'],
+  VST:  ['vistra'],
+  BWXT: ['bwx technologies'],
+  GEV:  ['ge vernova'],
+  BE:   ['bloom energy'],
+  CCJ:  ['cameco'],
+  LEU:  ['centrus energy'],
+  NXE:  ['nexgen energy'],
+  OKLO: ['oklo'],
+  NNE:  ['nano nuclear'],
+  LHX:  ['l3harris'],
+  AVAV: ['aerovironment'],
+};
+
+/**
+ * Confirms a headline actually references the given ticker's company —
+ * either a known name alias (case-insensitive) or the ticker symbol itself
+ * as a standalone, case-sensitive token (stock symbols are conventionally
+ * kept uppercase in financial headlines even in title case, e.g. "Why NVDA,
+ * SNDK, MU...", so case-sensitivity avoids false positives on short tickers
+ * that are also common words, like BE).
+ */
+function isAboutTicker(title, ticker) {
+  const lower = title.toLowerCase();
+  const aliases = COMPANY_ALIASES[ticker] || [];
+  if (aliases.some((alias) => lower.includes(alias))) return true;
+  const symbolRe = new RegExp(`\\b${ticker}\\b`);
+  return symbolRe.test(title);
+}
+
 function extractDomain(url) {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -188,10 +240,18 @@ function extractDomain(url) {
  * either way, the item passes through unflagged (category null, isGeneric
  * false) — we only drop items we're fairly confident are noise.
  */
-function classifyHeadline(title, link) {
+function classifyHeadline(title, link, ticker) {
+  const aboutTicker = isAboutTicker(title, ticker);
+
   for (const { category, re } of MATERIAL_PATTERNS) {
     if (re.test(title)) {
-      return { category, isGeneric: false };
+      // Material-sounding language only counts if it's actually about this
+      // company — otherwise it's syndicated market-wrap content mis-tagged
+      // to this ticker's feed (e.g. an unrelated company's "Q2 Earnings
+      // Call Summary" appearing on this ticker's page).
+      return aboutTicker
+        ? { category, isGeneric: false }
+        : { category: null, isGeneric: true };
     }
   }
 
@@ -199,7 +259,14 @@ function classifyHeadline(title, link) {
   const genericByPattern = GENERIC_HEADLINE_PATTERNS.some((re) => re.test(title));
   const genericByDomain = GENERIC_SOURCE_DOMAINS.includes(domain);
 
-  return { category: null, isGeneric: genericByPattern || genericByDomain };
+  if (genericByPattern || genericByDomain) {
+    return { category: null, isGeneric: true };
+  }
+
+  // No material or generic pattern matched. If the headline doesn't even
+  // mention the company, treat it as unrelated syndicated content rather
+  // than trusting the feed's ticker tag blindly.
+  return { category: null, isGeneric: !aboutTicker };
 }
 
 /**
@@ -280,7 +347,7 @@ async function main() {
     for (const item of rssItems) {
       const publishedAt = item.pubDate ? new Date(item.pubDate) : null;
       const cleanHeadline = item.title.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
-      const { category, isGeneric } = classifyHeadline(cleanHeadline, item.link);
+      const { category, isGeneric } = classifyHeadline(cleanHeadline, item.link, ticker);
       if (isGeneric) genericCount++;
       allItems.push({
         ticker,

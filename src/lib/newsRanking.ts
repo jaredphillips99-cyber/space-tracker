@@ -23,6 +23,7 @@ const LEAD_COUNT = 6;
 const MOVERS_COUNT = 6;
 const MOVERS_MIN_ABS_PERCENT = 5;
 const RECENT_WINDOW_HOURS = 72;
+const MAX_PER_TICKER = 3; // cap so one ticker's news day can't sweep every slot
 
 function dedupeByUrl(items: NewswireItem[], prices: Record<string, LivePrice>): NewsStory[] {
   const byUrl = new Map<string, NewsStory>();
@@ -62,6 +63,32 @@ function dedupeByUrl(items: NewswireItem[], prices: Record<string, LivePrice>): 
   return Array.from(byUrl.values());
 }
 
+/**
+ * Selects up to `count` stories from a pre-sorted list, skipping any story
+ * whose primary ticker has already hit `maxPerTicker` selections. Preserves
+ * the input sort order otherwise — this only prevents one ticker's news day
+ * from filling every slot, it doesn't re-rank anything.
+ */
+function selectWithDiversityCap(
+  sorted: NewsStory[],
+  count: number,
+  maxPerTicker: number,
+): NewsStory[] {
+  const tickerCounts = new Map<string, number>();
+  const selected: NewsStory[] = [];
+
+  for (const story of sorted) {
+    const primaryTicker = story.tickers[0];
+    const current = tickerCounts.get(primaryTicker) ?? 0;
+    if (current >= maxPerTicker) continue;
+    selected.push(story);
+    tickerCounts.set(primaryTicker, current + 1);
+    if (selected.length >= count) break;
+  }
+
+  return selected;
+}
+
 export function rankFrontPage(
   items: NewswireItem[],
   prices: Record<string, LivePrice>,
@@ -73,20 +100,19 @@ export function rankFrontPage(
   const recent = stories.filter((s) => new Date(s.publishedAt).getTime() >= cutoff);
   const older = stories.filter((s) => new Date(s.publishedAt).getTime() < cutoff);
 
-  const lead = [...recent]
-    .sort((a, b) => {
-      const aMaterial = a.category ? 1 : 0;
-      const bMaterial = b.category ? 1 : 0;
-      if (aMaterial !== bMaterial) return bMaterial - aMaterial;
-      return b.maxMarketCap - a.maxMarketCap;
-    })
-    .slice(0, LEAD_COUNT);
+  const leadSorted = [...recent].sort((a, b) => {
+    const aMaterial = a.category ? 1 : 0;
+    const bMaterial = b.category ? 1 : 0;
+    if (aMaterial !== bMaterial) return bMaterial - aMaterial;
+    return b.maxMarketCap - a.maxMarketCap;
+  });
+  const lead = selectWithDiversityCap(leadSorted, LEAD_COUNT, MAX_PER_TICKER);
   const leadUrls = new Set(lead.map((s) => s.url));
 
-  const movers = recent
+  const moversSorted = recent
     .filter((s) => !leadUrls.has(s.url) && s.maxAbsMovePercent >= MOVERS_MIN_ABS_PERCENT)
-    .sort((a, b) => b.maxAbsMovePercent - a.maxAbsMovePercent)
-    .slice(0, MOVERS_COUNT);
+    .sort((a, b) => b.maxAbsMovePercent - a.maxAbsMovePercent);
+  const movers = selectWithDiversityCap(moversSorted, MOVERS_COUNT, MAX_PER_TICKER);
   const moversUrls = new Set(movers.map((s) => s.url));
 
   const feed = [
