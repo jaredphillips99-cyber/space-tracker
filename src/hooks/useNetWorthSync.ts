@@ -3,11 +3,7 @@ import { supabase } from '../lib/supabase';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-// 'portfolio_cash_link' is a synthetic, render-only kind (never persisted to
-// the accounts table) — a read-only mirror of the Portfolio tab's cash balance,
-// built in NetWorthTab. It's part of the union only so KIND_DISPLAY and account
-// rendering type-check against it.
-export type AccountKind = 'holdings_link' | 'portfolio_cash_link' | 'cash' | 'balance' | 'crypto' | 'credit_card';
+export type AccountKind = 'holdings_link' | 'cash' | 'balance' | 'crypto' | 'credit_card';
 
 export interface NetWorthAccount {
   id: string;
@@ -22,6 +18,11 @@ export interface NetWorthAccount {
   dueDate?: string | null;          // 'YYYY-MM-DD'
   minPayment?: number | null;
   statementBalance?: number | null;
+  // crypto only — null for all other kinds (and for legacy manual-balance crypto
+  // rows created before live pricing). A crypto row is live-priced only when
+  // BOTH of these are set; otherwise it falls back to its manual `balance`.
+  cryptoSymbol?: string | null;     // Yahoo Finance ticker, e.g. 'BTC-USD'
+  cryptoQuantity?: number | null;   // units held
 }
 
 // Optional credit-card fields accepted at creation time
@@ -30,6 +31,12 @@ export interface CreditCardFields {
   dueDate?: string | null;
   minPayment?: number | null;
   statementBalance?: number | null;
+}
+
+// Crypto holding fields accepted at creation time (live pricing)
+export interface CryptoFields {
+  symbol: string;
+  quantity: number;
 }
 
 // ─── DB row shape (accounts table) ─────────────────────────────────────────────
@@ -49,6 +56,9 @@ interface AccountRow {
   due_date?: string | null;
   min_payment?: number | null;
   statement_balance?: number | null;
+  // crypto columns — nullable, null for all other kinds
+  crypto_symbol?: string | null;
+  crypto_quantity?: number | null;
 }
 
 function mapRow(r: AccountRow): NetWorthAccount {
@@ -64,6 +74,8 @@ function mapRow(r: AccountRow): NetWorthAccount {
     dueDate:          r.due_date ?? null,
     minPayment:       r.min_payment == null ? null : Number(r.min_payment),
     statementBalance: r.statement_balance == null ? null : Number(r.statement_balance),
+    cryptoSymbol:     r.crypto_symbol ?? null,
+    cryptoQuantity:   r.crypto_quantity == null ? null : Number(r.crypto_quantity),
   };
 }
 
@@ -93,7 +105,7 @@ export interface NetWorthSyncReturn {
   loading:         boolean;
   isAuthenticated: boolean;
   syncError:       string | null;
-  addAccount:            (kind: AccountKind, label: string, balance?: number, creditCard?: CreditCardFields) => Promise<void>;
+  addAccount:            (kind: AccountKind, label: string, balance?: number, creditCard?: CreditCardFields, crypto?: CryptoFields) => Promise<void>;
   updateAccountBalance:  (id: string, balance: number) => Promise<void>;
   updateCreditCard:      (id: string, fields: Partial<{
     balance: number;
@@ -102,6 +114,7 @@ export interface NetWorthSyncReturn {
     minPayment: number | null;
     statementBalance: number | null;
   }>) => Promise<void>;
+  updateCryptoHolding:   (id: string, symbol: string, quantity: number) => Promise<void>;
   removeAccount:         (id: string) => Promise<void>;
   reorderAccounts:       (orderedIds: string[]) => Promise<void>;
 }
@@ -257,7 +270,7 @@ export function useNetWorthSync(): NetWorthSyncReturn {
 
   // ── Write: add / remove / reorder (immediate, not debounced) ──────────────
 
-  const addAccount = useCallback(async (kind: AccountKind, label: string, balance = 0, creditCard?: CreditCardFields) => {
+  const addAccount = useCallback(async (kind: AccountKind, label: string, balance = 0, creditCard?: CreditCardFields, crypto?: CryptoFields) => {
     const sortOrder = (accounts ?? []).reduce((max, a) => Math.max(max, a.sortOrder), 0) + 1;
 
     if (!userId) {
@@ -273,6 +286,8 @@ export function useNetWorthSync(): NetWorthSyncReturn {
           dueDate:          creditCard?.dueDate ?? null,
           minPayment:       creditCard?.minPayment ?? null,
           statementBalance: creditCard?.statementBalance ?? null,
+          cryptoSymbol:     crypto?.symbol ?? null,
+          cryptoQuantity:   crypto?.quantity ?? null,
         },
       ]);
       return;
@@ -292,6 +307,8 @@ export function useNetWorthSync(): NetWorthSyncReturn {
         due_date:           creditCard?.dueDate ?? null,
         min_payment:        creditCard?.minPayment ?? null,
         statement_balance:  creditCard?.statementBalance ?? null,
+        crypto_symbol:      crypto?.symbol ?? null,
+        crypto_quantity:    crypto?.quantity ?? null,
       })
       .select()
       .single();
@@ -361,6 +378,37 @@ export function useNetWorthSync(): NetWorthSyncReturn {
     }
   }, [userId]);
 
+  // ── Write: crypto holding edits ───────────────────────────────────────────
+  // Immediate (not debounced), like updateCreditCard — a symbol/quantity change
+  // is a discrete commit (blur/Enter), not continuous typing. Reuses the
+  // balance_updated_at timestamp semantics; no new timestamp column needed.
+  const updateCryptoHolding = useCallback(async (id: string, symbol: string, quantity: number) => {
+    const now = new Date().toISOString();
+    const cleanSymbol = symbol.trim().toUpperCase();
+
+    setAccounts(prev =>
+      prev?.map(a => a.id === id
+        ? { ...a, cryptoSymbol: cleanSymbol, cryptoQuantity: quantity, balanceUpdatedAt: now }
+        : a
+      ) ?? prev
+    );
+
+    if (!userId) return; // anonymous — in-memory only
+
+    const { error } = await supabase
+      .from('accounts')
+      .update({ crypto_symbol: cleanSymbol, crypto_quantity: quantity, balance_updated_at: now })
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.warn('[networth-sync] crypto holding save failed:', error.message);
+      setSyncError(`Crypto holding failed to save: ${error.message}`);
+    } else {
+      setSyncError(null);
+    }
+  }, [userId]);
+
   const removeAccount = useCallback(async (id: string) => {
     // The linked Portfolio row is permanent — never deletable
     const target = accounts?.find(a => a.id === id);
@@ -424,6 +472,7 @@ export function useNetWorthSync(): NetWorthSyncReturn {
     addAccount,
     updateAccountBalance,
     updateCreditCard,
+    updateCryptoHolding,
     removeAccount,
     reorderAccounts,
   };

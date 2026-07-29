@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNetWorthSync, type NetWorthAccount } from '../../hooks/useNetWorthSync';
+import { useCryptoPrices, type CryptoPrice } from '../../hooks/useCryptoPrices';
 import { usePortfolioSync } from '../../hooks/usePortfolioSync';
 import { useFinancialProfile, type FinancialProfile } from '../../hooks/useFinancialProfile';
 import { readSessionPositions, type PortfolioPosition } from '../compare/PortfolioTab';
@@ -23,6 +24,37 @@ function fmtUpdated(iso: string | null): string {
   if (days <= 0) return 'today';
   if (days === 1) return '1d ago';
   return `${days}d ago`;
+}
+
+// Per-unit crypto price — shows enough precision for low-priced coins (e.g. DOGE)
+// without a wall of decimals on high-priced ones.
+function fmtUnitPrice(n: number): string {
+  const maxFrac = n >= 1 ? 2 : 6;
+  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: maxFrac });
+}
+
+function fmtQuantity(n: number): string {
+  return n.toLocaleString('en-US', { maximumFractionDigits: 8 });
+}
+
+// A crypto account is live-priced only when both symbol and quantity are set.
+function isLivePricedCrypto(a: NetWorthAccount): boolean {
+  return a.kind === 'crypto' && !!a.cryptoSymbol && a.cryptoQuantity != null;
+}
+
+// Live value for a crypto account: quantity × live price when both the
+// symbol/quantity are set AND a price has loaded; otherwise fall back to the
+// stored manual balance (covers pre-migration manual crypto rows and the
+// transient state before the price loads). Never returns NaN.
+function cryptoValue(
+  account: NetWorthAccount,
+  prices: Record<string, CryptoPrice | undefined>,
+): number {
+  if (isLivePricedCrypto(account)) {
+    const p = prices[account.cryptoSymbol!.toUpperCase()];
+    if (p && p.price > 0) return account.cryptoQuantity! * p.price;
+  }
+  return account.balance ?? 0;
 }
 
 // ─── Credit card due-date helpers ───────────────────────────────────────────────
@@ -75,16 +107,11 @@ function useLinkedPortfolioValue(): {
   value: number | null;
   loading: boolean;
   hasPositions: boolean;
-  // The Portfolio tab's "Cash available" figure — already persisted in
-  // user_preferences.cash_amount and loaded by usePortfolioSync. Surfaced here
-  // so Net Worth can show it as a synthetic, read-only linked row. Null when
-  // anonymous or unset.
-  cashValue: number | null;
   // Top sector concentrations (% of portfolio value) — lightweight context for
   // the AI analysis call, not a full position list.
   sectorWeights: { sector: string; pct: number }[];
 } {
-  const { savedPositions, savedCashAmount, loading: syncLoading, isAuthenticated } = usePortfolioSync();
+  const { savedPositions, loading: syncLoading, isAuthenticated } = usePortfolioSync();
   const [value, setValue]     = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [positions, setPositions] = useState<PortfolioPosition[]>([]);
@@ -163,9 +190,6 @@ function useLinkedPortfolioValue(): {
     value,
     loading,
     hasPositions: positions.length > 0,
-    // Only surfaced for authenticated users — anonymous portfolio cash lives in
-    // sessionStorage and isn't read here (matches savedCashAmount being null).
-    cashValue: isAuthenticated ? savedCashAmount : null,
     sectorWeights,
   };
 }
@@ -236,6 +260,90 @@ function BalanceCell({ account, onCommit, color = 'var(--text-primary)' }: {
     >
       {fmtUSD(account.balance ?? 0)}
     </span>
+  );
+}
+
+// ─── Live-priced crypto value cell ──────────────────────────────────────────────
+// Read-only computed value (quantity × live price) on top, with a small context
+// line showing the holding. Clicking the value edits the QUANTITY (symbol edits
+// aren't offered in v1 — remove and re-add to switch coins). Mirrors BalanceCell's
+// click-to-edit pattern but commits via updateCryptoHolding.
+
+function CryptoValueCell({ account, price, loading, onCommitQuantity }: {
+  account: NetWorthAccount;
+  price: number | undefined;
+  loading: boolean;
+  onCommitQuantity: (qty: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState('');
+
+  const qty      = account.cryptoQuantity ?? 0;
+  const symbol   = account.cryptoSymbol ?? '';
+  const hasLive  = price != null && price > 0;
+  const value    = hasLive ? qty * price! : (account.balance ?? 0);
+
+  function startEdit() {
+    setDraft(String(qty));
+    setEditing(true);
+  }
+
+  function commit() {
+    const n = parseFloat(draft);
+    if (!isNaN(n) && n >= 0 && n !== qty) onCommitQuantity(n);
+    setEditing(false);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+      {editing ? (
+        <input
+          type="number"
+          min={0}
+          step="any"
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          style={{
+            width: 110,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 6,
+            color: 'var(--text-primary)',
+            fontSize: 13,
+            fontFamily: 'Space Mono, monospace',
+            padding: '4px 8px',
+            textAlign: 'right',
+            outline: 'none',
+            MozAppearance: 'textfield' as any,
+          }}
+        />
+      ) : (
+        <span
+          onClick={startEdit}
+          title="Click to edit quantity"
+          style={{
+            fontSize: 14,
+            fontFamily: 'Space Mono, monospace',
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            borderBottom: '1px dashed var(--border-strong)',
+          }}
+        >
+          {hasLive ? fmtUSD(value) : (loading ? '…' : fmtUSD(value))}
+        </span>
+      )}
+      <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace' }}>
+        {hasLive
+          ? `${fmtQuantity(qty)} ${symbol} @ ${fmtUnitPrice(price!)}`
+          : `${fmtQuantity(qty)} ${symbol} · ${loading ? 'pricing…' : 'price unavailable'}`}
+      </span>
+    </div>
   );
 }
 
@@ -531,11 +639,17 @@ function MarkdownCard({ children }: { children: string }) {
 export default function NetWorthTab() {
   const {
     accounts, loading, isAuthenticated, syncError,
-    addAccount, updateAccountBalance, updateCreditCard, removeAccount,
+    addAccount, updateAccountBalance, updateCreditCard, updateCryptoHolding, removeAccount,
   } = useNetWorthSync();
 
   const linked = useLinkedPortfolioValue();
   const [addOpen, setAddOpen] = useState(false);
+
+  // ── Live crypto pricing — symbols from live-priced crypto accounts only ────
+  const cryptoSymbols = (accounts ?? [])
+    .filter(isLivePricedCrypto)
+    .map(a => a.cryptoSymbol!);
+  const { prices: cryptoPrices, loading: cryptoLoading } = useCryptoPrices(cryptoSymbols);
 
   // ── Financial profile (optional — unlocks Tier 2 analysis) ─────────────────
   const {
@@ -566,45 +680,24 @@ export default function NetWorthTab() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError]     = useState('');
 
-  // ── Synthetic "Cash (Portfolio)" row ──────────────────────────────────────
-  // A read-only mirror of the Portfolio tab's cash balance — parallel to the
-  // holdings_link row. Never persisted; skipped entirely when cash is 0/null
-  // (same pattern that hides holdings_link when it has no value). Deliberately
-  // NOT deduped against any manual 'cash' account — if the user has both, both
-  // show; reconciling is their call (the inline note makes the source clear).
-  const portfolioCashRow: NetWorthAccount | null =
-    linked.cashValue != null && linked.cashValue > 0
-      ? {
-          id: 'portfolio-cash-link',
-          kind: 'portfolio_cash_link',
-          label: 'Cash (Portfolio)',
-          balance: linked.cashValue,
-          balanceUpdatedAt: null,
-          linked: true,
-          sortOrder: 0.5,   // slot right after the holdings_link row (sortOrder 0)
-        }
-      : null;
-
-  // Accounts as displayed = persisted accounts + the synthetic cash row,
-  // inserted immediately after the holdings_link row when present.
-  const displayAccounts: NetWorthAccount[] = useMemo(() => {
-    const base = accounts ?? [];
-    if (!portfolioCashRow) return base;
-    const idx = base.findIndex(a => a.kind === 'holdings_link');
-    return idx === -1
-      ? [portfolioCashRow, ...base]
-      : [...base.slice(0, idx + 1), portfolioCashRow, ...base.slice(idx + 1)];
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, linked.cashValue]);
+  // Cash no longer syncs into Net Worth from the Portfolio tab's "Cash
+  // available" figure — that synthetic, read-only row was removed July 22,
+  // 2026. It caused the most recently-set Portfolio cash value to persist
+  // into Net Worth even when it no longer reflected reality. If a user has
+  // cash sitting in an account (e.g. a Roth IRA), they add it manually here
+  // via "+ Add account" instead. `accounts` (from useNetWorthSync) is the
+  // full list actually rendered now — no synthetic rows are injected.
 
   // ── Totals — null/undefined balances count as 0, never crash ──────────────
   // Net worth = assets − credit card balances. Card balances stay stored as
   // positive amounts owed; the subtraction happens only here, at render.
   const { total, assetTotal, liabilityTotal, assetSegments, liabilitySegments } = useMemo(() => {
-    const accs = displayAccounts;
+    const accs = accounts ?? [];
     const segs = accs.map(a => ({
       account: a,
-      value: a.kind === 'holdings_link' ? (linked.value ?? 0) : (a.balance ?? 0),
+      value: a.kind === 'holdings_link' ? (linked.value ?? 0)
+           : a.kind === 'crypto'        ? cryptoValue(a, cryptoPrices)
+           : (a.balance ?? 0),
     }));
     const assets = segs.filter(x => x.account.kind !== 'credit_card');
     const debts  = segs.filter(x => x.account.kind === 'credit_card');
@@ -617,7 +710,7 @@ export default function NetWorthTab() {
       assetSegments:     assets.filter(x => x.value > 0),
       liabilitySegments: debts.filter(x => x.value > 0),
     };
-  }, [displayAccounts, linked.value]);
+  }, [accounts, linked.value, cryptoPrices]);
 
   // ── 30-day cash flow — cards with a balance owed and a due date set ────────
   // A card with no due date simply doesn't appear here; a paid-off card has
@@ -657,12 +750,20 @@ export default function NetWorthTab() {
         .map(a => ({
           kind: a.kind,
           label: a.label,
-          balance: a.kind === 'holdings_link' ? (linked.value ?? 0) : (a.balance ?? 0),
+          balance: a.kind === 'holdings_link' ? (linked.value ?? 0)
+                 : a.kind === 'crypto'        ? cryptoValue(a, cryptoPrices)
+                 : (a.balance ?? 0),
           ...(a.kind === 'credit_card' ? {
             apr:              a.apr ?? null,
             dueDate:          a.dueDate ?? null,
             minPayment:       a.minPayment ?? null,
             statementBalance: a.statementBalance ?? null,
+          } : {}),
+          // Live-priced crypto: pass the holding so the prompt can name it
+          // (e.g. "0.5 BTC-USD") rather than only a dollar figure.
+          ...(isLivePricedCrypto(a) ? {
+            cryptoSymbol:   a.cryptoSymbol,
+            cryptoQuantity: a.cryptoQuantity,
           } : {}),
         }));
 
@@ -853,11 +954,11 @@ export default function NetWorthTab() {
           </button>
         </div>
 
-        {displayAccounts.map(account => {
+        {(accounts ?? []).map(account => {
           const isLinked   = account.kind === 'holdings_link';
-          const isCashLink = account.kind === 'portfolio_cash_link';
-          const isReadOnly = isLinked || isCashLink;   // synthetic, non-editable rows
+          const isReadOnly = isLinked;   // synthetic, non-editable row
           const isCard   = account.kind === 'credit_card';
+          const isCrypto = isLivePricedCrypto(account);   // live-priced only; manual crypto uses BalanceCell
           const { label: kindLabel, color } = KIND_DISPLAY[account.kind];
 
           // Urgency accent — computed at render, only when there's a balance owed.
@@ -897,7 +998,6 @@ export default function NetWorthTab() {
                 {/* Label */}
                 <span
                   style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  title={isCashLink ? "Synced from your Portfolio tab's cash balance — edit it there." : undefined}
                 >
                   {account.label}
                   {isLinked && (
@@ -908,15 +1008,6 @@ export default function NetWorthTab() {
                       view portfolio →
                     </Link>
                   )}
-                  {isCashLink && (
-                    <Link
-                      to="/portfolio"
-                      title="Synced from your Portfolio tab's cash balance — edit it there."
-                      style={{ marginLeft: 10, fontSize: 11, color: '#06b6d4', textDecoration: 'none' }}
-                    >
-                      edit on portfolio →
-                    </Link>
-                  )}
                 </span>
 
                 {/* Value */}
@@ -924,10 +1015,13 @@ export default function NetWorthTab() {
                   <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', color: linked.value == null && linked.hasPositions ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
                     {linked.loading ? '…' : linked.value != null ? fmtUSD(linked.value) : '—'}
                   </span>
-                ) : isCashLink ? (
-                  <span style={{ fontSize: 14, fontFamily: 'Space Mono, monospace', color: 'var(--text-primary)' }}>
-                    {fmtUSD(account.balance ?? 0)}
-                  </span>
+                ) : isCrypto ? (
+                  <CryptoValueCell
+                    account={account}
+                    price={cryptoPrices[account.cryptoSymbol!.toUpperCase()]?.price}
+                    loading={cryptoLoading}
+                    onCommitQuantity={qty => updateCryptoHolding(account.id, account.cryptoSymbol!, qty)}
+                  />
                 ) : (
                   <BalanceCell
                     account={account}

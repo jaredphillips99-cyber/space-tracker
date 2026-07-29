@@ -31,6 +31,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // stocks-only modules (financialData/assetProfile) return empty for
       // funds, so we branch to fundProfile instead.
       const isFund = quote.quoteType === 'ETF' || quote.quoteType === 'MUTUALFUND';
+      // Crypto has none of the stock-only fields below (analyst targets, sector,
+      // earnings) and the fund modules don't apply either — skip the extra
+      // quoteSummary round-trip entirely and let those fields stay undefined.
+      const isCrypto = quote.quoteType === 'CRYPTOCURRENCY';
 
       // ── Analyst consensus data (stocks) / fund classification (funds) ────
       let analystTargetPrice: number | undefined;
@@ -45,7 +49,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let nextEarningsDate: string | null = null;
 
       try {
-        if (isFund) {
+        if (isCrypto) {
+          // No stock/fund metadata to fetch — all the fields above stay undefined.
+        } else if (isFund) {
           // fundProfile works for both ETFs and mutual funds — confirmed
           // against ICLN, ITA, VFIAX, VTSAX, FXAIX. categoryName is a
           // Morningstar-style label (e.g. "Large Blend", "Industrials"),

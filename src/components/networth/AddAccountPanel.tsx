@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import type { AccountKind, CreditCardFields } from '../../hooks/useNetWorthSync';
+import type { AccountKind, CreditCardFields, CryptoFields } from '../../hooks/useNetWorthSync';
 import { KIND_DISPLAY } from './kindDisplay';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onAdd: (kind: AccountKind, label: string, balance: number, creditCard?: CreditCardFields) => Promise<void>;
+  onAdd: (kind: AccountKind, label: string, balance: number, creditCard?: CreditCardFields, crypto?: CryptoFields) => Promise<void>;
 }
 
 const ADDABLE_KINDS: AccountKind[] = ['cash', 'balance', 'crypto', 'credit_card'];
@@ -28,6 +28,9 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
   const [dueDate, setDueDate]           = useState('');
   const [minPayment, setMinPayment]     = useState('');
   const [stmtBalance, setStmtBalance]   = useState('');
+  // crypto only — live pricing (symbol + quantity, value computed from Yahoo)
+  const [cryptoSymbol, setCryptoSymbol]     = useState('');
+  const [cryptoQuantity, setCryptoQuantity] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -38,13 +41,16 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
       setDueDate('');
       setMinPayment('');
       setStmtBalance('');
+      setCryptoSymbol('');
+      setCryptoQuantity('');
       setSaving(false);
     }
   }, [open]);
 
   if (!open) return null;
 
-  const isCard = kind === 'credit_card';
+  const isCard   = kind === 'credit_card';
+  const isCrypto = kind === 'crypto';
 
   const parsedBalance = parseFloat(balance);
   const balanceOk = balance.trim() !== '' && !isNaN(parsedBalance) && parsedBalance >= 0;
@@ -54,7 +60,14 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
   const stmtParsed = parseOptional(stmtBalance);
   const cardFieldsOk = !isCard || (aprParsed.ok && minParsed.ok && stmtParsed.ok);
 
-  const canSave = label.trim() !== '' && balanceOk && cardFieldsOk && !saving;
+  const parsedQuantity = parseFloat(cryptoQuantity);
+  const symbolOk   = cryptoSymbol.trim() !== '';
+  const quantityOk = cryptoQuantity.trim() !== '' && !isNaN(parsedQuantity) && parsedQuantity >= 0;
+  const cryptoFieldsOk = symbolOk && quantityOk;
+
+  // Crypto validates on symbol + quantity; all other kinds validate on balance.
+  const canSave = label.trim() !== '' && !saving &&
+    (isCrypto ? cryptoFieldsOk : (balanceOk && cardFieldsOk));
 
   async function handleSave() {
     if (!canSave) return;
@@ -62,7 +75,9 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
     await onAdd(
       kind,
       label.trim(),
-      parsedBalance,
+      // Crypto value is computed live from symbol × quantity — the stored
+      // balance is an unused 0 placeholder, never read for live-priced crypto.
+      isCrypto ? 0 : parsedBalance,
       isCard
         ? {
             apr:              aprParsed.value,
@@ -70,6 +85,9 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
             minPayment:       minParsed.value,
             statementBalance: stmtParsed.value,
           }
+        : undefined,
+      isCrypto
+        ? { symbol: cryptoSymbol.trim().toUpperCase(), quantity: parsedQuantity }
         : undefined
     );
     onClose();
@@ -176,33 +194,70 @@ export default function AddAccountPanel({ open, onClose, onAdd }: Props) {
             />
           </div>
 
-          {/* Starting balance */}
-          <div>
-            <span style={fieldLabelStyle}>{isCard ? 'Current balance owed' : 'Current balance'}</span>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <span style={{ position: 'absolute', left: 12, color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={balance}
-                onChange={e => setBalance(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSave()}
-                placeholder="0"
-                style={{
-                  ...inputStyle,
-                  paddingLeft: 26,
-                  fontFamily: 'Space Mono, monospace',
-                  MozAppearance: 'textfield' as any,
-                }}
-              />
-            </div>
-            {balance.trim() !== '' && !balanceOk && (
-              <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 6 }}>
-                Balance must be a number ≥ 0.
+          {/* Crypto: symbol + quantity (live-priced). Other kinds: dollar balance. */}
+          {isCrypto ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div>
+                <span style={fieldLabelStyle}>Symbol</span>
+                <input
+                  type="text"
+                  value={cryptoSymbol}
+                  onChange={e => setCryptoSymbol(e.target.value.toUpperCase())}
+                  onBlur={e => setCryptoSymbol(e.target.value.trim().toUpperCase())}
+                  placeholder="e.g. BTC-USD"
+                  style={{ ...inputStyle, fontFamily: 'Space Mono, monospace' }}
+                />
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
+                  Yahoo Finance ticker format — BTC-USD, ETH-USD, SOL-USD, etc.
+                </div>
               </div>
-            )}
-          </div>
+              <div>
+                <span style={fieldLabelStyle}>Quantity held</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={cryptoQuantity}
+                  onChange={e => setCryptoQuantity(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSave()}
+                  placeholder="0"
+                  style={{ ...inputStyle, fontFamily: 'Space Mono, monospace', MozAppearance: 'textfield' as any }}
+                />
+                {cryptoQuantity.trim() !== '' && !quantityOk && (
+                  <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 6 }}>
+                    Quantity must be a number ≥ 0.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <span style={fieldLabelStyle}>{isCard ? 'Current balance owed' : 'Current balance'}</span>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <span style={{ position: 'absolute', left: 12, color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Space Mono, monospace' }}>$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={balance}
+                  onChange={e => setBalance(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSave()}
+                  placeholder="0"
+                  style={{
+                    ...inputStyle,
+                    paddingLeft: 26,
+                    fontFamily: 'Space Mono, monospace',
+                    MozAppearance: 'textfield' as any,
+                  }}
+                />
+              </div>
+              {balance.trim() !== '' && !balanceOk && (
+                <div style={{ fontSize: 11, color: '#ff4b6e', marginTop: 6 }}>
+                  Balance must be a number ≥ 0.
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Credit card details — all optional */}
           {isCard && (

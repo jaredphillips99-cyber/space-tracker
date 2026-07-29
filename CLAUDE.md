@@ -1240,3 +1240,87 @@ verify by running explore twice for one underweight sector post-deploy.
 
 **Files modified:** api/portfolio.ts · src/components/compare/PortfolioTab.tsx ·
   CLAUDE.md
+
+---
+
+### July 28, 2026 (patch 5) — Live-priced crypto accounts in Net Worth
+
+**What:** the `crypto` AccountKind was wired identically to `balance` — a manual
+dollar figure needing hand-updates. Now a crypto account can hold a Yahoo Finance
+ticker (`BTC-USD`, `ETH-USD`, any Yahoo-supported symbol — not a fixed coin list)
+plus a quantity, and its displayed value is computed live as `quantity ×
+livePrice`, refreshed like stock prices.
+
+**Backward compatible:** a crypto account switches to the live-priced path ONLY
+when BOTH `cryptoSymbol` and `cryptoQuantity` are set. Existing manual-balance
+crypto rows (and any pre-migration rows) keep using their stored `balance`
+via `BalanceCell`, unchanged.
+
+**Schema:** new nullable `crypto_symbol text` + `crypto_quantity numeric` on
+`public.accounts`. `supabase_migration_crypto_holdings.sql` (idempotent, additive,
+existing RLS covers it). NOTE: the migration file did not actually exist in the
+repo despite an earlier hand-off claim — it was (re)created this session. It MUST
+be applied in the Supabase SQL Editor before this ships, or crypto
+insert/update fails on the unknown columns. `useNetWorthSync` selects `'*'`, so a
+missing column degrades a READ to null (manual-balance behavior); only WRITES
+that reference the columns fail.
+
+**New hook `src/hooks/useCryptoPrices.ts`:** deliberately separate from
+`useLivePrice.ts` (which is hardcoded to `ALL_TICKERS` and writes the Zustand
+store). Takes a dynamic per-user symbol set, dedupes/uppercases, fetches through
+the same `/api/prices` endpoint, caches in local component state with a 5-min
+staleness window (matches the endpoint's `s-maxage=300`), and keeps last-known
+prices on fetch error rather than clearing to zero. Effect keyed on the
+normalized sorted symbol string so a fresh array identity each render doesn't
+re-fetch.
+
+**`useNetWorthSync.ts`:** `NetWorthAccount` + `AccountRow` + `mapRow` gained
+`cryptoSymbol`/`cryptoQuantity` (snake_case in DB). New `CryptoFields { symbol,
+quantity }`; `addAccount` gained an optional 6th `crypto?` arg threaded into both
+anon and Supabase-insert branches (mirrors `creditCard`). New immediate-write
+`updateCryptoHolding(id, symbol, quantity)` modeled on `updateCreditCard`
+(discrete commit, not the 800ms balance debounce) — writes symbol/quantity +
+reuses `balance_updated_at`.
+
+**`AddAccountPanel.tsx`:** when `kind === 'crypto'`, the dollar-balance field is
+replaced by Symbol (text, uppercased, helper "Yahoo Finance ticker format —
+BTC-USD, ETH-USD, SOL-USD, etc.") + Quantity (number, step any, ≥0). `canSave`
+requires symbol + valid quantity for crypto; on save, `balance` is passed as `0`
+(unused placeholder) and the crypto fields go as the new 6th `onAdd` arg.
+
+**`NetWorthTab.tsx`:** `useCryptoPrices` wired in from live-priced crypto symbols.
+Helpers `isLivePricedCrypto()` + `cryptoValue(account, prices)` (falls back to
+`balance` when no live price yet — never NaN). Totals `useMemo`, AI-analysis
+`accountPayload`, and row rendering all route crypto through `cryptoValue`.
+Live-priced rows render a read-only `CryptoValueCell` (computed value + a
+`{qty} {symbol} @ {unitPrice}` context line) with click-to-edit QUANTITY (symbol
+edit deferred to v1 — remove/re-add to switch coins). Analysis payload also
+carries `cryptoSymbol`/`cryptoQuantity` so the prompt can name the holding.
+
+**`api/prices.ts`:** added an `isCrypto = quoteType === 'CRYPTOCURRENCY'` branch
+that short-circuits the stock-only `quoteSummary` round-trip (all those fields
+are meaningless for crypto) — a small latency win. The existing try/catch
+fallback already handled crypto correctly; this just avoids one wasted call.
+
+**`api/portfolio.ts`:** `NetWorthAccountPayload` gained optional
+`cryptoSymbol`/`cryptoQuantity`; `buildNetWorthPrompt`'s account line renders
+live-priced crypto as `label | crypto (0.5 BTC-USD) | $X` for better grounding.
+
+**Privacy:** Net Worth tab is the deliberate dollar-figure exception (admin-only)
+— unchanged. This adds symbol/quantity to that same payload; no bleed into the
+Portfolio-tab percentage-only rule.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Live behavior is
+NOT locally verifiable — `/api/prices` is a Vercel function not served by plain
+`vite dev`, and the tab is admin-gated. Post-deploy: add a `BTC-USD` crypto
+account with a quantity, confirm the row shows a live computed value (not $0),
+confirm net-worth totals include it, confirm a typo symbol degrades to
+"price unavailable" + last-known balance (no NaN/crash), and confirm an existing
+manual-balance crypto row is unaffected.
+
+**Files created:** src/hooks/useCryptoPrices.ts ·
+  supabase_migration_crypto_holdings.sql
+**Files modified:** src/hooks/useNetWorthSync.ts ·
+  src/components/networth/AddAccountPanel.tsx ·
+  src/components/networth/NetWorthTab.tsx · api/prices.ts · api/portfolio.ts ·
+  CLAUDE.md

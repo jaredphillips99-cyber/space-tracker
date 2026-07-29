@@ -834,6 +834,10 @@ function buildNetWorthPrompt(body: RequestBody, hasProfile: boolean): string {
       ].filter(Boolean);
       return '  ' + parts.join(' | ');
     }
+    // Live-priced crypto — name the holding (e.g. "0.5 BTC-USD") for the model.
+    if (a.kind === 'crypto' && a.cryptoSymbol && a.cryptoQuantity != null) {
+      return `  ${a.label} | crypto (${a.cryptoQuantity} ${a.cryptoSymbol}) | ${fmt(a.balance ?? 0)}`;
+    }
     return `  ${a.label} | ${kindLabel[a.kind] ?? a.kind} | ${fmt(a.balance ?? 0)}`;
   }).join('\n');
 
@@ -1052,6 +1056,9 @@ interface NetWorthAccountPayload {
   dueDate?: string | null;
   minPayment?: number | null;
   statementBalance?: number | null;
+  // Live-priced crypto only — present when the holding has symbol + quantity set.
+  cryptoSymbol?: string | null;
+  cryptoQuantity?: number | null;
 }
 
 interface NetWorthFinancialProfile {
