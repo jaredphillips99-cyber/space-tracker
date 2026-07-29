@@ -639,7 +639,7 @@ Under 160 words total. Specific tickers and numbers only.`;
 }
 
 function buildSectorExplorePrompt(body: RequestBody): string {
-  const { positions, exploreSector, sectorTargets, sectorActuals, preferences } = body;
+  const { positions, exploreSector, sectorTargets, sectorActuals, preferences, recentlySuggested } = body;
 
   const heldTickers = positions.map(p => p.ticker).join(', ');
   const actual = sectorActuals?.[exploreSector!] ?? 0;
@@ -650,13 +650,29 @@ function buildSectorExplorePrompt(body: RequestBody): string {
   const fundCandidates = getFundCandidates(exploreSector);
   const useFunds = fundTilt >= FUND_TILT_THRESHOLD && fundCandidates.length > 0;
 
+  // Shared exclusion block — surfaces names already suggested in recent runs for
+  // this sector so the model varies its picks across repeated explores instead
+  // of returning the same frozen-prior list every time.
+  const recentBlock = recentlySuggested && recentlySuggested.length > 0
+    ? `\nPREVIOUSLY SUGGESTED FOR THIS SECTOR (recent runs): ${recentlySuggested.join(', ')}
+Prefer a different name than the ones above unless one of them is clearly and specifically the single best fit for this gap — repetition across runs should be the exception, not the default.\n`
+    : '';
+
+  // With web search enabled, the model's response can contain multiple text
+  // blocks (search narration interleaved with the answer); the handler joins
+  // them all, so any stray prose breaks JSON.parse. This instruction is
+  // stronger than the plain "JSON only" line the tool-free version used.
+  const jsonOnlyRule = `Use search silently to inform your picks — do not narrate what you searched for or found anywhere in your response. Your entire response must be nothing but the JSON array itself, with no text before or after it, even though you have search access for this call.`;
+
+  const themeBlock = buildThemeBlock(body.themePreferences, body.themeActuals, body.sectorConviction, body.positions);
+
   if (useFunds) {
-    return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildFreshnessBlock()}
+    return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${themeBlock}${buildFreshnessBlock(true)}
 You are a portfolio strategist helping an investor who prefers funds over individual stock-picking increase exposure to the "${exploreSector}" GICS sector.
 
 CURRENT PORTFOLIO HOLDINGS: ${heldTickers || 'none yet'}
 SECTOR EXPOSURE: ${actual.toFixed(1)}% actual${target != null ? ` | ${target}% target | ${gap}pp gap to close` : ''}
-
+${recentBlock}
 ELIGIBLE FUND CANDIDATES — choose only from this list. Do not suggest individual stocks or any fund not listed here:
 ${fundCandidates.map(f => `- ${f.ticker} — ${f.name}`).join('\n')}
 
@@ -664,33 +680,37 @@ Select 2-3 of the funds above that best fit closing this sector gap:
 1. Do NOT duplicate a fund already held (check against CURRENT PORTFOLIO HOLDINGS)
 2. Explain briefly why this fund fits the gap better than the other options listed
 
+${jsonOnlyRule}
 Respond ONLY with a valid JSON array, no markdown, no explanation outside the array:
 [
   {
     "ticker": "TICKER",
-    "rationale": "One concise sentence explaining why this fund fits the portfolio and sector gap.",
+    "rationale": "2-3 sentences: why this fund fits the sector gap specifically, and one concrete consideration (its exposure profile, expense ratio, or a concentration/liquidity risk) drawn from what you find via search.",
     "marketCapRange": "Fund — one short note, e.g. broad sector exposure, low expense ratio"
   }
 ]`;
   }
 
-  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${buildFreshnessBlock()}
+  return `${buildAccountBlock(body.accountType, body.accountContext)}${buildPreferenceBlock(body.preferences)}${themeBlock}${buildFreshnessBlock(true)}
 You are a growth-oriented equity research analyst. A portfolio investor wants to increase exposure to the "${exploreSector}" GICS sector.
 
 CURRENT PORTFOLIO HOLDINGS: ${heldTickers || 'none yet'}
 SECTOR EXPOSURE: ${actual.toFixed(1)}% actual${target != null ? ` | ${target}% target | ${gap}pp gap to close` : ''}
-
+${recentBlock}
 Suggest exactly 3-4 publicly traded stocks in the ${exploreSector} sector that:
 1. Do NOT duplicate tickers already held above
 2. Fit a growth-oriented, long-duration investment style
 3. Have meaningful market cap (not micro-cap speculation unless highly relevant)
 4. Would meaningfully increase ${exploreSector} exposure
 
+You are not restricted to this app's tracked universe — recommend the names that genuinely best fit this gap. Do not default to large, generically "safe" names (e.g. broad mega-cap tech or diversified conglomerates) unless a specific thematic or risk-reduction rationale, grounded in what you find via search, actually calls for that kind of name over a more targeted one.
+
+${jsonOnlyRule}
 Respond ONLY with a valid JSON array, no markdown, no explanation outside the array:
 [
   {
     "ticker": "TICKER",
-    "rationale": "One concise sentence explaining why this fits the portfolio and sector gap.",
+    "rationale": "2-3 sentences: why this fits the sector gap specifically, one concrete consideration (a catalyst, competitive position, or risk), and how it's differentiated from the more obvious/larger name in this sector — drawn from what you find via search.",
     "marketCapRange": "e.g. $5B–$15B mid-cap"
   }
 ]`;
@@ -1053,6 +1073,7 @@ interface RequestBody {
   subSectorActuals?: Record<string, number>;
   projectedTargets?: Record<string, number | null>;
   exploreSector?: string;
+  recentlySuggested?: string[];   // NEW: tickers already surfaced in recent sector_explore runs for this sector — de-repeat signal
   cashContext?: CashContext;      // NEW: present whenever cash is set
   preferences?: InvestorPreferences; // NEW: standing risk/style profile
   themePreferences?: ThemePreferences;      // NEW: directional macro-theme conviction (cash_deploy + macro_risk)
@@ -1114,13 +1135,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     max_tokens = hasProfile ? 1400 : 900;
   } else {
     prompt = buildSectorExplorePrompt(body);
-    max_tokens = 600;
+    max_tokens = 1000;
   }
 
-  // Web search grounding is scoped to the two new-idea request types only —
-  // cash_deploy and macro_risk. Every other type stays tool-free (no added
-  // latency, no multi-block response handling needed).
-  const useWebSearch = type === 'cash_deploy' || type === 'macro_risk';
+  // Web search grounding is scoped to the new-idea request types —
+  // cash_deploy, macro_risk, and sector_explore. Every other type stays
+  // tool-free (no added latency, no multi-block response handling needed).
+  const useWebSearch = type === 'cash_deploy' || type === 'macro_risk' || type === 'sector_explore';
 
   try {
     const requestBody: Record<string, unknown> = {
@@ -1152,7 +1173,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // server_tool_use / web_search_tool_result blocks with text blocks — so
     // filter for text and join. Tool-free types keep the original single-block
     // read (they never produce anything but one text block).
-    const result = useWebSearch
+    let result = useWebSearch
       ? (data.content ?? [])
           .filter((block: any) => block.type === 'text')
           .map((block: any) => block.text)
@@ -1160,8 +1181,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       : data.content?.[0]?.text ?? '';
 
     if (type === 'sector_explore') {
+      // Web search is enabled for sector_explore, so the joined text can carry
+      // incidental preamble around the JSON array. Slice from the first '[' to
+      // the last ']' before parsing so a stray word degrades gracefully rather
+      // than failing the whole request. (General robustness pattern — reuse for
+      // any future JSON-returning request type that also gets web search.)
+      const start = result.indexOf('[');
+      const end = result.lastIndexOf(']');
+      const jsonSlice = start !== -1 && end !== -1 ? result.slice(start, end + 1) : result;
       try {
-        JSON.parse(result);
+        JSON.parse(jsonSlice);
+        result = jsonSlice; // use the trimmed version downstream too
       } catch {
         return res.status(500).json({ error: 'Model returned invalid JSON. Try again.' });
       }

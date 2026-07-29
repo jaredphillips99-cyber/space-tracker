@@ -1179,3 +1179,64 @@ SPECULATIVE/SEDAR_ONLY/TRAINING_ONLY).
 verified fixed by code inspection (map lookup at StockDetail.tsx:170-171).
 
 **Files modified:** src/components/StockDetail.tsx · scripts/newswire.mjs · CLAUDE.md
+
+---
+
+### July 28, 2026 (patch 4) — Sharpen sector_explore: web search + conviction + recent-suggestion exclusion + deeper rationale
+
+**Why:** `sector_explore` produced recurring tickers, ignored theme/sector
+conviction, and gave shallow one-sentence rationales. Root-caused against three
+specific gaps (NOT `cash_deploy`, which already handled all three correctly
+since the July 22 fixes):
+  1. **Recurring tickers** — `sector_explore` was the only new-idea request
+     type WITHOUT the `web_search_20250305` tool. It called `buildFreshnessBlock()`
+     with no arg (no-live-access branch), so it reasoned from frozen training
+     priors every call — same inputs, same output.
+  2. **Ignored conviction** — server: `buildSectorExplorePrompt` never called
+     `buildThemeBlock()`. Client: `runSectorExplore()` never sent
+     `themePreferences`/`themeActuals`/`sectorConviction` (unlike `runCashDeploy()`
+     directly above it).
+  3. **Shallow rationale** — `max_tokens: 600` + an explicit "One concise
+     sentence" instruction in both prompt branches.
+
+**Server (`api/portfolio.ts`):** `buildSectorExplorePrompt` now prepends
+`buildThemeBlock(themePreferences, themeActuals, sectorConviction, positions)`
+(same position as `buildCashDeployPrompt`) and calls `buildFreshnessBlock(true)`
+in both fund/non-fund branches. Rationale instruction deepened to 2-3 sentences
+(sector fit + one concrete consideration + non-fund: differentiation from the
+obvious larger name). Non-fund branch gained the "not restricted to tracked
+universe / don't default to generic mega-caps" language from `cash_deploy`. New
+optional `recentlySuggested?: string[]` on `RequestBody` → emits a "PREVIOUSLY
+SUGGESTED FOR THIS SECTOR" exclusion block (prefer a different name unless one
+is clearly the single best fit). `max_tokens` 600 → 1000. `useWebSearch` now
+includes `sector_explore`.
+
+**JSON-parsing hardening (general robustness, not sector_explore-specific):**
+with web search on, the joined text can carry incidental preamble around the
+JSON array, and a stray sentence of search narration would break `JSON.parse`.
+Two defenses: (a) an explicit "use search silently, respond with nothing but the
+JSON array" instruction in both branches; (b) the handler now slices from the
+first `[` to the last `]` before parsing (`const result` → `let result`, uses
+the trimmed slice downstream). Reuse this slice pattern for any future
+JSON-returning request type that also gets web search.
+
+**Client (`src/components/compare/PortfolioTab.tsx`):** `runSectorExplore()`
+now sends `themeActuals`/`themePreferences`/`sectorConviction` (copied from
+`runCashDeploy`) plus `recentlySuggested: getRecentSuggestions(sector)`. New
+sessionStorage-backed recent-suggestion tracker (`RECENT_EXPLORE_KEY =
+'portfolio_recent_explore_v1'`, `getRecentSuggestions`/`pushRecentSuggestions`,
+capped 6/sector, keyed by sector) — ephemeral, not synced, matching the tab's
+sessionStorage convention. `pushRecentSuggestions(sector, parsed.map(s =>
+s.ticker))` runs after a successful parse.
+
+**Privacy:** untouched — only `themeActuals`/stance enums + a ticker string
+array added to the payload; no dollars/shares. Portfolio-tab percentage-only
+rule holds.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Behavior change
+(picks vary across repeated same-sector explores; JSON path survives search
+narration; AVOID conviction excludes a sector) depends on live model output —
+verify by running explore twice for one underweight sector post-deploy.
+
+**Files modified:** api/portfolio.ts · src/components/compare/PortfolioTab.tsx ·
+  CLAUDE.md

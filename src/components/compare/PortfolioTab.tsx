@@ -50,6 +50,36 @@ function saveSession(data: SessionCache) {
   } catch {}
 }
 
+// ─── Recent sector-explore suggestions (ephemeral, sessionStorage) ────────────
+// Tracks the last few tickers surfaced per sector so repeated explores can ask
+// the model to vary its picks. Not synced — purely a soft de-repeat signal,
+// consistent with the rest of Portfolio-tab ephemeral state living in
+// sessionStorage. Keyed by sector; capped at 6 tickers per sector.
+const RECENT_EXPLORE_KEY = 'portfolio_recent_explore_v1';
+
+function getRecentSuggestions(sector: string): string[] {
+  try {
+    const raw = sessionStorage.getItem(RECENT_EXPLORE_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    return Array.isArray(map[sector]) ? map[sector] : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushRecentSuggestions(sector: string, tickers: string[]) {
+  try {
+    const raw = sessionStorage.getItem(RECENT_EXPLORE_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    const merged = [...tickers, ...(map[sector] ?? [])];
+    const deduped = Array.from(new Set(merged)).slice(0, 6);
+    map[sector] = deduped;
+    sessionStorage.setItem(RECENT_EXPLORE_KEY, JSON.stringify(map));
+  } catch {
+    // sessionStorage unavailable — silently skip, this is a soft enhancement
+  }
+}
+
 // Read-only accessor for the anonymous-session portfolio, used by the Net Worth
 // tab to derive the linked "Portfolio holdings" value without duplicating the
 // session key or TTL logic here.
@@ -1261,12 +1291,17 @@ export default function PortfolioTab({
           preferences: investorPreferences,
           sectorTargets: hasTargets ? sectorTargets : undefined,
           sectorActuals: hasTargets ? getSectorActuals(computed) : undefined,
+          themeActuals: getThemeActuals(computed),
+          themePreferences,
+          sectorConviction,
+          recentlySuggested: getRecentSuggestions(sector),
         }),
       });
       if (!res.ok) { const err = await res.json(); throw new Error(err.error ?? 'API error'); }
       const { result } = await res.json();
       const parsed: ExploreSuggestion[] = JSON.parse(result);
       setExploreSuggestions(parsed);
+      pushRecentSuggestions(sector, parsed.map(s => s.ticker));
     } catch (e: unknown) {
       setExploreError(e instanceof Error ? e.message : 'Failed to load suggestions');
     } finally {
@@ -1286,13 +1321,18 @@ export default function PortfolioTab({
   const subSectorActuals = getSubSectorActuals(computed);
   const themeActuals = getThemeActuals(computed);
   const subThemeActuals = getSubThemeActuals(computed);
-  const simImpact = getSimSectorImpact(sectorActuals);
   // totalValue = positions market value only (not including cash)
   const totalValue = computed.reduce((s, p) => s + (p.currentValue ?? 0), 0);
   const effectiveTotalValue = totalValue + (cashAmount > 0 ? cashAmount : 0);
   // cashWeightPct = cash as % of the expanded portfolio
+  // NOTE: this must be declared BEFORE simImpact below — getSimSectorImpact()
+  // reads cashWeightPct synchronously when cashMode is true, and as a `const`
+  // it's in the temporal dead zone until this line runs. Declaring it after
+  // simImpact caused "Cannot access 'cashWeightPct' before initialization"
+  // any time a user simulated a stock while in $ CASH mode. Fixed July 22, 2026.
   const cashWeightPct = effectiveTotalValue > 0 && cashAmount > 0
     ? (cashAmount / effectiveTotalValue) * 100 : 0;
+  const simImpact = getSimSectorImpact(sectorActuals);
   // Share count estimate for sim ticker in cash mode
   const cashSimShares = cashMode && simLive.price != null && simLive.price > 0 && cashAmount > 0
     ? Math.floor(cashAmount / simLive.price) : null;
