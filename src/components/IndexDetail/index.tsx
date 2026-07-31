@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { SECTOR_COLORS, SECTOR_LABELS } from '../../types';
 import type { Sector } from '../../types';
@@ -51,27 +51,46 @@ function LineChart({ rows, color }: { rows: IndexHistoryRow[]; color: string }) 
   const height = 300;
   const padX = 8;
   const padY = 16;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
-  const { path, area, min, max, first, last } = useMemo(() => {
+  const { path, area, min, max, first, last, pts, stepX } = useMemo(() => {
     if (rows.length < 2) {
-      return { path: '', area: '', min: 0, max: 0, first: null as IndexHistoryRow | null, last: null as IndexHistoryRow | null };
+      return {
+        path: '', area: '', min: 0, max: 0,
+        first: null as IndexHistoryRow | null, last: null as IndexHistoryRow | null,
+        pts: [] as (readonly [number, number])[], stepX: 0,
+      };
     }
     const vals = rows.map((r) => r.value);
     const lo = Math.min(...vals);
     const hi = Math.max(...vals);
     const span = hi - lo || 1;
-    const stepX = (width - padX * 2) / (rows.length - 1);
-    const pts = rows.map((r, i) => {
-      const x = padX + i * stepX;
+    const step = (width - padX * 2) / (rows.length - 1);
+    const points = rows.map((r, i) => {
+      const x = padX + i * step;
       const y = padY + (height - padY * 2) * (1 - (r.value - lo) / span);
       return [x, y] as const;
     });
-    const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+    const line = points.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
     const areaPath =
-      `${line} L${pts[pts.length - 1][0].toFixed(1)},${(height - padY).toFixed(1)}` +
-      ` L${pts[0][0].toFixed(1)},${(height - padY).toFixed(1)} Z`;
-    return { path: line, area: areaPath, min: lo, max: hi, first: rows[0], last: rows[rows.length - 1] };
+      `${line} L${points[points.length - 1][0].toFixed(1)},${(height - padY).toFixed(1)}` +
+      ` L${points[0][0].toFixed(1)},${(height - padY).toFixed(1)} Z`;
+    return {
+      path: line, area: areaPath, min: lo, max: hi,
+      first: rows[0], last: rows[rows.length - 1],
+      pts: points, stepX: step,
+    };
   }, [rows]);
+
+  function handleMove(e: React.MouseEvent<SVGSVGElement>) {
+    if (!svgRef.current || rows.length < 2) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    // Map screen X to viewBox X (viewBox width is fixed at `width`, independent of rendered width).
+    const relX = ((e.clientX - rect.left) / rect.width) * width;
+    const idx = Math.round((relX - padX) / stepX);
+    setHoverIdx(Math.max(0, Math.min(rows.length - 1, idx)));
+  }
 
   if (rows.length < 2) {
     return (
@@ -85,10 +104,23 @@ function LineChart({ rows, color }: { rows: IndexHistoryRow[]; color: string }) 
   }
 
   const gradId = `idx-grad-${color.replace('#', '')}`;
+  const hover = hoverIdx != null ? rows[hoverIdx] : null;
+  const hoverPt = hoverIdx != null ? pts[hoverIdx] : null;
+  // Flip the tooltip to the left side once the crosshair passes the chart's midpoint,
+  // so it never renders clipped off the right edge.
+  const tooltipOnLeft = hoverPt != null && hoverPt[0] > width / 2;
 
   return (
     <div className="rounded overflow-hidden" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)' }}>
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display: 'block' }} preserveAspectRatio="none">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${width} ${height}`}
+        width="100%"
+        style={{ display: 'block', cursor: 'crosshair' }}
+        preserveAspectRatio="none"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.22" />
@@ -97,6 +129,26 @@ function LineChart({ rows, color }: { rows: IndexHistoryRow[]; color: string }) 
         </defs>
         <path d={area} fill={`url(#${gradId})`} />
         <path d={path} fill="none" stroke={color} strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" />
+
+        {hoverPt && (
+          <>
+            <line
+              x1={hoverPt[0]} y1={padY} x2={hoverPt[0]} y2={height - padY}
+              stroke="var(--text-muted)" strokeWidth={1} strokeDasharray="3,3" opacity={0.6}
+            />
+            <circle cx={hoverPt[0]} cy={hoverPt[1]} r={4} fill={color} stroke="var(--bg-surface)" strokeWidth={1.5} />
+            {/* Tooltip box, kept inside the viewBox on both axes. */}
+            <g transform={`translate(${tooltipOnLeft ? hoverPt[0] - 132 : hoverPt[0] + 10}, ${Math.max(padY, Math.min(hoverPt[1] - 34, height - padY - 44))})`}>
+              <rect width={122} height={40} rx={4} fill="var(--bg-elevated)" stroke="var(--border)" strokeWidth={1} />
+              <text x={10} y={16} fill="var(--text-secondary)" fontSize={10} fontFamily="Space Mono, monospace">
+                {hover?.date}
+              </text>
+              <text x={10} y={31} fill="var(--text-primary)" fontSize={13} fontWeight={700} fontFamily="Space Mono, monospace">
+                {hover?.value.toFixed(2)}
+              </text>
+            </g>
+          </>
+        )}
       </svg>
       <div className="flex items-center justify-between px-3 py-1.5" style={{ borderTop: '1px solid var(--border-muted)' }}>
         <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, color: 'var(--text-muted)' }}>

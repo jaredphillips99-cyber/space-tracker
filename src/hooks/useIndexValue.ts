@@ -4,7 +4,7 @@ import { useStore } from '../store/useStore';
 import {
   INDEX_NAMES,
   computeIndexValue,
-  tickersForIndex,
+  eligibleTickersForIndex,
   type IndexName,
   type IndexConstituentInput,
   type PerTickerContribution,
@@ -81,8 +81,9 @@ export function useIndexValues(): {
 
   const values = useMemo(() => {
     const out = {} as Record<IndexName, LiveIndexValue>;
+    const todayISODate = new Date().toISOString().split('T')[0];
     for (const name of INDEX_NAMES) {
-      const constituents = tickersForIndex(name)
+      const constituents = eligibleTickersForIndex(name, todayISODate)
         .map((t) => liveConstituent(t, prices[t]))
         .filter((c): c is IndexConstituentInput => c != null);
 

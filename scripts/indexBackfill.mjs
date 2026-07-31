@@ -32,6 +32,7 @@ import YahooFinance from 'yahoo-finance2';
 import {
   ALL_TICKERS,
   INDEX_NAMES,
+  INDEX_BASE_DATE,
   tickersForIndex,
   isEligible,
   computeIndexValue,
@@ -111,24 +112,38 @@ async function main() {
   const constituentRows = [];
 
   // Iterate each index independently, carrying its divisor + present set.
+  //
+  // Divisor anchoring: base=100 must land on INDEX_BASE_DATE, not on whatever
+  // date happens to be first in the trailing lookback window. dates before
+  // INDEX_BASE_DATE are walked BACKWARD from the anchor so the whole series is
+  // continuous and consistent with the live/cron path, which always seeds
+  // against INDEX_BASE_DATE too.
   for (const indexName of INDEX_NAMES) {
     const members = tickersForIndex(indexName);
-    let divisor = null;                 // null until the first populated date
-    let presentSet = new Set();
+    const datesAsc = dates; // already sorted ascending
+    const anchorIdx = datesAsc.findIndex((d) => d >= INDEX_BASE_DATE);
+    // Fallback: if no backfilled date reaches the base date yet (base date is
+    // in the future relative to the data), anchor on the last available date.
+    const safeAnchorIdx = anchorIdx === -1 ? datesAsc.length - 1 : anchorIdx;
 
-    for (const date of dates) {
-      const constituents = members
+    function buildConstituents(date, presentSet, divisorSet) {
+      return members
         .filter((t) => isEligible(t, date) && closeByDate[t].has(date) && loaded[t].shares > 0)
         .map((t) => ({
           ticker: t,
           price: closeByDate[t].get(date),
           sharesOutstanding: loaded[t].shares,
           prevClose: prevCloseAt[t].get(date) ?? 0,
-          // New entrant once the index is already established (divisor set) and
-          // this ticker wasn't in the prior populated date's set.
-          isNewEntrant: divisor != null && !presentSet.has(t),
+          isNewEntrant: divisorSet && !presentSet.has(t),
         }));
+    }
 
+    // Forward pass: anchor date → end of window.
+    let divisor = null;
+    let presentSet = new Set();
+    for (let i = safeAnchorIdx; i < datesAsc.length; i++) {
+      const date = datesAsc[i];
+      const constituents = buildConstituents(date, presentSet, divisor != null);
       if (constituents.length === 0) continue;
 
       const comp = computeIndexValue(constituents, divisor);
@@ -153,7 +168,63 @@ async function main() {
         });
       }
     }
-    console.log(`[backfill] ${indexName}: ${historyRows.filter((r) => r.index_name === indexName).length} daily rows`);
+    // Backward pass: anchor date → start of window, using the divisor
+    // established at the anchor, held fixed (no entrant/exit continuity
+    // adjustment walking backward — a ticker that simply doesn't have price
+    // history that far back, e.g. SPCX pre-IPO, just drops out of that date's
+    // numerator; this is already covered by the UI's "approximated, not exact
+    // reconstruction" caveat, same as the share-count approximation).
+    const anchorDivisor = divisor; // divisor as of the anchor date, from the forward pass above
+    for (let i = safeAnchorIdx - 1; i >= 0; i--) {
+      const date = datesAsc[i];
+      const constituents = buildConstituents(date, new Set(), false);
+      if (constituents.length === 0 || anchorDivisor == null) continue;
+
+      const comp = computeIndexValue(constituents, anchorDivisor);
+
+      historyRows.push({
+        date,
+        index_name: indexName,
+        value: comp.value,
+        divisor: anchorDivisor,
+        day_change_pct: comp.dayChangePct,
+      });
+      for (const c of comp.perTickerContribution) {
+        constituentRows.push({
+          date,
+          index_name: indexName,
+          ticker: c.ticker,
+          weight_pct: c.weightPct,
+          day_change_pct: c.dayChangePct,
+          contribution_pct: c.contributionPct,
+        });
+      }
+    }
+
+    console.log(`[backfill] ${indexName}: ${historyRows.filter((r) => r.index_name === indexName).length} daily rows (anchored ${datesAsc[safeAnchorIdx]})`);
+  }
+
+  // Completeness check: which of the 50 tracked tickers actually made it into
+  // the composite's most recent (anchor-date-or-later) constituent rows? A
+  // quote/chart fetch failure for any ticker silently drops it from every
+  // index it belongs to (see the per-ticker [warn] lines above) — this
+  // summary is the single place that would have caught the Cyber/megacap gap
+  // from the July 30 2026 float-on bug.
+  const latestCompositeDate = historyRows
+    .filter((r) => r.index_name === 'composite')
+    .reduce((max, r) => (r.date > max ? r.date : max), '');
+  const latestCompositeTickers = new Set(
+    constituentRows
+      .filter((r) => r.index_name === 'composite' && r.date === latestCompositeDate)
+      .map((r) => r.ticker),
+  );
+  const missing = ALL_TICKERS.filter((t) => !latestCompositeTickers.has(t));
+  console.log(
+    `[backfill] Composite completeness on ${latestCompositeDate || '(none written)'}: ` +
+    `${latestCompositeTickers.size}/${ALL_TICKERS.length} tracked tickers present.`,
+  );
+  if (missing.length > 0) {
+    console.warn(`[backfill] ⚠ MISSING from composite: ${missing.join(', ')} — check the [warn] lines above for why.`);
   }
 
   // Bulk upsert in pages.

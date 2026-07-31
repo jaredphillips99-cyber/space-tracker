@@ -61,21 +61,32 @@ export const INDEX_NAMES = ['composite', ...SUB_INDEX_NAMES];
 
 export const INDEX_BASE_VALUE = 100;
 
+// Mirrors src/lib/indexCalc.ts INDEX_BASE_DATE. The date the divisor is
+// anchored so value === 100 — NOT just "whatever the first backfilled date
+// happens to be" (that was the July 30 2026 bug: the backfill previously
+// seeded divisor=null on the first date in its trailing-365-day window,
+// silently rebasing "100" to a year before launch).
+export const INDEX_BASE_DATE = '2026-07-31';
+
 // ─── "Float on" — introduction month per ticker ───────────────────────────────
 // A ticker enters the index at the first available close AFTER the month it was
-// introduced to the app (per Jared: "include the stock in the next month after
-// it is introduced"). Tickers absent from this map were present from the base
-// date. The 20 names below were added in the July 28 2026 universe expansion
-// (31→50), so they float on from the first August 2026 close.
+// introduced to the app. Tickers absent from this map are eligible immediately.
 //
-// To make a name enter immediately instead, remove its entry here.
+// July 30 2026 (per Jared): the 20 July-28-expansion names were previously
+// gated to '2026-07' (eligible from Aug 1, 2026 — one day after
+// INDEX_BASE_DATE). That meant NONE of them were ever eligible during the
+// full 1-year backfill window (which ends before Aug 1) or on any date the
+// live index calc would run before Aug 1 — so the backfilled history and
+// composite were silently stuck at the old 31-ticker universe, and the LIVE
+// client-side calc (src/lib/indexCalc.ts, which does not apply this gate at
+// all) counted all 50, causing a large live-vs-history value mismatch and an
+// inflated apparent NVDA weight in the reduced 31-name backfilled set.
+// Per Jared: he wants all 50 tracked tickers included NOW, not gradually —
+// intro-month gate removed for all 20 names below the map stays here (empty)
+// as the pattern for any FUTURE universe expansion.
 const TICKER_INTRO_MONTH = {
-  SPCX: '2026-07',
-  MSFT: '2026-07', GOOGL: '2026-07', AMZN: '2026-07', META: '2026-07',
-  ANET: '2026-07', MU: '2026-07', SMCI: '2026-07', AVGO: '2026-07',
-  INTC: '2026-07', DELL: '2026-07',
-  PWR: '2026-07', ETN: '2026-07', EQIX: '2026-07', GNRC: '2026-07',
-  CRWD: '2026-07', PANW: '2026-07', NET: '2026-07', ZS: '2026-07', FTNT: '2026-07',
+  // (none currently — add 'TICKER: "YYYY-MM"' entries on the next universe
+  // expansion to float a new name on starting the following month)
 };
 
 /** First calendar date (UTC) a ticker becomes eligible: 1st of the month AFTER
@@ -283,6 +294,17 @@ async function main() {
       process.exitCode = 1;
       return;
     }
+  }
+
+  // Completeness check — surfaces a silent quote-failure drop immediately in
+  // the Action log instead of only being discoverable via the UI later.
+  const compositeTickers = new Set(
+    constituentRows.filter((r) => r.index_name === 'composite').map((r) => r.ticker),
+  );
+  const missing = ALL_TICKERS.filter((t) => !compositeTickers.has(t));
+  console.log(`[index] Composite completeness: ${compositeTickers.size}/${ALL_TICKERS.length} tracked tickers present.`);
+  if (missing.length > 0) {
+    console.warn(`[index] ⚠ MISSING from composite: ${missing.join(', ')} — check the [warn] lines above for why.`);
   }
 
   console.log(`[index] ✓ Wrote ${historyRows.length} index rows + ${constituentRows.length} constituent rows for ${runDate}`);

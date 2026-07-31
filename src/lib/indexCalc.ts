@@ -72,6 +72,36 @@ export function tickersForIndex(indexName: IndexName): string[] {
   return TICKERS.filter((t) => t.sectors[0] === indexName).map((t) => t.ticker);
 }
 
+// ─── "Float on" eligibility — mirrors scripts/indexCalc.mjs ──────────────────
+// July 30 2026 fix: the live client path previously had NO eligibility gate
+// at all, while the daily cron / backfill scripts did — so a not-yet-eligible
+// ticker (mid-float-on) would count in the live headline number but be absent
+// from stored history, producing a live-vs-chart value mismatch. Keep this
+// map in sync with scripts/indexCalc.mjs's TICKER_INTRO_MONTH by hand (same
+// duplication convention as TICKERS/COMPANY_ALIASES elsewhere in the app).
+const TICKER_INTRO_MONTH: Record<string, string> = {
+  // (none currently)
+};
+
+function eligibleFrom(ticker: string): Date | null {
+  const intro = TICKER_INTRO_MONTH[ticker];
+  if (!intro) return null;
+  const [y, m] = intro.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 1)); // m is 1-based; Date month index m === next month
+}
+
+export function isEligible(ticker: string, dateStr: string): boolean {
+  const from = eligibleFrom(ticker);
+  if (!from) return true;
+  return new Date(dateStr) >= from;
+}
+
+/** tickersForIndex(), filtered to only tickers eligible as of today. Use this
+ *  (not tickersForIndex directly) for any live/current-value computation. */
+export function eligibleTickersForIndex(indexName: IndexName, todayISODate: string): string[] {
+  return tickersForIndex(indexName).filter((t) => isEligible(t, todayISODate));
+}
+
 // ─── Calculation ──────────────────────────────────────────────────────────────
 
 export interface IndexConstituentInput {
