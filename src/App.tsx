@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { News } from './pages/News';
 import { Dashboard } from './pages/Dashboard';
 import { StockDetail } from './pages/StockDetail';
+import { IndexDetail } from './pages/IndexDetail';
 import { Portfolio } from './pages/Portfolio';
 import { NetWorth } from './pages/NetWorth';
 import { AuthGate } from './components/AuthGate';
@@ -47,6 +48,7 @@ function AppInner() {
           <Route path="/"              element={<News />} />
           <Route path="/dashboard"     element={<Dashboard />} />
           <Route path="/stock/:ticker" element={<StockDetail />} />
+          <Route path="/index/:indexName" element={<ErrorBoundary label="Index"><IndexDetail /></ErrorBoundary>} />
           <Route path="/portfolio"     element={<ErrorBoundary label="Portfolio"><Portfolio /></ErrorBoundary>} />
           <Route path="/networth"      element={<ErrorBoundary label="Net Worth"><NetWorth /></ErrorBoundary>} />
           <Route path="/admin"         element={<AuthGate />} />

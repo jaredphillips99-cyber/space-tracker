@@ -300,6 +300,12 @@ src/hooks/useNetWorthSync.ts                   accounts table sync — debounced
 src/hooks/useFinancialProfile.ts               optional income/savings/goal profile — mirrors useNetWorthSync.ts pattern
 src/components/networth/NetWorthTab.tsx        net worth aggregation + financial profile panel + AI analysis card
 src/components/AuthGate.tsx                    admin magic-link login screen (/admin route)
+src/lib/indexCalc.ts                           AI Index pure math (computeIndexValue) + membership by primary sector
+src/hooks/useIndexValue.ts                     live index values (client-side) + history + constituent fetchers
+src/components/IndexTicker/index.tsx           News-tab AI Index widget (composite hero + sub-index pills + sparkline)
+src/components/IndexDetail/index.tsx           /index/:indexName drill-down — SVG chart + constituent table
+scripts/indexCalc.mjs                          daily index close writer (post-market cron); exports helpers for backfill
+scripts/indexBackfill.mjs                      one-time manual ~1yr history backfill (approx caps); NOT in CI
 
 Deleted — do not recreate:
   src/pages/Compare.tsx
@@ -1174,6 +1180,10 @@ SPECULATIVE/SEDAR_ONLY/TRAINING_ONLY).
      SECTOR_LABELS/COLORS, and the Layout SECTORS pill array (only on new pill)
   5. `src/components/StockDetail.tsx` — CIK_MAP + SECTOR_COLOR_MAP/SECTOR_LABEL_MAP
   6. `scripts/newswire.mjs` — TICKERS + COMPANY_ALIASES
+  7. `scripts/indexCalc.mjs` — PRIMARY_SECTOR map (+ TICKER_INTRO_MONTH for any
+     newly-added ticker, so it "floats on" the AI Index the next month). Added
+     July 30 2026 with the AI Index feature. `src/lib/indexCalc.ts` derives
+     membership from tickers.ts directly and needs no manual edit.
 
 **Verification:** `npx tsc --noEmit` and `npm run build` pass. Runtime CIK gap
 verified fixed by code inspection (map lookup at StockDetail.tsx:170-171).
@@ -1324,3 +1334,107 @@ manual-balance crypto row is unaffected.
   src/components/networth/AddAccountPanel.tsx ·
   src/components/networth/NetWorthTab.tsx · api/prices.ts · api/portfolio.ts ·
   CLAUDE.md
+
+---
+
+### July 30, 2026 — AI Index (composite + 5 sub-indices), zero-API market-cap index
+
+**What:** a market-cap-weighted index layer — one composite "AI Index" across
+the full tracked universe plus one sub-index per dashboard sector pill (Space,
+AI Infrastructure, Defense, Clean Energy, Cyber). Pure math on data already
+fetched by useLivePrice() — ZERO Claude API cost, no new external API. Same
+weighting principle as the S&P 500: `value = Σ(price × sharesOutstanding) /
+divisor`, uncapped, divisor absorbs constituent changes so the value never
+jumps when a ticker floats on. Base = 100 on `INDEX_BASE_DATE` ('2026-07-31').
+
+**Membership — PRIMARY sector only (do NOT use crossover tags).** A ticker
+belongs to exactly one sub-index (its `ticker.sectors[0]`) and to the composite
+once. Verified programmatically that the scripts/indexCalc.mjs `PRIMARY_SECTOR`
+duplicate matches `tickers.ts` sectors[0] for all 50 tickers, and that the five
+sub-index counts (space 9 · ai_infrastructure 23 · defense 3 · clean_energy 10 ·
+cyber 5) sum to exactly 50 = composite (no double-counting). NOTE: the
+index_name enum values ARE the dashboard Sector values, NOT gics.ts sectors —
+the sub-indices follow the dashboard pills, membership by primary dashboard
+sector.
+
+**"Float on" rule (per Jared: "include the stock in the next month after it is
+introduced").** A newly-added ticker enters at the first close AFTER its
+introduction month; the divisor is recalculated at entry so the value doesn't
+jump, and the entrant is excluded from that day's day-change basis (no prior
+in-index close). `TICKER_INTRO_MONTH` in scripts/indexCalc.mjs currently tags
+the 20 July-2026 universe-expansion names ('2026-07' → they float on from the
+first Aug 2026 close); original-universe names have no intro and are present
+from the base date. Remove a name's entry to make it enter immediately.
+
+**Pure calc module (`src/lib/indexCalc.ts`)** mirrors the rankFrontPage()
+pattern — I/O-free, unit-testable `computeIndexValue()`. Verified: base seeds to
+100, day-change and per-ticker contributions sum correctly, and a new entrant
+leaves the index value continuous. scripts/indexCalc.mjs re-implements the same
+math (plain .mjs can't import .ts — the established TICKERS/COMPANY_ALIASES
+duplication convention); scripts/indexBackfill.mjs imports the helpers from
+indexCalc.mjs (.mjs→.mjs) rather than a third copy — indexCalc.mjs guards its
+`main()` with an `import.meta.url === file://argv[1]` check and creates its
+Supabase client inside main() so importing it is side-effect-free.
+
+**Live headline number is client-side, NOT read from index_history.**
+`useIndexValue.ts` (`useIndexValues`) computes composite + 5 sub-index values in
+-browser from the store's already-fetched prices (marketCap/price → shares,
+price − change → prevClose) against the most recent STORED divisor from
+index_history. index_history is only for the historical chart + prior closes.
+Before any divisor is stored the value bootstraps to 100 (graceful, flagged
+`isBootstrapped`). Same file also exports `useIndexHistory` (chart/sparkline)
+and `useIndexConstituents` (drill-down table).
+
+**Charts are hand-rolled inline SVG — deliberately NO charting dependency.**
+This project hand-rolls to avoid deps (see the RSS parser); package.json has no
+chart lib and "Stack — Do Not Deviate Without Discussion" applies. Both the
+30-day sparkline (IndexTicker) and the 1M/3M/1Y line chart (IndexDetail) are
+plain SVG polylines. If a charting lib is ever wanted, that's a separate stack
+discussion.
+
+**UI:** `IndexTicker` widget mounts on the News tab (`/`) above Lead Stories —
+composite hero (value + day% + sparkline) + 5 clickable sub-index pills. New
+route `/index/:indexName` (composite | space | ai_infrastructure | defense |
+clean_energy | cyber), wrapped in ErrorBoundary, → `IndexDetail`
+(pages/IndexDetail.tsx re-exports components/IndexDetail, same split as
+StockDetail). Detail page: header, range toggle, SVG line chart, sortable
+constituent-contribution table (TICKER · WEIGHT% · DAY% · CONTRIBUTION pp,
+default sort by contribution), and the current-share-count approximation caveat
+text. Composite accent = brand cyan; sub-indices reuse SECTOR_COLORS.
+
+**Daily persistence — piggybacks the Daily Newswire cron.** Added a "Run index
+calc (post-market close only)" step to `.github/workflows/newswire.yml`, gated
+`if: github.event.schedule == '0 21 * * 1-5' || workflow_dispatch` so it fires
+ONLY on the 5pm-ET leg (one daily close, not two) + manual runs. Gets only
+SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY — no ANTHROPIC_API_KEY.
+
+**Backfill (`scripts/indexBackfill.mjs`) — run MANUALLY once, NOT in CI.**
+Fetches ~1yr daily closes (yahoo-finance2 chart), approximates historical cap as
+CURRENT shares × historical close (flagged in code + UI caveat), applies the
+same float-on rule, bulk-upserts ~252 days × 6 indices. Needs no API key.
+
+**Migration handed off (NOT run by Claude Code):**
+`supabase_migration_index_history.sql` — `index_history` + `index_constituents`
+tables, `(index_name, date)` indexes, RLS mirroring newswire_items (public
+SELECT, service_role write). MUST be applied in the Supabase SQL Editor before
+the first index cron fires or the write fails on the missing tables.
+
+**Privacy:** untouched — index math reads only public market data; no
+dollars/shares of the user's own holdings anywhere.
+
+**Verification:** `npx tsc --noEmit` + `npm run build` pass. Pure-math and
+membership unit-checks pass (see above). Browser-verified locally (dummy
+Supabase env, no /api/prices): News shows the widget with all 6 indices,
+`/index/composite` (50 constituents) + `/index/cyber` (5, SUB-INDEX badge)
+render with correct empty/bootstrap states, invalid `/index/bogus` shows the
+unknown-index guard, no console errors. Live values + history are NOT locally
+verifiable (needs the Vercel /api/prices function + real Supabase) — post-deploy:
+apply the migration, run `node scripts/indexBackfill.mjs` once, confirm the
+widget shows non-zero values and the chart draws after the first cron/backfill.
+
+**Files created:** src/lib/indexCalc.ts · src/hooks/useIndexValue.ts ·
+  src/components/IndexTicker/index.tsx · src/components/IndexDetail/index.tsx ·
+  src/pages/IndexDetail.tsx · scripts/indexCalc.mjs · scripts/indexBackfill.mjs ·
+  supabase_migration_index_history.sql
+**Files modified:** src/App.tsx · src/components/NewsFeed/index.tsx ·
+  .github/workflows/newswire.yml · CLAUDE.md

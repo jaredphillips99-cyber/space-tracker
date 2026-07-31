@@ -31,3 +31,14 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/newswire.mjs
+
+      # AI Index daily close — post-market leg only (5pm ET / 21:00 UTC), plus
+      # manual dispatch. The index is a single daily close value, so it must NOT
+      # also run on the 8:30am ET pre-market leg. Zero Claude cost — no
+      # ANTHROPIC_API_KEY needed.
+      - name: Run index calc (post-market close only)
+        if: ${{ github.event.schedule == '0 21 * * 1-5' || github.event_name == 'workflow_dispatch' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/indexCalc.mjs

@@ -7,6 +7,7 @@ import { useNewsArchive } from '../../hooks/useNewsArchive';
 import { sentimentColor } from '../../hooks/useNewswire';
 import { rankFrontPage } from '../../lib/newsRanking';
 import type { NewsStory } from '../../lib/newsRanking';
+import { IndexTicker } from '../IndexTicker';
 
 // ─── Relative time ────────────────────────────────────────────────────────────
 function relativeTime(iso: string): string {
@@ -234,6 +235,9 @@ export function NewsFeed() {
             Space economy, AI infrastructure, defense & clean energy
           </p>
         </div>
+
+        {/* AI Index — live composite + sub-index widget (zero extra fetches) */}
+        <IndexTicker />
 
         {/* Error (inline, non-fatal) */}
         {error && (
