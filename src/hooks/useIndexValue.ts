@@ -13,37 +13,52 @@ import {
 // ─── Live (intraday) index values ─────────────────────────────────────────────
 // Computed client-side on every page load from the already-fetched
 // useLivePrice() store data (hoisted at App level — zero extra fetches), using
-// the SAME indexCalc.ts logic against the most recent STORED divisor from
-// index_history. index_history is only for the historical chart / prior closes,
-// never the live headline number.
+// the SAME indexCalc.ts logic against each ticker's most recent STORED
+// base_price/base_allocation from index_constituents. index_history/
+// index_constituents are only for the historical chart / prior state, never
+// used to short-circuit the live headline number itself.
+//
+// July 31 2026 rewrite: the index is now equal-weight, buy-and-hold (see
+// src/lib/indexCalc.ts header). There is no longer a single shared "divisor"
+// per index — each ticker carries its own basePrice/baseAllocation, looked up
+// per-ticker below instead of a single per-index row.
 
 export interface LiveIndexValue {
   name: IndexName;
   value: number;
   dayChangePct: number;
-  // True when no stored divisor exists yet (before the first cron/backfill
-  // write): the value is bootstrapped to 100 from current caps so the widget
-  // renders gracefully rather than blank.
+  // True when no stored base exists yet for ANY constituent (before the first
+  // cron/backfill write): the value is bootstrapped fresh from current prices
+  // so the widget renders gracefully rather than blank.
   isBootstrapped: boolean;
 }
 
-interface LatestDivisorRow {
+interface LatestBaseRow {
   index_name: string;
-  divisor: number;
+  ticker: string;
+  base_price: number | null;
+  base_allocation: number | null;
   date: string;
 }
 
-// Build a live constituent from store price data. sharesOutstanding is derived
-// from marketCap / price (marketCap === price × shares); prevClose from
-// price − change (change is the absolute $ move vs the prior close).
+// Build a live constituent from store price data + a looked-up base.
+// prevClose is derived from price − change (change is the absolute $ move vs
+// the prior close). No sharesOutstanding/marketCap needed anymore — equal-
+// weight math only uses price.
 function liveConstituent(
   ticker: string,
-  price: { price: number; marketCap?: number; change: number } | undefined,
+  price: { price: number; change: number } | undefined,
+  base: LatestBaseRow | undefined,
 ): IndexConstituentInput | null {
-  if (!price || !price.price || price.price <= 0 || !price.marketCap) return null;
-  const sharesOutstanding = price.marketCap / price.price;
+  if (!price || !price.price || price.price <= 0) return null;
   const prevClose = price.price - price.change;
-  return { ticker, price: price.price, sharesOutstanding, prevClose };
+  return {
+    ticker,
+    price: price.price,
+    prevClose,
+    basePrice: base?.base_price ?? null,
+    baseAllocation: base?.base_allocation ?? null,
+  };
 }
 
 export function useIndexValues(): {
@@ -51,30 +66,30 @@ export function useIndexValues(): {
   loading: boolean;
 } {
   const prices = useStore((s) => s.prices);
-  const [divisors, setDivisors] = useState<Record<string, LatestDivisorRow> | null>(null);
+  const [bases, setBases] = useState<Record<string, LatestBaseRow> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    // Pull the newest row per index. Ordering by date desc and taking the first
-    // occurrence of each index_name yields the latest stored divisor.
+    // Pull the newest constituent row per (index_name, ticker) — this carries
+    // each ticker's fixed base_price/base_allocation for that index.
     supabase
-      .from('index_history')
-      .select('index_name, divisor, date')
+      .from('index_constituents')
+      .select('index_name, ticker, base_price, base_allocation, date')
       .order('date', { ascending: false })
-      .limit(INDEX_NAMES.length * 3)
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) {
-          console.info('[index] latest-divisor load: error', { message: error.message });
-          setDivisors({});
+          console.info('[index] latest-base load: error', { message: error.message });
+          setBases({});
           return;
         }
-        const latest: Record<string, LatestDivisorRow> = {};
-        for (const row of (data ?? []) as LatestDivisorRow[]) {
-          if (!latest[row.index_name]) latest[row.index_name] = row;
+        const latest: Record<string, LatestBaseRow> = {};
+        for (const row of (data ?? []) as LatestBaseRow[]) {
+          const key = `${row.index_name}::${row.ticker}`;
+          if (!latest[key]) latest[key] = row;
         }
-        console.info('[index] latest-divisor load: success', { indices: Object.keys(latest).length });
-        setDivisors(latest);
+        console.info('[index] latest-base load: success', { rows: Object.keys(latest).length });
+        setBases(latest);
       });
     return () => { cancelled = true; };
   }, []);
@@ -83,23 +98,24 @@ export function useIndexValues(): {
     const out = {} as Record<IndexName, LiveIndexValue>;
     const todayISODate = new Date().toISOString().split('T')[0];
     for (const name of INDEX_NAMES) {
-      const constituents = eligibleTickersForIndex(name, todayISODate)
-        .map((t) => liveConstituent(t, prices[t]))
+      const eligibleTickers = eligibleTickersForIndex(name, todayISODate);
+      const constituents = eligibleTickers
+        .map((t) => liveConstituent(t, prices[t], bases?.[`${name}::${t}`]))
         .filter((c): c is IndexConstituentInput => c != null);
 
-      const storedDivisor = divisors?.[name]?.divisor ?? null;
-      const comp = computeIndexValue(constituents, storedDivisor ?? null);
+      const anyBase = eligibleTickers.some((t) => bases?.[`${name}::${t}`]?.base_price != null);
+      const comp = computeIndexValue(constituents);
       out[name] = {
         name,
         value: comp.value,
         dayChangePct: comp.dayChangePct,
-        isBootstrapped: storedDivisor == null,
+        isBootstrapped: bases != null && !anyBase,
       };
     }
     return out;
-  }, [prices, divisors]);
+  }, [prices, bases]);
 
-  return { values, loading: divisors === null };
+  return { values, loading: bases === null };
 }
 
 // ─── Historical series (for charts / sparklines) ──────────────────────────────

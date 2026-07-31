@@ -322,7 +322,7 @@ export function IndexDetail() {
         </div>
 
         <p className="mb-5" style={{ fontFamily: 'DM Sans, sans-serif', color: 'var(--text-muted)', fontSize: 12 }}>
-          Market-cap weighted · base 100 on {INDEX_BASE_DATE} · {memberCount} constituent{memberCount === 1 ? '' : 's'} (primary sector only)
+          Equal-weight, buy-and-hold · base 100 on {INDEX_BASE_DATE} · {memberCount} constituent{memberCount === 1 ? '' : 's'} (primary sector only)
           {live?.isBootstrapped ? ' · live value shown; historical series not yet written' : ''}
         </p>
 
@@ -363,12 +363,13 @@ export function IndexDetail() {
         </div>
         <ConstituentTable rows={constituents} indexName={name} />
 
-        {/* Approximation caveat */}
+        {/* Methodology note */}
         <p className="mt-4" style={{ fontFamily: 'DM Sans, sans-serif', color: 'var(--text-dim)', fontSize: 11, lineHeight: 1.6 }}>
-          Historical values before {INDEX_BASE_DATE} are approximated using each constituent's current
-          share count applied to its historical daily close — share counts drift over time, so
-          pre-launch weighting is an estimate, not an exact reconstruction. Values from {INDEX_BASE_DATE}{' '}
-          onward are computed from the market caps captured at each daily close.
+          Each constituent is given an equal initial allocation on {INDEX_BASE_DATE} and is never
+          rebalanced afterward — a constituent's weight drifts over time based on its own price
+          return, so a strong performer will naturally grow its share of the index. A ticker that
+          joined the tracked universe after {INDEX_BASE_DATE} enters the index on its own first
+          available trading day, sized so the index value does not jump at the moment of entry.
         </p>
       </div>
     </div>

@@ -5,21 +5,33 @@
  * once, then never again — this is NOT wired into GitHub Actions (the daily
  * scripts/indexCalc.mjs handles ongoing writes).
  *
- * For each tracked ticker it fetches 1 year of daily closes (yahoo-finance2
- * historical chart) and approximates historical market cap as:
+ * ─── July 31 2026 rewrite (per Jared) ─────────────────────────────────────────
+ * The index moved from market-cap-weighted to EQUAL-WEIGHT, buy-and-hold (see
+ * scripts/indexCalc.mjs header for the full rationale), and INDEX_BASE_DATE
+ * moved from the launch date to exactly one year before it. Two big
+ * simplifications fall out of this:
  *
- *     current shares outstanding × historical daily close
+ *   1. No share counts needed anywhere. The old backfill fetched each
+ *      ticker's CURRENT share count and multiplied it by historical closes to
+ *      approximate historical market cap — a real approximation, since share
+ *      counts drift (buybacks/issuance/dilution). Equal-weight math only needs
+ *      PRICE (price / basePrice), so that entire approximation is gone. This
+ *      backfill is now an EXACT reconstruction from real historical closes,
+ *      not an estimate.
+ *   2. No backward pass. The old script anchored the divisor at
+ *      INDEX_BASE_DATE and had to walk backward through the lookback window to
+ *      fill in "before launch" history, holding the divisor fixed. Since the
+ *      base date is now the START of the window (one year back) rather than
+ *      the END, everything is a single FORWARD pass: base date = 100, and each
+ *      later date is that ticker's own cumulative return on its fixed
+ *      base-date allocation.
  *
- * ⚠️  APPROXIMATION: share counts drift over time (buybacks, issuance, dilution),
- *     so applying today's share count to a year-old close is an ESTIMATE of past
- *     weighting, not an exact reconstruction. This caveat is surfaced in the UI
- *     (IndexDetail page caveat text). Values from INDEX_BASE_DATE forward come
- *     from real captured market caps and are exact.
- *
- * Each ticker enters the index at the first available close AFTER the month it
- * was introduced (the same "float on" rule as the live index — reused via the
- * exported isEligible() from indexCalc.mjs), and the divisor is recalculated at
- * entry so the value never jumps.
+ * For each tracked ticker it fetches ~1 year of daily closes (yahoo-finance2
+ * historical chart) starting from INDEX_BASE_DATE. A ticker without a close on
+ * or before INDEX_BASE_DATE (e.g. SPCX, which IPO'd after that date) enters the
+ * index on ITS first available close, at that point getting its own equal
+ * slice sized so the index value doesn't jump (same continuity rule as a
+ * live float-on).
  *
  * Needs NO API key of any kind — only SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
  * and network access to Yahoo. Zero Claude cost.
@@ -36,7 +48,6 @@ import {
   tickersForIndex,
   isEligible,
   computeIndexValue,
-  sharesFromQuoteSummary,
 } from './indexCalc.mjs';
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
@@ -47,28 +58,17 @@ const supabase = createClient(
   { realtime: { enabled: false } },
 );
 
-const LOOKBACK_DAYS = 365;
+// Fetch from a little before INDEX_BASE_DATE through today, so the base date
+// itself is guaranteed to be inside the returned window even accounting for
+// weekends/holidays right at the boundary.
+const FETCH_FROM = new Date(new Date(INDEX_BASE_DATE).getTime() - 10 * 24 * 60 * 60 * 1000);
 
-// ─── Fetch current shares + 1y daily closes per ticker ────────────────────────
+// ─── Fetch 1y+ daily closes per ticker (no share counts needed) ───────────────
 async function loadTicker(ticker) {
-  let shares = 0;
-  try {
-    const q = await yahooFinance.quote(ticker);
-    shares = q.sharesOutstanding ?? (q.marketCap && q.regularMarketPrice ? q.marketCap / q.regularMarketPrice : 0);
-  } catch (err) {
-    console.warn(`  [warn] ${ticker}: quote failed — ${err.message}`);
-  }
-  // Fallback for tickers whose quote() omits both sharesOutstanding and
-  // marketCap (MU, ETN, CCJ, …) — otherwise they drop out of the cap-weighted
-  // math entirely. Shared with scripts/indexCalc.mjs.
-  if (!shares || shares <= 0) {
-    shares = await sharesFromQuoteSummary(yahooFinance, ticker);
-  }
-
   let series = []; // [{ date: 'YYYY-MM-DD', close }]
   try {
     const chart = await yahooFinance.chart(ticker, {
-      period1: new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000),
+      period1: FETCH_FROM,
       period2: new Date(),
       interval: '1d',
     });
@@ -78,19 +78,18 @@ async function loadTicker(ticker) {
   } catch (err) {
     console.warn(`  [warn] ${ticker}: chart failed — ${err.message}`);
   }
-
-  return { ticker, shares: shares ?? 0, series };
+  return { ticker, series };
 }
 
 async function main() {
-  console.log(`[backfill] Starting 1-year index backfill — ${new Date().toISOString()}`);
-  console.log('[backfill] NOTE: historical market caps use CURRENT share counts (approximation).');
+  console.log(`[backfill] Starting index backfill — ${new Date().toISOString()}`);
+  console.log(`[backfill] Base date ${INDEX_BASE_DATE} · equal-weight, buy-and-hold, exact reconstruction from real closes`);
 
   // Load every ticker (sequential — gentle on Yahoo, this runs once).
   const loaded = {};
   for (const t of ALL_TICKERS) {
     loaded[t] = await loadTicker(t);
-    console.log(`  ${t}: ${loaded[t].series.length} daily closes, shares ${loaded[t].shares ? loaded[t].shares.toExponential(3) : 'n/a'}`);
+    console.log(`  ${t}: ${loaded[t].series.length} daily closes`);
   }
 
   // Per-ticker date→close map + previous-close lookup.
@@ -109,59 +108,59 @@ async function main() {
     prevCloseAt[t] = pm;
   }
 
-  // Master trading-date list = sorted union of all dates seen.
+  // Master trading-date list = sorted union of all dates seen, restricted to
+  // INDEX_BASE_DATE forward (equal-weight has nothing "before base" — the base
+  // date IS day one).
   const dateSet = new Set();
-  for (const t of ALL_TICKERS) for (const d of closeByDate[t].keys()) dateSet.add(d);
+  for (const t of ALL_TICKERS) {
+    for (const d of closeByDate[t].keys()) {
+      if (d >= INDEX_BASE_DATE) dateSet.add(d);
+    }
+  }
   const dates = Array.from(dateSet).sort();
-  console.log(`[backfill] ${dates.length} trading dates across the universe`);
+  console.log(`[backfill] ${dates.length} trading dates from ${INDEX_BASE_DATE} forward`);
 
   const historyRows = [];
   const constituentRows = [];
 
-  // Iterate each index independently, carrying its divisor + present set.
-  //
-  // Divisor anchoring: base=100 must land on INDEX_BASE_DATE, not on whatever
-  // date happens to be first in the trailing lookback window. dates before
-  // INDEX_BASE_DATE are walked BACKWARD from the anchor so the whole series is
-  // continuous and consistent with the live/cron path, which always seeds
-  // against INDEX_BASE_DATE too.
+  // Iterate each index independently, carrying its per-ticker basePrice/
+  // baseAllocation state forward. Single FORWARD pass — no backward pass, no
+  // divisor. Each date's computeIndexValue call resolves any not-yet-based
+  // ticker (first-ever appearance for this index, whether at the base date or
+  // a later float-on / late-IPO entry) and the base is then carried forward by
+  // hand into `state` for the next date's call.
   for (const indexName of INDEX_NAMES) {
     const members = tickersForIndex(indexName);
-    const datesAsc = dates; // already sorted ascending
-    const anchorIdx = datesAsc.findIndex((d) => d >= INDEX_BASE_DATE);
-    // Fallback: if no backfilled date reaches the base date yet (base date is
-    // in the future relative to the data), anchor on the last available date.
-    const safeAnchorIdx = anchorIdx === -1 ? datesAsc.length - 1 : anchorIdx;
+    const state = {}; // ticker → { basePrice, baseAllocation }, persists across dates
 
-    function buildConstituents(date, presentSet, divisorSet) {
-      return members
-        .filter((t) => isEligible(t, date) && closeByDate[t].has(date) && loaded[t].shares > 0)
+    let rowsForIndex = 0;
+    for (const date of dates) {
+      const constituents = members
+        .filter((t) => isEligible(t, date) && closeByDate[t].has(date))
         .map((t) => ({
           ticker: t,
           price: closeByDate[t].get(date),
-          sharesOutstanding: loaded[t].shares,
           prevClose: prevCloseAt[t].get(date) ?? 0,
-          isNewEntrant: divisorSet && !presentSet.has(t),
+          basePrice: state[t]?.basePrice ?? null,
+          baseAllocation: state[t]?.baseAllocation ?? null,
         }));
-    }
 
-    // Forward pass: anchor date → end of window.
-    let divisor = null;
-    let presentSet = new Set();
-    for (let i = safeAnchorIdx; i < datesAsc.length; i++) {
-      const date = datesAsc[i];
-      const constituents = buildConstituents(date, presentSet, divisor != null);
       if (constituents.length === 0) continue;
 
-      const comp = computeIndexValue(constituents, divisor);
-      divisor = comp.divisor;
-      presentSet = new Set(constituents.map((c) => c.ticker));
+      const comp = computeIndexValue(constituents);
+
+      // Persist any newly-established base forward for next iteration.
+      for (const c of comp.perTickerContribution) {
+        if (!state[c.ticker]) {
+          state[c.ticker] = { basePrice: c.basePrice, baseAllocation: c.baseAllocation };
+        }
+      }
 
       historyRows.push({
         date,
         index_name: indexName,
         value: comp.value,
-        divisor: comp.divisor,
+        divisor: comp.totalBaseAllocation, // diagnostic only — see indexCalc.mjs header
         day_change_pct: comp.dayChangePct,
       });
       for (const c of comp.perTickerContribution) {
@@ -172,51 +171,20 @@ async function main() {
           weight_pct: c.weightPct,
           day_change_pct: c.dayChangePct,
           contribution_pct: c.contributionPct,
+          base_price: c.basePrice,
+          base_allocation: c.baseAllocation,
         });
       }
-    }
-    // Backward pass: anchor date → start of window, using the divisor
-    // established at the anchor, held fixed (no entrant/exit continuity
-    // adjustment walking backward — a ticker that simply doesn't have price
-    // history that far back, e.g. SPCX pre-IPO, just drops out of that date's
-    // numerator; this is already covered by the UI's "approximated, not exact
-    // reconstruction" caveat, same as the share-count approximation).
-    const anchorDivisor = divisor; // divisor as of the anchor date, from the forward pass above
-    for (let i = safeAnchorIdx - 1; i >= 0; i--) {
-      const date = datesAsc[i];
-      const constituents = buildConstituents(date, new Set(), false);
-      if (constituents.length === 0 || anchorDivisor == null) continue;
-
-      const comp = computeIndexValue(constituents, anchorDivisor);
-
-      historyRows.push({
-        date,
-        index_name: indexName,
-        value: comp.value,
-        divisor: anchorDivisor,
-        day_change_pct: comp.dayChangePct,
-      });
-      for (const c of comp.perTickerContribution) {
-        constituentRows.push({
-          date,
-          index_name: indexName,
-          ticker: c.ticker,
-          weight_pct: c.weightPct,
-          day_change_pct: c.dayChangePct,
-          contribution_pct: c.contributionPct,
-        });
-      }
+      rowsForIndex++;
     }
 
-    console.log(`[backfill] ${indexName}: ${historyRows.filter((r) => r.index_name === indexName).length} daily rows (anchored ${datesAsc[safeAnchorIdx]})`);
+    console.log(`[backfill] ${indexName}: ${rowsForIndex} daily rows (${dates[0]} → ${dates[dates.length - 1]})`);
   }
 
-  // Completeness check: which of the 50 tracked tickers actually made it into
-  // the composite's most recent (anchor-date-or-later) constituent rows? A
-  // quote/chart fetch failure for any ticker silently drops it from every
-  // index it belongs to (see the per-ticker [warn] lines above) — this
-  // summary is the single place that would have caught the Cyber/megacap gap
-  // from the July 30 2026 float-on bug.
+  // Completeness check: which of the tracked tickers actually made it into the
+  // composite's most recent constituent rows? A chart-fetch failure for any
+  // ticker silently drops it from every index it belongs to (see the per-
+  // ticker [warn] lines above).
   const latestCompositeDate = historyRows
     .filter((r) => r.index_name === 'composite')
     .reduce((max, r) => (r.date > max ? r.date : max), '');

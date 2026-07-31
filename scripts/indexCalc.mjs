@@ -4,9 +4,9 @@
  * Daily AI Index close writer for InvestAI.
  * Fetches live prices for the full tracked universe (yahoo-finance2, same as
  * api/prices.ts — runs server-side in the GitHub Action, NOT through the Vercel
- * endpoint), computes the composite index + 5 sub-indices with market-cap
- * weighting, and upserts one row per index into index_history plus one row per
- * ticker into index_constituents for the day.
+ * endpoint), computes the composite index + 5 sub-indices with EQUAL-WEIGHT,
+ * buy-and-hold math, and upserts one row per index into index_history plus one
+ * row per ticker into index_constituents for the day.
  *
  * Zero Claude API calls. Zero cost beyond Supabase writes. Needs no
  * ANTHROPIC_API_KEY — only SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
@@ -20,6 +20,27 @@
  * The membership map + computeIndexValue math below DUPLICATE src/lib/indexCalc.ts
  * (plain .mjs cannot import the .ts module — same convention as TICKERS /
  * COMPANY_ALIASES in scripts/newswire.mjs). Keep the two copies in sync.
+ *
+ * ─── July 31 2026 rewrite (per Jared) ─────────────────────────────────────────
+ * Two changes, both driven by the same conversation:
+ *   1. EQUAL-WEIGHT, no rebalancing (was market-cap-weighted). SPCX's market
+ *      cap dwarfed the rest of Space and dominated that sub-index almost
+ *      entirely — every index now gives each constituent an identical initial
+ *      allocation and lets it drift with its OWN price return afterward
+ *      (never rebalanced back to equal — true buy-and-hold, same convention
+ *      as an equal-weight ETF between reconstitution dates, except this index
+ *      never reconstitutes).
+ *   2. INDEX_BASE_DATE moved from the launch date (2026-07-31, "today") to one
+ *      year back (2025-07-31), and history is now computed FORWARD ONLY from
+ *      that date. Previously the base was pinned to launch and a backward pass
+ *      filled in history, so "1 year ago" read as some sub-100 number instead
+ *      of the standard "started at 100." That backward pass is gone.
+ *   3. `divisor` is gone from the math (replaced by per-ticker basePrice +
+ *      baseAllocation, persisted in index_constituents). The index_history
+ *      table's `divisor` numeric column is repurposed here to carry a
+ *      per-index diagnostic (sum of baseAllocations, i.e. INDEX_BASE_VALUE by
+ *      construction, or slightly above it once float-on entrants have added
+ *      their own slice) rather than being dropped — no schema change needed.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -61,29 +82,14 @@ export const INDEX_NAMES = ['composite', ...SUB_INDEX_NAMES];
 
 export const INDEX_BASE_VALUE = 100;
 
-// Mirrors src/lib/indexCalc.ts INDEX_BASE_DATE. The date the divisor is
-// anchored so value === 100 — NOT just "whatever the first backfilled date
-// happens to be" (that was the July 30 2026 bug: the backfill previously
-// seeded divisor=null on the first date in its trailing-365-day window,
-// silently rebasing "100" to a year before launch).
-export const INDEX_BASE_DATE = '2026-07-31';
+// Mirrors src/lib/indexCalc.ts INDEX_BASE_DATE. One year back from launch, so
+// "1 year ago = 100" reads the standard way. Computed FORWARD ONLY from here —
+// no more backward pass (see file header).
+export const INDEX_BASE_DATE = '2025-07-31';
 
 // ─── "Float on" — introduction month per ticker ───────────────────────────────
 // A ticker enters the index at the first available close AFTER the month it was
 // introduced to the app. Tickers absent from this map are eligible immediately.
-//
-// July 30 2026 (per Jared): the 20 July-28-expansion names were previously
-// gated to '2026-07' (eligible from Aug 1, 2026 — one day after
-// INDEX_BASE_DATE). That meant NONE of them were ever eligible during the
-// full 1-year backfill window (which ends before Aug 1) or on any date the
-// live index calc would run before Aug 1 — so the backfilled history and
-// composite were silently stuck at the old 31-ticker universe, and the LIVE
-// client-side calc (src/lib/indexCalc.ts, which does not apply this gate at
-// all) counted all 50, causing a large live-vs-history value mismatch and an
-// inflated apparent NVDA weight in the reduced 31-name backfilled set.
-// Per Jared: he wants all 50 tracked tickers included NOW, not gradually —
-// intro-month gate removed for all 20 names below the map stays here (empty)
-// as the pattern for any FUTURE universe expansion.
 const TICKER_INTRO_MONTH = {
   // (none currently — add 'TICKER: "YYYY-MM"' entries on the next universe
   // expansion to float a new name on starting the following month)
@@ -110,45 +116,65 @@ export function tickersForIndex(indexName) {
 }
 
 // ─── computeIndexValue — mirror of src/lib/indexCalc.ts ───────────────────────
-export function computeIndexValue(constituents, prevDivisor) {
-  const valid = constituents.filter((c) => c.price > 0 && c.sharesOutstanding > 0);
-  const capOf = (c) => c.price * c.sharesOutstanding;
+// EQUAL-WEIGHT, buy-and-hold. Each constituent's contribution =
+// baseAllocation × (price / basePrice). A constituent with no prior
+// basePrice/baseAllocation is entering right now: it is seeded with
+// baseAllocation = INDEX_BASE_VALUE / N (N = constituents priced today) and
+// basePrice = today's price, so its contribution today equals exactly its own
+// slice (index value doesn't jump on entry), and its contribution going
+// forward tracks its OWN return from this entry point. baseAllocation/
+// basePrice are NEVER changed once set — that's what makes this "no
+// rebalancing": a big winner's weight is allowed to drift upward over time.
+export function computeIndexValue(constituents) {
+  const valid = constituents.filter((c) => c.price > 0);
+  const n = valid.length;
+  const equalSlice = n > 0 ? INDEX_BASE_VALUE / n : 0;
 
-  const totalMarketCap = valid.reduce((s, c) => s + capOf(c), 0);
+  const resolved = valid.map((c) => {
+    const hasBase = c.basePrice != null && c.basePrice > 0 && c.baseAllocation != null;
+    return {
+      ...c,
+      basePrice: hasBase ? c.basePrice : c.price,
+      baseAllocation: hasBase ? c.baseAllocation : equalSlice,
+      isNewEntrant: !hasBase,
+    };
+  });
 
-  const basis = valid.filter((c) => !c.isNewEntrant && c.prevClose > 0);
-  const basisNow = basis.reduce((s, c) => s + capOf(c), 0);
-  const basisPrev = basis.reduce((s, c) => s + c.prevClose * c.sharesOutstanding, 0);
+  const value = resolved.reduce((s, c) => s + c.baseAllocation * (c.price / c.basePrice), 0);
+
+  const basis = resolved.filter((c) => !c.isNewEntrant && c.prevClose > 0);
+  const basisNow = basis.reduce((s, c) => s + c.baseAllocation * (c.price / c.basePrice), 0);
+  const basisPrev = basis.reduce((s, c) => s + c.baseAllocation * (c.prevClose / c.basePrice), 0);
   const dayChangePct = basisPrev > 0 ? ((basisNow - basisPrev) / basisPrev) * 100 : 0;
 
-  let divisor;
-  if (prevDivisor == null || prevDivisor <= 0) {
-    divisor = totalMarketCap > 0 ? totalMarketCap / INDEX_BASE_VALUE : 1;
-  } else {
-    const newCaps = valid.filter((c) => c.isNewEntrant).reduce((s, c) => s + capOf(c), 0);
-    if (newCaps > 0) {
-      const mcBefore = totalMarketCap - newCaps;
-      divisor = mcBefore > 0 ? prevDivisor * (totalMarketCap / mcBefore) : prevDivisor;
-    } else {
-      divisor = prevDivisor;
-    }
-  }
-
-  const value = divisor > 0 ? totalMarketCap / divisor : INDEX_BASE_VALUE;
-
-  const perTickerContribution = valid
+  const perTickerContribution = resolved
     .map((c) => {
-      const cap = capOf(c);
-      const weightPct = totalMarketCap > 0 ? (cap / totalMarketCap) * 100 : 0;
+      const contribution = c.baseAllocation * (c.price / c.basePrice);
+      const weightPct = value > 0 ? (contribution / value) * 100 : 0;
       const inBasis = !c.isNewEntrant && c.prevClose > 0;
       const own = inBasis ? ((c.price - c.prevClose) / c.prevClose) * 100 : 0;
-      const prevWeight = basisPrev > 0 ? (c.prevClose * c.sharesOutstanding) / basisPrev : 0;
-      const contributionPct = inBasis ? prevWeight * own : 0;
-      return { ticker: c.ticker, weightPct, dayChangePct: own, contributionPct };
+      const prevContribution = c.baseAllocation * (c.prevClose / c.basePrice);
+      const contributionPct = inBasis && basisPrev > 0
+        ? ((prevContribution / basisPrev) * ((c.price - c.prevClose) / c.prevClose)) * 100
+        : 0;
+      return {
+        ticker: c.ticker,
+        weightPct,
+        dayChangePct: own,
+        contributionPct,
+        basePrice: c.basePrice,
+        baseAllocation: c.baseAllocation,
+      };
     })
     .sort((a, b) => b.weightPct - a.weightPct);
 
-  return { value, divisor, dayChangePct, totalMarketCap, perTickerContribution };
+  // Sum of baseAllocations is a useful per-index diagnostic (starts at exactly
+  // INDEX_BASE_VALUE, ticks up slightly whenever a float-on entrant adds its
+  // own slice) — persisted into index_history's existing `divisor` column so
+  // no schema change is needed. Purely diagnostic; never used to compute value.
+  const totalBaseAllocation = resolved.reduce((s, c) => s + c.baseAllocation, 0);
+
+  return { value, dayChangePct, perTickerContribution, totalBaseAllocation };
 }
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
@@ -160,18 +186,13 @@ function todayISODate() {
   return new Date().toISOString().split('T')[0];
 }
 
-// Fallback share-count resolver — some tickers (e.g. MU, ETN, CCJ) return no
-// sharesOutstanding AND no marketCap on the plain quote() endpoint, so they
-// silently drop out of the cap-weighted math. quoteSummary's
-// defaultKeyStatistics carries sharesOutstanding for those names; the price
-// module's marketCap/price is a second derivation. Only called when the primary
-// quote path yields 0, so it adds at most one extra request per affected ticker.
-// Exported so scripts/indexBackfill.mjs shares the exact same fallback.
+// Fallback share-count resolver — kept for prior callers/compatibility, but no
+// longer used by computeIndexValue (equal-weight needs no share counts at
+// all). Still exported/used by fetchQuote below only to log a friendlier
+// warning when Yahoo omits pricing data outright; NOT part of the weighting
+// math anymore.
 export async function sharesFromQuoteSummary(yf, ticker) {
   try {
-    // validateResult:false — Yahoo omits sharesOutstanding/marketCap for some
-    // names (MU, ETN, CCJ, FLY) and the strict schema would otherwise reject
-    // the whole payload; we only read a few optional fields defensively here.
     const s = await yf.quoteSummary(
       ticker,
       { modules: ['defaultKeyStatistics', 'price'] },
@@ -182,21 +203,16 @@ export async function sharesFromQuoteSummary(yf, ticker) {
     const mcap = s?.price?.marketCap;
     const px = s?.price?.regularMarketPrice;
     if (mcap > 0 && px > 0) return mcap / px;
-    // Last resort: float shares. Understates total shares (excludes insider /
-    // restricted holdings) so it slightly under-weights these names in the
-    // cap-weighted index — but far better than dropping the ticker to 0 weight.
-    // Covered by the UI's existing "approximation, not exact" caveat.
-    if (dks.floatShares > 0) {
-      console.warn(`  [warn] ${ticker}: using floatShares (${dks.floatShares.toExponential(3)}) as sharesOutstanding proxy`);
-      return dks.floatShares;
-    }
-  } catch (err) {
-    console.warn(`  [warn] ${ticker}: quoteSummary shares fallback failed — ${err.message}`);
+    if (dks.floatShares > 0) return dks.floatShares;
+  } catch {
+    // best-effort only; equal-weight math doesn't depend on this
   }
   return 0;
 }
 
-// Fetch one quote, tolerant of missing fields.
+// Fetch one quote, tolerant of missing fields. sharesOutstanding is no longer
+// needed for the index math (equal-weight uses price only) but is still read
+// where available since api/prices.ts and the rest of the app use it.
 async function fetchQuote(ticker) {
   try {
     const q = await yahooFinance.quote(ticker);
@@ -204,17 +220,10 @@ async function fetchQuote(ticker) {
     const change = q.regularMarketChange ?? 0;
     let prevClose = q.regularMarketPreviousClose;
     if (prevClose == null) prevClose = price - change;
-    let shares = q.sharesOutstanding;
-    if ((shares == null || shares <= 0) && q.marketCap && price > 0) {
-      shares = q.marketCap / price;
-    }
-    if (shares == null || shares <= 0) {
-      shares = await sharesFromQuoteSummary(yahooFinance, ticker);
-    }
-    return { ticker, price, prevClose: prevClose ?? 0, sharesOutstanding: shares ?? 0 };
+    return { ticker, price, prevClose: prevClose ?? 0 };
   } catch (err) {
     console.warn(`  [warn] ${ticker}: quote failed — ${err.message}`);
-    return { ticker, price: 0, prevClose: 0, sharesOutstanding: 0 };
+    return { ticker, price: 0, prevClose: 0 };
   }
 }
 
@@ -236,62 +245,56 @@ async function main() {
   const priced = Object.values(quotes).filter((q) => q.price > 0).length;
   console.log(`[index] Fetched ${priced}/${ALL_TICKERS.length} priced quotes`);
 
-  // Latest prior row + constituent set per index (for divisor continuity and
-  // new-entrant detection).
-  const { data: prevHistory, error: histErr } = await supabase
-    .from('index_history')
-    .select('index_name, divisor, date')
+  // Most recent per-ticker basePrice/baseAllocation, per index — this is now
+  // the persistent state that replaces the old shared divisor. Pulled from the
+  // latest stored index_constituents row per (index_name, ticker).
+  const { data: prevConstituents, error: consErr } = await supabase
+    .from('index_constituents')
+    .select('index_name, ticker, base_price, base_allocation, date')
     .order('date', { ascending: false })
-    .limit(INDEX_NAMES.length * 3);
-  if (histErr) {
-    console.error('[index] Failed to read prior index_history:', histErr.message);
+    .limit(ALL_TICKERS.length * INDEX_NAMES.length * 3);
+  if (consErr) {
+    console.error('[index] Failed to read prior index_constituents:', consErr.message);
     process.exitCode = 1;
     return;
   }
-  const prevRowByIndex = {};
-  for (const row of prevHistory ?? []) {
-    if (!prevRowByIndex[row.index_name]) prevRowByIndex[row.index_name] = row;
+  const prevBaseByIndexTicker = {}; // `${indexName}::${ticker}` → { base_price, base_allocation }
+  for (const row of prevConstituents ?? []) {
+    const key = `${row.index_name}::${row.ticker}`;
+    if (!prevBaseByIndexTicker[key] && row.base_price != null && row.base_allocation != null) {
+      prevBaseByIndexTicker[key] = { basePrice: row.base_price, baseAllocation: row.base_allocation };
+    }
   }
 
   const historyRows = [];
   const constituentRows = [];
 
   for (const indexName of INDEX_NAMES) {
-    const prevRow = prevRowByIndex[indexName] ?? null;
-    const hasPrev = prevRow != null;
-
-    // Which tickers were in this index on its previous stored date?
-    let prevSet = new Set();
-    if (hasPrev) {
-      const { data: prevCons } = await supabase
-        .from('index_constituents')
-        .select('ticker')
-        .eq('index_name', indexName)
-        .eq('date', prevRow.date);
-      prevSet = new Set((prevCons ?? []).map((r) => r.ticker));
-    }
-
     const constituents = tickersForIndex(indexName)
-      .filter((t) => isEligible(t, runDate) && quotes[t].price > 0 && quotes[t].sharesOutstanding > 0)
-      .map((t) => ({
-        ...quotes[t],
-        // Only meaningful once a prior row exists; on the base date nobody is a
-        // "new entrant" (there is no before-state).
-        isNewEntrant: hasPrev && !prevSet.has(t),
-      }));
+      .filter((t) => isEligible(t, runDate) && quotes[t].price > 0)
+      .map((t) => {
+        const prior = prevBaseByIndexTicker[`${indexName}::${t}`] ?? null;
+        return {
+          ticker: t,
+          price: quotes[t].price,
+          prevClose: quotes[t].prevClose,
+          basePrice: prior?.basePrice ?? null,
+          baseAllocation: prior?.baseAllocation ?? null,
+        };
+      });
 
     if (constituents.length === 0) {
       console.warn(`[index] ${indexName}: no eligible priced constituents — skipping`);
       continue;
     }
 
-    const comp = computeIndexValue(constituents, hasPrev ? prevRow.divisor : null);
+    const comp = computeIndexValue(constituents);
 
     historyRows.push({
       date: runDate,
       index_name: indexName,
       value: comp.value,
-      divisor: comp.divisor,
+      divisor: comp.totalBaseAllocation, // diagnostic only, see file header
       day_change_pct: comp.dayChangePct,
     });
 
@@ -303,12 +306,14 @@ async function main() {
         weight_pct: c.weightPct,
         day_change_pct: c.dayChangePct,
         contribution_pct: c.contributionPct,
+        base_price: c.basePrice,
+        base_allocation: c.baseAllocation,
       });
     }
 
     console.log(
       `[index] ${indexName}: value ${comp.value.toFixed(2)} (${comp.dayChangePct >= 0 ? '+' : ''}${comp.dayChangePct.toFixed(2)}%), ` +
-      `${constituents.length} constituents, divisor ${comp.divisor.toExponential(4)}`,
+      `${constituents.length} constituents`,
     );
   }
 
