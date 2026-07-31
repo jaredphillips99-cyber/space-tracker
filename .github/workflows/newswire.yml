@@ -2,9 +2,10 @@ name: Daily Newswire
 
 on:
   schedule:
-    # 7:30 AM ET = 11:30 UTC (accounts for ET = UTC-4 in summer / UTC-5 in winter)
-    # Using 11:30 UTC covers both EDT and EST overlap safely
-    - cron: '30 11 * * 1-5'
+    # 8:30 AM ET (pre-market) = 12:30 UTC (EDT); off by 1hr during EST winter, same caveat as before
+    - cron: '30 12 * * 1-5'
+    # 5:00 PM ET (post-market) = 21:00 UTC (EDT); same DST caveat
+    - cron: '0 21 * * 1-5'
   workflow_dispatch: # allows manual trigger from GitHub Actions tab
 
 jobs:
