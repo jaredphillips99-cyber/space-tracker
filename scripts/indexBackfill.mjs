@@ -36,6 +36,7 @@ import {
   tickersForIndex,
   isEligible,
   computeIndexValue,
+  sharesFromQuoteSummary,
 } from './indexCalc.mjs';
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
@@ -56,6 +57,12 @@ async function loadTicker(ticker) {
     shares = q.sharesOutstanding ?? (q.marketCap && q.regularMarketPrice ? q.marketCap / q.regularMarketPrice : 0);
   } catch (err) {
     console.warn(`  [warn] ${ticker}: quote failed — ${err.message}`);
+  }
+  // Fallback for tickers whose quote() omits both sharesOutstanding and
+  // marketCap (MU, ETN, CCJ, …) — otherwise they drop out of the cap-weighted
+  // math entirely. Shared with scripts/indexCalc.mjs.
+  if (!shares || shares <= 0) {
+    shares = await sharesFromQuoteSummary(yahooFinance, ticker);
   }
 
   let series = []; // [{ date: 'YYYY-MM-DD', close }]

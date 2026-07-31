@@ -160,6 +160,42 @@ function todayISODate() {
   return new Date().toISOString().split('T')[0];
 }
 
+// Fallback share-count resolver — some tickers (e.g. MU, ETN, CCJ) return no
+// sharesOutstanding AND no marketCap on the plain quote() endpoint, so they
+// silently drop out of the cap-weighted math. quoteSummary's
+// defaultKeyStatistics carries sharesOutstanding for those names; the price
+// module's marketCap/price is a second derivation. Only called when the primary
+// quote path yields 0, so it adds at most one extra request per affected ticker.
+// Exported so scripts/indexBackfill.mjs shares the exact same fallback.
+export async function sharesFromQuoteSummary(yf, ticker) {
+  try {
+    // validateResult:false — Yahoo omits sharesOutstanding/marketCap for some
+    // names (MU, ETN, CCJ, FLY) and the strict schema would otherwise reject
+    // the whole payload; we only read a few optional fields defensively here.
+    const s = await yf.quoteSummary(
+      ticker,
+      { modules: ['defaultKeyStatistics', 'price'] },
+      { validateResult: false },
+    );
+    const dks = s?.defaultKeyStatistics ?? {};
+    if (dks.sharesOutstanding > 0) return dks.sharesOutstanding;
+    const mcap = s?.price?.marketCap;
+    const px = s?.price?.regularMarketPrice;
+    if (mcap > 0 && px > 0) return mcap / px;
+    // Last resort: float shares. Understates total shares (excludes insider /
+    // restricted holdings) so it slightly under-weights these names in the
+    // cap-weighted index — but far better than dropping the ticker to 0 weight.
+    // Covered by the UI's existing "approximation, not exact" caveat.
+    if (dks.floatShares > 0) {
+      console.warn(`  [warn] ${ticker}: using floatShares (${dks.floatShares.toExponential(3)}) as sharesOutstanding proxy`);
+      return dks.floatShares;
+    }
+  } catch (err) {
+    console.warn(`  [warn] ${ticker}: quoteSummary shares fallback failed — ${err.message}`);
+  }
+  return 0;
+}
+
 // Fetch one quote, tolerant of missing fields.
 async function fetchQuote(ticker) {
   try {
@@ -171,6 +207,9 @@ async function fetchQuote(ticker) {
     let shares = q.sharesOutstanding;
     if ((shares == null || shares <= 0) && q.marketCap && price > 0) {
       shares = q.marketCap / price;
+    }
+    if (shares == null || shares <= 0) {
+      shares = await sharesFromQuoteSummary(yahooFinance, ticker);
     }
     return { ticker, price, prevClose: prevClose ?? 0, sharesOutstanding: shares ?? 0 };
   } catch (err) {

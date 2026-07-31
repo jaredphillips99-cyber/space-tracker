@@ -1510,3 +1510,53 @@ against Supabase after this deploy — Claude Code did NOT run it.
 **Files modified:** scripts/indexCalc.mjs · scripts/indexBackfill.mjs ·
   src/lib/indexCalc.ts · src/hooks/useIndexValue.ts ·
   src/components/IndexDetail/index.tsx · CLAUDE.md
+
+---
+
+### July 30, 2026 (patch 2) — sharesOutstanding fallback (fixes 5 tickers dropping from the index)
+
+**Symptom (surfaced by patch 1's completeness logging):** the first successful
+backfill wrote only **45/50** tracked tickers into the composite —
+`⚠ MISSING: FLY, SATS, MU, ETN, CCJ`. Root cause: Yahoo's plain `quote()`
+endpoint returns NO `sharesOutstanding` AND no `marketCap` for those names, so
+both the primary read and the existing `marketCap / price` fallback yielded 0,
+and a 0-share ticker is filtered out of the cap-weighted numerator entirely
+(dropped to 0 weight). MU/ETN/CCJ are not small — their absence materially
+skewed the index.
+
+**Fix — shared `quoteSummary` fallback (`sharesFromQuoteSummary()` in
+scripts/indexCalc.mjs, exported, imported by scripts/indexBackfill.mjs).** Only
+invoked when the primary quote path resolves to 0 shares, so it adds at most one
+extra request per affected ticker. Resolution order:
+  1. `defaultKeyStatistics.sharesOutstanding` (true count, preferred)
+  2. `price.marketCap / price.regularMarketPrice` (second derivation)
+  3. `defaultKeyStatistics.floatShares` (last-resort PROXY — logged with a
+     `[warn]`). Verified live: for these 4 names Yahoo omits (1) and (2)
+     entirely but DOES return floatShares. Float understates total shares
+     (excludes insider/restricted), so it slightly under-weights these names —
+     acceptable, and covered by the UI's existing "approximation, not exact
+     reconstruction" caveat; far better than a 0-weight drop.
+  Uses `{ validateResult: false }` — the strict schema would otherwise reject
+  the whole payload for names missing these optional fields. Wired into BOTH the
+  daily cron path (`fetchQuote` in indexCalc.mjs) and the backfill
+  (`loadTicker` in indexBackfill.mjs), so the daily 5pm-ET close write gets the
+  same coverage, not just the one-time backfill.
+
+**SATS deliberately NOT addressed** — per Jared it's being removed from the
+universe for another stock, so its hard quote failure (`Cannot read properties
+of undefined`) is expected to disappear with the swap. Completeness is now
+**49/50** (SATS the only omission).
+
+**Backfill re-run (by Claude Code, service-role key supplied by Jared):**
+1,506 `index_history` rows + 24,154 `index_constituents` rows written, composite
+completeness 49/50, anchored 2026-07-30. The divisor-anchoring + float-on fixes
+from patch 1 confirmed working end-to-end against live Supabase.
+
+**No app-bundle change** — only the two `.mjs` scripts (GitHub Actions cron +
+manual backfill) changed; no `src/` edit, so no Vercel redeploy is required for
+this patch.
+
+**Verification:** `node --check` passes on both scripts; live fallback test
+confirms FLY/MU/ETN/CCJ resolve to floatShares.
+
+**Files modified:** scripts/indexCalc.mjs · scripts/indexBackfill.mjs · CLAUDE.md
