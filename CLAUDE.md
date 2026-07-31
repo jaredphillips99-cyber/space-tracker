@@ -1438,3 +1438,75 @@ widget shows non-zero values and the chart draws after the first cron/backfill.
   supabase_migration_index_history.sql
 **Files modified:** src/App.tsx · src/components/NewsFeed/index.tsx ·
   .github/workflows/newswire.yml · CLAUDE.md
+
+---
+
+### July 30, 2026 (patch) — Fix AI Index float-on gate, backfill divisor anchoring, completeness logging, chart hover
+
+**Root bug (float-on gate excluded all 20 expansion tickers from history).** The
+`TICKER_INTRO_MONTH` map in scripts/indexCalc.mjs tagged the 20 July-28-expansion
+names (SPCX + the hyperscalers/compute/power/cyber adds) with `'2026-07'`, making
+them eligible only from the first close AFTER July 2026 — i.e. Aug 1, 2026, one
+day past `INDEX_BASE_DATE` ('2026-07-31'). Consequences: (1) the entire ~1-year
+backfill window ends before Aug 1, so NONE of the 20 were ever eligible in
+backfilled history — history was silently stuck on the old 31-ticker universe;
+(2) worse, the LIVE client path (src/lib/indexCalc.ts) had NO eligibility gate at
+all and counted all 50, so the live headline value and per-ticker weights (esp.
+an inflated apparent NVDA weight) never matched the stored chart/history. Per
+Jared: he wants all 50 tracked tickers in NOW, not gradually. Emptied
+`TICKER_INTRO_MONTH` in scripts/indexCalc.mjs (kept as the empty pattern for
+future expansions — add a `'TICKER': 'YYYY-MM'` entry to float a new name on the
+following month).
+
+**Live/history parity — added the eligibility gate to the client path too.**
+src/lib/indexCalc.ts gained a mirrored (hand-synced, per the app's
+TICKERS/COMPANY_ALIASES duplication convention) `TICKER_INTRO_MONTH` +
+`isEligible(ticker, dateStr)` + `eligibleTickersForIndex(indexName, todayISODate)`.
+`useIndexValue.ts` (`useIndexValues`) now calls `eligibleTickersForIndex(name,
+todayISODate)` instead of `tickersForIndex(name)`, so any FUTURE float-on name is
+gated identically live-side and can't reintroduce the live-vs-history mismatch.
+Both maps are currently empty (all 50 eligible), so today the gate is a no-op —
+the fix is structural.
+
+**Backfill divisor anchored to INDEX_BASE_DATE (was: first date in the lookback
+window).** scripts/indexBackfill.mjs previously seeded `divisor=null` on whatever
+date happened to be first in its trailing-365-day window, silently rebasing
+"value = 100" to a year before launch. Now it exports/imports `INDEX_BASE_DATE`
+from indexCalc.mjs, finds the anchor index (first backfilled date ≥ base date;
+falls back to the last available date if the base date is still in the future),
+runs a FORWARD pass anchor→end that establishes the divisor at the base date, then
+a BACKWARD pass anchor→start holding that same anchor divisor fixed (no
+entrant/exit continuity adjustment walking backward — a name lacking price history
+that far back, e.g. SPCX pre-IPO, just drops out of that date's numerator, already
+covered by the UI's "approximated, not exact reconstruction" caveat). Result: the
+whole series is continuous and consistent with the live/cron path, which always
+seeds against INDEX_BASE_DATE.
+
+**Composite completeness logging (both scripts).** A silent quote/chart-fetch
+failure for any ticker drops it from every index it belongs to via the existing
+per-ticker `[warn]` lines, but nothing summarized the net result — the July-30
+float-on gap was only discoverable through the UI. Both scripts/indexCalc.mjs
+(daily cron) and scripts/indexBackfill.mjs now log `Composite completeness:
+N/{total} tracked tickers present` and a `⚠ MISSING: <tickers>` warning when any
+are absent, so a universe/coverage gap surfaces immediately in the Action log.
+
+**Chart hover tooltip (src/components/IndexDetail/index.tsx).** The hand-rolled
+SVG `LineChart` (no charting dep — stack rule unchanged) gained an `onMouseMove`
+crosshair: maps screen X → viewBox X (accounting for the fixed viewBox width vs.
+rendered width), snaps to the nearest data point, and draws a dashed vertical
+guide + marker dot + a date/value tooltip box. Tooltip flips to the left of the
+crosshair past the chart midpoint and clamps vertically so it never renders
+clipped off an edge.
+
+**Privacy:** untouched — index math reads only public market data; no
+dollars/shares of the user's own holdings.
+
+**Verification:** `npx tsc --noEmit` + `npm run build` pass; `node --check` passes
+on both scripts/indexCalc.mjs and scripts/indexBackfill.mjs. Live values +
+backfilled history are NOT locally verifiable (need the Vercel /api/prices
+function + real Supabase). Jared to run `node scripts/indexBackfill.mjs` manually
+against Supabase after this deploy — Claude Code did NOT run it.
+
+**Files modified:** scripts/indexCalc.mjs · scripts/indexBackfill.mjs ·
+  src/lib/indexCalc.ts · src/hooks/useIndexValue.ts ·
+  src/components/IndexDetail/index.tsx · CLAUDE.md
