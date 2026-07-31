@@ -10,19 +10,24 @@ export function markOnboarded() {
 
 const TAB_CARDS: { label: string; accent: string; body: string }[] = [
   {
+    label: 'News',
+    accent: '#ffd166',
+    body: 'Your landing page — an editorially-ranked front page built entirely from data already in hand (market cap, day moves, a filtered newswire archive), at zero added AI cost. Lead Stories surface the biggest tracked names with recent coverage, Also Moving catches outsized single-day movers at any size, and a paginated Feed covers the rest. The AI Index widget up top tracks a composite plus one sub-index per sector — click through for the full chart and constituent breakdown.',
+  },
+  {
     label: 'Dashboard',
     accent: '#00c8ff',
-    body: 'A live price table of all 31 tracked stocks across space, AI infrastructure, defense, and clean energy. Click any row for a deep dive with on-demand Claude analysis grounded in SEC filings — the sidebar flags which names need attention around earnings.',
+    body: 'A live price table across the full tracked universe — Space, AI Infrastructure, Defense, Clean Energy, and Cyber — filterable by sector pill. Click any row for a deep dive with on-demand Claude analysis grounded in the company\u2019s latest SEC filing; the sidebar flags names that need attention around earnings or a stale analysis.',
   },
   {
     label: 'Portfolio',
     accent: '#a259ff',
-    body: 'Track your positions with live values, gains, and sector concentration vs. targets, then simulate adds and trims and get AI memos on macro risk, rebalancing, and cash deployment. Position data stays in your browser — only percentages are sent for analysis.',
+    body: 'Track your positions with live values, gains, and sector concentration vs. targets, then simulate adds and trims and get AI memos on macro risk, rebalancing, sector exploration, and cash deployment \u2014 grounded in your own thematic and sector conviction. Position data stays in your browser; only percentages are ever sent for analysis.',
   },
   {
     label: 'Net Worth',
     accent: '#00e676',
-    body: 'Your whole picture in one place: linked portfolio value plus cash, crypto, other balances, and credit card liabilities, with an AI read on balance sheet health. Admin sign-in required.',
+    body: 'Your whole balance sheet in one place: linked portfolio value plus cash, live-priced crypto holdings, other balances, and credit card liabilities, with an AI read on balance sheet health and an optional financial plan. Admin sign-in required.',
   },
 ];
 
@@ -45,20 +50,21 @@ export default function OnboardingModal({ onClose }: OnboardingModalProps) {
         style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
           zIndex: 100, width: 'min(520px, calc(100vw - 32px))',
+          maxHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column',
           background: 'var(--bg-surface)', border: '1px solid var(--border)',
           borderRadius: 14, overflow: 'hidden',
           boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
         }}
       >
         {/* Header */}
-        <div style={{ padding: '20px 24px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div style={{ padding: '20px 24px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
             <div style={{ fontFamily: 'Space Mono, monospace', fontSize: 16, fontWeight: 700, letterSpacing: '0.02em', marginBottom: 4 }}>
               <span style={{ color: '#00c8ff' }}>INVEST</span>
               <span style={{ color: 'var(--text-primary)' }}>AI</span>
             </div>
             <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              A quick tour of the three tabs. Reopen this anytime with the <span style={{ fontFamily: 'Space Mono, monospace' }}>?</span> button in the top nav.
+              A quick tour of the four tabs. Reopen this anytime with the <span style={{ fontFamily: 'Space Mono, monospace' }}>?</span> button in the top nav.
             </div>
           </div>
           <button
@@ -69,7 +75,7 @@ export default function OnboardingModal({ onClose }: OnboardingModalProps) {
         </div>
 
         {/* Tab cards */}
-        <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
           {TAB_CARDS.map(card => (
             <div
               key={card.label}
@@ -93,7 +99,7 @@ export default function OnboardingModal({ onClose }: OnboardingModalProps) {
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '14px 24px 20px' }}>
+        <div style={{ padding: '14px 24px 20px', flexShrink: 0, borderTop: '1px solid var(--border)' }}>
           <button
             onClick={dismiss}
             style={{
