@@ -371,7 +371,7 @@ export function StockDetail() {
 
         {/* ── Back nav ───────────────────────────────────────────────────── */}
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/dashboard')}
           style={{
             display: 'flex', alignItems: 'center', gap: '8px',
             background: 'none', border: 'none', cursor: 'pointer',
