@@ -1560,3 +1560,46 @@ this patch.
 confirms FLY/MU/ETN/CCJ resolve to floatShares.
 
 **Files modified:** scripts/indexCalc.mjs · scripts/indexBackfill.mjs · CLAUDE.md
+
+---
+
+### August 4, 2026 — Crypto Net Worth accounts revert to a manual dollar amount (no live pricing)
+
+**Decision (per Jared):** crypto holdings should just be a manually-entered
+dollar value — no symbol lookup, no live spot price. This supersedes the
+live-priced crypto flow (symbol + quantity × Yahoo price) for NEW accounts.
+
+**Change — `AddAccountPanel.tsx` only.** The crypto branch no longer renders a
+Symbol + Quantity form; crypto now uses the same dollar-balance field as cash /
+balance / credit-card kinds (label "Current value ($)", with a hint that it's a
+manual value to update by hand). Removed the now-dead `cryptoSymbol` /
+`cryptoQuantity` state, their resets, and the `symbolOk`/`quantityOk`/
+`cryptoFieldsOk` derivations (`noUnusedLocals` is on). `canSave` validates on
+`balanceOk` for every kind; `handleSave` passes `parsedBalance` and `undefined`
+for the crypto arg. A crypto account is therefore saved with a real `balance`
+and no `crypto_symbol`/`crypto_quantity`.
+
+**Why nothing else changed:** a crypto account with no `cryptoSymbol` already
+falls through `isLivePricedCrypto()` as false everywhere in `NetWorthTab.tsx`,
+so it renders through the editable `BalanceCell` and `cryptoValue()` returns the
+stored balance — exactly the desired manual behavior. The live-pricing
+machinery (`useCryptoPrices`, `CryptoValueCell`, the `crypto_symbol`/
+`crypto_quantity` columns, `api/prices.ts` crypto branch) is left in place but
+dormant — not ripped out, to keep this change small and avoid touching net-worth
+totals math. No schema change, no API change.
+
+**Note on the earlier Aug 4 crypto bug-fix work:** the symbol-normalization +
+`api/prices.ts` quoteType guard + `failedSymbols` surfacing changes from earlier
+this session were STAGED only (never committed) and were reverted before this
+change — they were in service of live pricing, which this supersedes. That
+session-log entry was rolled back with them.
+
+**Legacy rows:** any pre-existing live-priced crypto row (with a stored
+`crypto_symbol` + `crypto_quantity`) will still live-price until removed and
+re-added as a manual dollar account. New rows are manual only.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Not browser-
+verified locally — the Net Worth tab is admin-gated (AuthGate) and this is a
+pure form-field swap; tsc/build cover it.
+
+**Files modified:** src/components/networth/AddAccountPanel.tsx · CLAUDE.md
