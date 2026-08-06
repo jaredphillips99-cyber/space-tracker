@@ -1603,3 +1603,73 @@ verified locally — the Net Worth tab is admin-gated (AuthGate) and this is a
 pure form-field swap; tsc/build cover it.
 
 **Files modified:** src/components/networth/AddAccountPanel.tsx · CLAUDE.md
+
+---
+
+### August 6, 2026 — Unified earnings-aware analysis freshness (one definition for sidebar + Dashboard)
+
+**Problem:** three separate, both-flawed definitions of "has this stock's
+analysis fallen behind its earnings." The Needs Attention sidebar compared a
+run timestamp (`analyzedAt`) against Yahoo's `nextEarningsDate` (fragile —
+same-day reruns and Yahoo's few-day post-release lag window both produced false
+positives/negatives), while the Dashboard's "⚠ STALE" ANALYSIS badge used a
+completely separate flat 30-day-since-`analyzedAt` rule (`isAnalysisStale()`)
+with NO earnings awareness at all — so a stock showed STALE a month after
+analysis even when no new report had come out.
+
+**New shared helper `src/lib/analysisFreshness.ts`** — single
+`getAnalysisFreshness(analysis, nextEarningsDate)` → `{ status, daysUntilEarnings }`
+consumed by BOTH the sidebar and the price table, so the two can't drift again.
+Statuses: `awaiting` · `reportDue` · `earningsToday` · `earningsSoon` ·
+`staleFallback` · `analyzed`. Core rule: **elapsed time alone never makes an
+analysis stale** — `reportDue` fires only when Yahoo's earnings date is now in
+the past AND newer than the filing we actually analyzed (`analysis.lastEarningsDate`).
+When Yahoo has NO earnings date for a ticker, and only then, it falls back to
+the existing flat `isAnalysisStale()` / `ANALYSIS_STALE_DAYS` (unchanged in
+`src/types/index.ts`). `>7d` out → `analyzed`; `0d` → `earningsToday`
+(ambiguous — may not be released yet); `1–7d` → `earningsSoon`. Date-only ISO
+strings parse as UTC midnight, matching SidePanel's existing `parseDate()`.
+
+**Fixed the missing write (`src/components/StockDetail.tsx` `handleComplete`):**
+the `setAnalysis({...})` object never set `lastEarningsDate`, so right after a
+post-earnings re-run the in-memory analysis didn't reflect the just-analyzed
+filing until a Supabase round-trip (`useSupabaseSync.rowToAnalysis` maps
+`filing_date` → `lastEarningsDate`). Added `lastEarningsDate: meta.filingDate ??
+undefined` (EDGAR-fetched filed date, already in hand). Grep-confirmed additive
+— `lastEarningsDate` was previously only READ (from Supabase), never written
+client-side, so nothing collides. No `api/analyze.ts` schema change (the value
+comes from browser-side EDGAR meta, not the LLM).
+
+**Sidebar refactor (`src/components/SidePanel/index.tsx`):** the inline
+`needsAttention` computation now calls `getAnalysisFreshness()` and maps status
+→ the existing `AttentionTier`. New `earningsToday` copy ("⏱ reports today —
+check before re-running") reuses the amber `earningsSoon` tier slot but sorts
+ahead of any 1–7d countdown (`sortKey -1`) — makes the same-day ambiguity
+explicit instead of implying a re-run is safe. Existing tier priority preserved
+(reportDue > earningsToday/earningsSoon > staleFallback). Removed the now-unused
+`daysUntil` helper and the `isAnalysisStale` import (moved into the shared helper).
+
+**Dashboard fix (`src/components/PriceTable/index.tsx`):** the "⚠ STALE" badge
+boolean changed from `isAnalysisStale(analysis)` to
+`freshness.status === 'reportDue' || 'staleFallback'`. STALE now fires only when
+a new report has actually come out since the last analysis (or the flat 30-day
+fallback when Yahoo has no earnings date) — never from elapsed time alone. The
+`AnalysisStatus` component's rendering is untouched; only the boolean feeding it
+changed.
+
+**Privacy:** untouched — freshness reads only public earnings dates + analysis
+timestamps; no dollars/shares.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Not locally
+browser-verifiable (depends on live Yahoo `nextEarningsDate` + Supabase-synced
+`filing_date`). Post-deploy manual checks: (1) a ticker with a past earnings
+date + an analysis older than it shows reportDue/STALE in both sidebar and
+table; (2) re-running it immediately clears both without a refresh (the
+handleComplete write); (3) a ticker with earnings today shows the new "reports
+today" wording; (4) an analyzed ticker whose next earnings is >7d out and whose
+analysis is >30d old does NOT show STALE (the case that was broken).
+
+**Files created:** src/lib/analysisFreshness.ts
+**Files modified:** src/components/StockDetail.tsx ·
+  src/components/SidePanel/index.tsx · src/components/PriceTable/index.tsx ·
+  CLAUDE.md

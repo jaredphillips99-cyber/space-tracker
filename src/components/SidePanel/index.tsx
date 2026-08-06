@@ -2,8 +2,9 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import { TICKERS } from '../../config/tickers';
-import { isAnalysisStale, SECTOR_COLORS } from '../../types';
+import { SECTOR_COLORS } from '../../types';
 import type { TickerConfig } from '../../types';
+import { getAnalysisFreshness } from '../../lib/analysisFreshness';
 import { useNewswire, sentimentColor } from '../../hooks/useNewswire';
 
 function relativeTime(ts: number): string {
@@ -37,12 +38,6 @@ function fmtEarningsDate(iso?: string): string {
   const d = parseDate(iso);
   if (!d) return '—';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function daysUntil(iso?: string | null): number | null {
-  const d = parseDate(iso ?? undefined);
-  if (!d) return null;
-  return Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
 function daysSince(ts: number): number {
@@ -116,45 +111,54 @@ export function SidePanel() {
     for (const t of TICKERS) {
       const a = analyses[t.ticker];
       const earningsDate = prices[t.ticker]?.nextEarningsDate ?? null;
-      const untilEarnings = daysUntil(earningsDate);
+      const { status, daysUntilEarnings } = getAnalysisFreshness(a, earningsDate);
 
-      // reportDue: earnings already happened and we haven't analyzed since
-      if (untilEarnings != null && untilEarnings < 0) {
-        const earningsMs = parseDate(earningsDate!)!.getTime();
-        if (!a || a.analyzedAt < earningsMs) {
+      switch (status) {
+        case 'reportDue': {
+          const overdue = daysUntilEarnings != null ? -daysUntilEarnings : 0;
           items.push({
             ticker: t,
             tier: 'reportDue',
-            sortKey: -untilEarnings, // more overdue = higher priority
+            sortKey: overdue, // more overdue = higher priority
             secondaryLine: `overdue since ${fmtEarningsDate(earningsDate!)}`,
             tag: '⚠ re-run analysis',
           });
-          continue;
+          break;
         }
-      }
-
-      // earningsSoon: earnings coming up within a week
-      if (untilEarnings != null && untilEarnings >= 0 && untilEarnings <= 7) {
-        items.push({
-          ticker: t,
-          tier: 'earningsSoon',
-          sortKey: untilEarnings, // soonest first
-          secondaryLine: fmtEarningsDate(earningsDate!),
-          tag: `⏱ earnings in ${untilEarnings}d`,
-        });
-        continue;
-      }
-
-      // staleFallback: Yahoo has no earnings data, and analysis is missing/stale
-      if (earningsDate == null && (!a || isAnalysisStale(a))) {
-        const since = a ? daysSince(a.analyzedAt) : Infinity;
-        items.push({
-          ticker: t,
-          tier: 'staleFallback',
-          sortKey: since,
-          secondaryLine: a ? `last analyzed ${relativeTime(a.analyzedAt)}` : 'never analyzed',
-          tag: `◌ stale (${since === Infinity ? '∞' : `${since}d`})`,
-        });
+        case 'earningsToday': {
+          items.push({
+            ticker: t,
+            tier: 'earningsSoon', // reuse amber tier/priority slot
+            // Prioritize above all other earningsSoon items (they sort soonest-
+            // first ascending; -1 places "today" ahead of any 1–7d countdown).
+            sortKey: -1,
+            secondaryLine: fmtEarningsDate(earningsDate!),
+            tag: '⏱ reports today — check before re-running',
+          });
+          break;
+        }
+        case 'earningsSoon': {
+          items.push({
+            ticker: t,
+            tier: 'earningsSoon',
+            sortKey: daysUntilEarnings ?? 0, // soonest first
+            secondaryLine: fmtEarningsDate(earningsDate!),
+            tag: `⏱ earnings in ${daysUntilEarnings}d`,
+          });
+          break;
+        }
+        case 'staleFallback': {
+          const since = a ? daysSince(a.analyzedAt) : Infinity;
+          items.push({
+            ticker: t,
+            tier: 'staleFallback',
+            sortKey: since,
+            secondaryLine: a ? `last analyzed ${relativeTime(a.analyzedAt)}` : 'never analyzed',
+            tag: `◌ stale (${since === Infinity ? '∞' : `${since}d`})`,
+          });
+          break;
+        }
+        // 'awaiting' / 'analyzed' → not surfaced in Needs Attention
       }
     }
 

@@ -4,12 +4,12 @@ import { useStore } from '../../store/useStore';
 import { TICKERS } from '../../config/tickers';
 import {
   computeImpliedUpside,
-  isAnalysisStale,
   SECTOR_COLORS,
   recommendationMeanToLabel,
   YAHOO_RATING_COLORS,
   type SortField,
 } from '../../types';
+import { getAnalysisFreshness } from '../../lib/analysisFreshness';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -318,7 +318,12 @@ export function PriceTable() {
             const price    = prices[ticker.ticker];
             const analysis = analyses[ticker.ticker];
             const hasAnalysis = !!analysis;
-            const stale       = hasAnalysis && isAnalysisStale(analysis);
+            // Earnings-aware staleness: only "stale" when a newer report has
+            // actually been released since the last analysis (reportDue), or —
+            // absent any Yahoo earnings date — the flat 30-day fallback fires.
+            // Never stale from elapsed time alone while the next report is months out.
+            const freshness   = getAnalysisFreshness(analysis, price?.nextEarningsDate);
+            const stale       = freshness.status === 'reportDue' || freshness.status === 'staleFallback';
             const awaiting    = !hasAnalysis;
             // Upside now sourced from Yahoo Finance analyst consensus target — available for all stocks
             const upside      = computeImpliedUpside(price?.price, price?.analystTargetPrice);

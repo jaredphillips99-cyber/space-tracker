@@ -275,6 +275,10 @@ export function StockDetail() {
         grossMargin:       jsonData.grossMarginPercent ?? undefined,
         recentRevenue:     jsonData.revenue ?? undefined,
         recentEPS:         jsonData.epsAdjusted ?? undefined,
+        // Record the filing we just analyzed so freshness tracking reflects
+        // this earnings period immediately, without waiting on a Supabase
+        // round-trip (rowToAnalysis maps filing_date → lastEarningsDate on sync).
+        lastEarningsDate:  meta.filingDate ?? undefined,
         summary:           narrative,
         keyMetrics:        (jsonData as any).snapshot ?? undefined,
         earningsText:      meta.documentUrl ?? undefined,
