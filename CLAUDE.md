@@ -299,8 +299,7 @@ src/hooks/useSupabaseSync.ts                   hydrates Zustand from Supabase on
 src/hooks/useNetWorthSync.ts                   accounts table sync — debounced writes, visibilitychange/pagehide flush
 src/hooks/useFinancialProfile.ts               optional income/savings/goal profile — mirrors useNetWorthSync.ts pattern
 src/components/networth/NetWorthTab.tsx        net worth aggregation + financial profile panel + AI analysis card
-api/retirement.ts                              retirement API — single retirement_analysis one-shot (own 15/hr bucket)
-api/_shared/netWorth.ts                        shared net-worth prompt helpers (NETWORTH_GROUNDING_RULE, buildAccountLines) — used by portfolio.ts + retirement.ts
+api/retirement.ts                              retirement API — single retirement_analysis one-shot (own 15/hr bucket); net-worth prompt helpers inlined (see Aug 6 hotfix)
 src/hooks/useRetirementProfile.ts              retirement_profile table sync — mirrors useFinancialProfile.ts pattern
 src/components/retirement/RetirementTab.tsx    Retirement tab — inputs form + contribution-waterfall AI card
 src/components/common/MarkdownCard.tsx         shared AI-output Markdown renderer (extracted; used by RetirementTab)
@@ -1844,3 +1843,47 @@ gracefully (tier-1-only).
   src/components/common/MarkdownCard.tsx · src/pages/Retirement.tsx
 **Files modified:** api/portfolio.ts · src/components/Layout/index.tsx ·
   src/App.tsx · CLAUDE.md
+
+---
+
+### August 6, 2026 (hotfix) — Retirement/Net Worth 500s: revert the api/_shared module, inline the helpers
+
+**Symptom:** running Retirement analysis returned the client error `Unexpected
+token 'A', "A server e"... is not valid JSON` — the endpoint returned Vercel's
+plain-text `A server error has occurred` / `FUNCTION_INVOCATION_FAILED` (HTTP
+500), and the client's `res.json()` choked on the non-JSON body. Confirmed by
+curling production: BOTH `/api/retirement` AND `/api/portfolio`
+(networth_analysis) 500'd — meaning the just-shipped Retirement feature also
+REGRESSED the live Net Worth tab's analysis.
+
+**Root cause:** the shared helper module `api/_shared/netWorth.ts`. Vercel does
+NOT deploy underscore-prefixed paths under `api/` — but it also does not treat
+them as bundleable dependencies of a function, so both functions failed to
+resolve the import at init → invocation failure before any handler code ran.
+The earlier assumption ("underscore dir = excluded from routing but still
+importable") was wrong for this Vercel setup; `npm run build`/`tsc` can't catch
+it because api/ isn't in the root tsconfig and Vercel builds api/ only at deploy.
+
+**Fix:** deleted `api/_shared/netWorth.ts`. Reverted `api/portfolio.ts` to its
+original self-contained inline form (NETWORTH_GROUNDING_RULE + kindLabel +
+accountLines mapping + NetWorthAccountPayload interface — byte-for-byte the
+pre-Retirement version). Inlined the same four pieces (NETWORTH_GROUNDING_RULE,
+fmtUsd, buildAccountLines, NetWorthAccountPayload) directly into
+`api/retirement.ts`. This is the api-file DUPLICATION convention the codebase
+already documents (ThemePreferences / SECTOR_ETF_MAP) — the correct pattern for
+sharing across Vercel functions here; a shared import module is not. A comment
+in retirement.ts records why, to prevent a repeat.
+
+**Lesson for future api/ work:** do NOT factor shared code into an
+`api/_shared/` (or any underscore-prefixed) module and import it across
+functions — it deploys broken with no local-build signal. Duplicate small
+helpers inline instead, and always curl the production endpoint after deploying
+a new/changed api/ function rather than trusting tsc/build alone.
+
+**Verification:** `npx tsc --noEmit` + `npm run build` pass; standalone strict
+api/ typecheck (noUnusedLocals) passes; grep confirms no remaining `_shared`
+import. Post-deploy: re-curl both endpoints to confirm they no longer 500.
+
+**Files modified:** api/portfolio.ts (reverted) · api/retirement.ts (helpers
+inlined) · CLAUDE.md
+**Files deleted:** api/_shared/netWorth.ts
