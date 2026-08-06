@@ -7,6 +7,7 @@ import { StockDetail } from './pages/StockDetail';
 import { IndexDetail } from './pages/IndexDetail';
 import { Portfolio } from './pages/Portfolio';
 import { NetWorth } from './pages/NetWorth';
+import { Retirement } from './pages/Retirement';
 import { AuthGate } from './components/AuthGate';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { supabase } from './lib/supabase';
@@ -51,6 +52,7 @@ function AppInner() {
           <Route path="/index/:indexName" element={<ErrorBoundary label="Index"><IndexDetail /></ErrorBoundary>} />
           <Route path="/portfolio"     element={<ErrorBoundary label="Portfolio"><Portfolio /></ErrorBoundary>} />
           <Route path="/networth"      element={<ErrorBoundary label="Net Worth"><NetWorth /></ErrorBoundary>} />
+          <Route path="/retirement"    element={<ErrorBoundary label="Retirement"><Retirement /></ErrorBoundary>} />
           <Route path="/admin"         element={<AuthGate />} />
         </Routes>
       </Layout>

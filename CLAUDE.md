@@ -299,6 +299,11 @@ src/hooks/useSupabaseSync.ts                   hydrates Zustand from Supabase on
 src/hooks/useNetWorthSync.ts                   accounts table sync — debounced writes, visibilitychange/pagehide flush
 src/hooks/useFinancialProfile.ts               optional income/savings/goal profile — mirrors useNetWorthSync.ts pattern
 src/components/networth/NetWorthTab.tsx        net worth aggregation + financial profile panel + AI analysis card
+api/retirement.ts                              retirement API — single retirement_analysis one-shot (own 15/hr bucket)
+api/_shared/netWorth.ts                        shared net-worth prompt helpers (NETWORTH_GROUNDING_RULE, buildAccountLines) — used by portfolio.ts + retirement.ts
+src/hooks/useRetirementProfile.ts              retirement_profile table sync — mirrors useFinancialProfile.ts pattern
+src/components/retirement/RetirementTab.tsx    Retirement tab — inputs form + contribution-waterfall AI card
+src/components/common/MarkdownCard.tsx         shared AI-output Markdown renderer (extracted; used by RetirementTab)
 src/components/AuthGate.tsx                    admin magic-link login screen (/admin route)
 src/lib/indexCalc.ts                           AI Index pure math (computeIndexValue) + membership by primary sector
 src/hooks/useIndexValue.ts                     live index values (client-side) + history + constituent fetchers
@@ -1722,3 +1727,120 @@ and `npm run build` pass.
 **Files modified:** src/config/tickers.ts · src/config/gics.ts ·
   src/config/themes.ts · src/components/StockDetail.tsx · api/analyze.ts ·
   scripts/newswire.mjs · scripts/indexCalc.mjs · CLAUDE.md
+
+---
+
+### August 6, 2026 — New Retirement tab (AI contribution-waterfall advisor)
+
+**What:** a fifth top-level tab (News · Dashboard · Portfolio · Net Worth ·
+**Retirement**) — an AI-powered retirement-contribution advisor. It takes the
+user's salary/plan/contribution inputs and applies a FIXED prioritization
+waterfall (1. capture employer match → 2. high-APR debt → 3. remaining
+tax-advantaged room → 4. other goals), sequencing contributions against
+near-term debt pulled from the existing Net Worth data rather than treating
+them independently. Single one-shot AI analysis, same shape as
+`networth_analysis`.
+
+**Explicitly OUT OF SCOPE this pass (deliberate follow-ups):** no web-search
+grounding for state/municipal plan-rule specifics; no multi-year
+trajectory/balance projection modeling. Tool-free single call.
+
+**Reused three existing patterns exactly (did not invent new conventions):**
+  - `useFinancialProfile.ts` → `src/hooks/useRetirementProfile.ts` (same
+    auth-resolution + `.maybeSingle()` load + 800ms debounced upsert +
+    visibilitychange/pagehide flush + anonymous-in-memory shape). Renamed the
+    completeness flag `hasProfile` → `hasCoreInputs` (true when BOTH
+    annualSalary and primaryContributionPct are set — gates the analysis
+    panel). JSON array fields (`otherRetirementAccounts`,
+    `otherInvestmentGoals`) upsert as jsonb directly, NOT stringified.
+  - `api/portfolio.ts` `networth_analysis` / `buildNetWorthPrompt()` → new
+    `api/retirement.ts` with `buildRetirementPrompt()`. Reuses
+    `NETWORTH_GROUNDING_RULE` ("never invent a dollar figure, state assumptions
+    explicitly") and the account-line formatting verbatim.
+  - `NetWorthAuthGate.tsx` → `RetirementAuthGate.tsx` (copied with
+    retirement-specific copy — the NetWorth copy reads oddly here) + a
+    `src/pages/Retirement.tsx` wrapper mirroring `NetWorth.tsx`'s
+    gate/anonymous/authenticated flow (session key `retirement_gate_dismissed`).
+
+**Shared helper extraction (`api/_shared/netWorth.ts`):** rather than
+reimplement or duplicate, extracted `NETWORTH_GROUNDING_RULE`, `fmtUsd`,
+`buildAccountLines()`, and the `NetWorthAccountPayload` type into a new module
+under `api/_shared/` (underscore-prefixed dir → excluded from Vercel's `api/*.ts`
+route glob, so it's a plain module, not a function). `api/portfolio.ts` was
+refactored to IMPORT these three (behavior-preserving — same strings, same
+function body; its `networth_analysis` request type, rate-limit bucket, and
+grounding-rule usage are otherwise untouched, per the constraint). `retirement.ts`
+imports the same. This is the "extract to a shared helper" path the task asked
+for; kept within the api/ boundary (not the api↔src duplication boundary the
+codebase avoids).
+
+**Endpoint (`api/retirement.ts`):** OWN rate-limit bucket — fresh `Map`,
+15/IP/hr (NOT analyze.ts's 10 or portfolio.ts's 20). Model `claude-sonnet-4-6`,
+`max_tokens: 1400`, no `tools` array (tool-free per scope). `vercel.json`'s
+existing `api/*.ts` maxDuration:60 covers it — no config change. Validates 400
+if `annualSalary` or `primaryContributionPct` is missing (mirrors the
+accounts-required check). The employer-match GAP is PRE-COMPUTED server-side
+(exact unclaimed-dollars figure) so the model states a real number, not an
+estimate. Waterfall step 2 (debt) degrades gracefully when no `netWorthAccounts`
+are sent (tier-1-only): still runs match/plan/goals, skips card-specific
+language, and Watch Items notes that connecting Net Worth would sharpen it.
+457(b) early-withdrawal-flexibility note fires only for a governmental 457(b)
+when public-sector/pension is indicated.
+
+**Prompt sections (### headings, no top-level ##):** Contribution Priority
+Waterfall (fixed order) · Roth vs. Traditional (salary/state bracket context,
+explicit not-tax-advice caveat) · Where the "Other Goals" Money Fits · Watch
+Items. Ends with the required "educational information, not personalized
+financial or tax advice — consult a financial planner or CPA" line.
+
+**UI (`RetirementTab.tsx`):** input form (employment type / state / salary /
+plan type / contribution % / employer-match fields / pension checkbox / birth
+year) + two dynamic add/remove list editors for otherRetirementAccounts and
+otherInvestmentGoals. "Analyze" pulls current Net Worth accounts
+(`useNetWorthSync`, live crypto via `useCryptoPrices`) and `useFinancialProfile`
+income/savings automatically when signed in — no re-entry. Result renders
+through the shared `<MarkdownCard>` (extracted to `src/components/common/` from
+the NetWorthTab local copy — reused, not reimplemented) inside a teal
+(`#06b6d4`, GICS health_care accent) left-border card, distinct from Portfolio's
+purple/amber and Net Worth's cards. Re-run button once a result exists;
+empty-state copy before `hasCoreInputs`. The live-priced equity portfolio
+(`holdings_link`) is intentionally excluded from the payload — tangential to the
+debt-vs-contribution waterfall and its live value isn't wired into this tab.
+
+**Nav + routing:** `NAV_LINKS` gained `{ to: '/retirement', label: 'Retirement' }`
+after Net Worth; `App.tsx` gained the `/retirement` route wrapped in
+`ErrorBoundary` (same pattern as /networth, /portfolio).
+
+**Privacy:** this is the SAME deliberate dollar-figure exception as the Net
+Worth tab (admin-only, magic-link-gated) — real salary/balances by design. Does
+NOT bleed into the Portfolio-tab percentage-only rule; the shared helper carries
+a matching privacy note.
+
+**Migration handed off (NOT run by Claude Code):**
+`supabase_migration_retirement_profile.sql` — `retirement_profile` table (one
+row per user_id, mirrors user_financial_profile's shape + RLS: `for all using
+(auth.uid() = user_id)`). All fields nullable/additive, jsonb for the two array
+columns. MUST be applied in the Supabase SQL Editor before this ships or
+read/write fails on the missing table (`useRetirementProfile` selects '*', so a
+missing table surfaces as a load error, never silently swallowed).
+
+**Verification:** `npx tsc --noEmit` (covers src/) and `npm run build` pass. The
+api/ files are NOT in the root tsconfig's `include` (src only) — they're
+typechecked by Vercel at deploy — so verified separately with a standalone strict
++ noUnusedLocals tsc pass over `api/**/*.ts` (clean, confirming the portfolio.ts
+refactor left no dangling locals). NOT browser-verified locally: the tab is
+magic-link-gated and `/api/retirement` is a Vercel function not served by plain
+`vite dev`. Post-deploy manual checks: (1) salary + contribution % below match
+threshold → waterfall step 1 states the exact unclaimed dollar amount; (2) a
+high-APR card in Net Worth → step 2 names that card + APR; (3) an
+otherInvestmentGoals entry → addressed in its own section vs. remaining
+tax-advantaged room; (4) no Net Worth data connected → still completes
+gracefully (tier-1-only).
+
+**Files created:** supabase_migration_retirement_profile.sql · api/retirement.ts ·
+  api/_shared/netWorth.ts · src/hooks/useRetirementProfile.ts ·
+  src/components/retirement/RetirementTab.tsx ·
+  src/components/retirement/RetirementAuthGate.tsx ·
+  src/components/common/MarkdownCard.tsx · src/pages/Retirement.tsx
+**Files modified:** api/portfolio.ts · src/components/Layout/index.tsx ·
+  src/App.tsx · CLAUDE.md

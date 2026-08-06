@@ -1,4 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import {
+  NETWORTH_GROUNDING_RULE,
+  buildAccountLines,
+  type NetWorthAccountPayload,
+} from './_shared/netWorth';
 
 // ─── Rate limiting ────────────────────────────────────────────────────────────
 
@@ -796,11 +801,9 @@ Under 250 words. Specific tickers and numbers only. No generic disclaimers.`;
 // figures. The Net Worth tab is admin-only (gated behind NetWorthAuthGate) and
 // the user explicitly approved sending real figures for this feature. Do NOT
 // copy this pattern into any Portfolio-tab request type.
-
-const NETWORTH_GROUNDING_RULE = `HARD RULES:
-- Never invent, estimate, or illustrate with a balance, APR, income, or dollar figure that is not present in the data above.
-- If a figure needed for a calculation is missing (e.g. a card's minimum payment), state the assumption you are using explicitly (e.g. "assuming a 2% minimum payment of $X/mo") instead of guessing silently. Do NOT ask the user to supply the missing figure — this is a one-shot analysis with no follow-up channel; make a stated assumption and proceed.
-- Show the inputs plainly for any payoff or timeline math (balance, rate, payment used).`;
+// NETWORTH_GROUNDING_RULE + buildAccountLines now live in api/_shared/netWorth.ts
+// (shared with api/retirement.ts). Behavior is unchanged from the former inline
+// definitions.
 
 function buildNetWorthPrompt(body: RequestBody, hasProfile: boolean): string {
   const accounts = body.accounts ?? [];
@@ -815,31 +818,7 @@ function buildNetWorthPrompt(body: RequestBody, hasProfile: boolean): string {
   const cashTotal  = assets.filter(a => a.kind === 'cash').reduce((s, a) => s + (a.balance ?? 0), 0);
   const hasCardDebt = cards.some(a => (a.balance ?? 0) > 0);
 
-  const kindLabel: Record<string, string> = {
-    holdings_link: 'investment portfolio (stocks/funds)',
-    cash:          'cash',
-    balance:       'account balance (e.g. 401k)',
-    crypto:        'crypto',
-    credit_card:   'credit card',
-  };
-
-  const accountLines = accounts.map(a => {
-    if (a.kind === 'credit_card') {
-      const parts = [
-        `${a.label} | credit card | ${fmt(a.balance ?? 0)} owed`,
-        a.apr != null ? `APR ${a.apr}%` : 'APR not provided',
-        a.minPayment != null ? `min payment ${fmt(a.minPayment)}/mo` : 'min payment not provided',
-        a.dueDate ? `next due ${a.dueDate}` : null,
-        a.statementBalance != null ? `statement balance ${fmt(a.statementBalance)}` : null,
-      ].filter(Boolean);
-      return '  ' + parts.join(' | ');
-    }
-    // Live-priced crypto — name the holding (e.g. "0.5 BTC-USD") for the model.
-    if (a.kind === 'crypto' && a.cryptoSymbol && a.cryptoQuantity != null) {
-      return `  ${a.label} | crypto (${a.cryptoQuantity} ${a.cryptoSymbol}) | ${fmt(a.balance ?? 0)}`;
-    }
-    return `  ${a.label} | ${kindLabel[a.kind] ?? a.kind} | ${fmt(a.balance ?? 0)}`;
-  }).join('\n');
+  const accountLines = buildAccountLines(accounts);
 
   let sectorSection = '';
   const tops = body.portfolioContext?.topSectorWeights;
@@ -1047,19 +1026,9 @@ interface CashContext {
 }
 
 // networth_analysis only — real dollar figures by design (see privacy note
-// above buildNetWorthPrompt). Never reuse these payloads for other types.
-interface NetWorthAccountPayload {
-  kind: 'holdings_link' | 'cash' | 'balance' | 'crypto' | 'credit_card';
-  label: string;
-  balance: number;
-  apr?: number | null;
-  dueDate?: string | null;
-  minPayment?: number | null;
-  statementBalance?: number | null;
-  // Live-priced crypto only — present when the holding has symbol + quantity set.
-  cryptoSymbol?: string | null;
-  cryptoQuantity?: number | null;
-}
+// above buildNetWorthPrompt). NetWorthAccountPayload is imported from
+// ./_shared/netWorth (shared with api/retirement.ts). Never reuse these
+// payloads for other types.
 
 interface NetWorthFinancialProfile {
   monthlyIncome: number | null;

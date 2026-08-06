@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/portfolio', label: 'Portfolio' },
   { to: '/networth', label: 'Net Worth' },
+  { to: '/retirement', label: 'Retirement' },
 ];
 
 // lng_export intentionally excluded
