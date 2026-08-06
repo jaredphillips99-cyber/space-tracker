@@ -25,7 +25,6 @@ const TICKERS = [
   { ticker: 'KTOS', sector: 'space' },
   { ticker: 'BKSY', sector: 'space' },
   { ticker: 'FLY',  sector: 'space' },
-  { ticker: 'SATS', sector: 'space' },
   // AI Infrastructure
   { ticker: 'NVDA', sector: 'ai_infrastructure' },
   { ticker: 'PLTR', sector: 'ai_infrastructure' },
@@ -210,7 +209,6 @@ const COMPANY_ALIASES = {
   KTOS: ['kratos'],
   BKSY: ['blacksky'],
   FLY:  ['firefly aerospace', 'firefly'],
-  SATS: ['echostar'],
   NVDA: ['nvidia'],
   PLTR: ['palantir'],
   CRWV: ['coreweave'],

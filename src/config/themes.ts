@@ -110,7 +110,6 @@ export const TICKER_THEME_MAP: Record<string, { theme: Theme; subTheme: SubTheme
   RDW:  { theme: 'space_economy', subTheme: 'launch_and_space_systems' }, // crossover: defense (small_sat_and_isr)
   LUNR: { theme: 'space_economy', subTheme: 'launch_and_space_systems' },
   ASTS: { theme: 'space_economy', subTheme: 'satellite_and_earth_observation' },
-  SATS: { theme: 'space_economy', subTheme: 'satellite_and_earth_observation' },
   PL:   { theme: 'space_economy', subTheme: 'satellite_and_earth_observation' },
   BKSY: { theme: 'space_economy', subTheme: 'satellite_and_earth_observation' }, // crossover: defense (small_sat_and_isr)
   SPCX: { theme: 'space_economy', subTheme: 'launch_and_space_systems' }, // crossover: ai_infrastructure via xAI/Colossus

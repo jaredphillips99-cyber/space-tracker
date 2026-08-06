@@ -240,7 +240,6 @@ export const UNIVERSE_SECTOR_MAP: Record<string, SectorTag> = {
   LHX:  { sector: 'industrials',            subSector: 'aerospace_defense' },
   AVAV: { sector: 'industrials',            subSector: 'aerospace_defense' },
   ASTS: { sector: 'communication_services', subSector: 'satellite_comms' },
-  SATS: { sector: 'communication_services', subSector: 'satellite_comms' },
   PL:   { sector: 'communication_services', subSector: 'earth_observation' },
   BKSY: { sector: 'communication_services', subSector: 'earth_observation' },
   NVDA: { sector: 'information_technology', subSector: 'semiconductors' },

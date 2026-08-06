@@ -59,14 +59,6 @@ export const TICKERS: TickerConfig[] = [
     specialNotes: '$75M NASA subcontract (May 2026) for MoonFall lunar drone delivery (2028)',
   },
   {
-    ticker: 'SATS',
-    name: 'EchoStar',
-    sectors: ['space'],
-    description: 'Satellite broadband operator; restructuring and debt reduction story',
-    fiscalYearEnd: 'December',
-    specialNotes: 'Restructuring story — not pure space infrastructure play',
-  },
-  {
     ticker: 'KTOS',
     name: 'Kratos Defense',
     // Primary sector is defense; space is crossover (satellite ground infrastructure)

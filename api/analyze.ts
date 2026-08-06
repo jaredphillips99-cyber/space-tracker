@@ -143,15 +143,6 @@ ${earningsText.substring(0, 40000)}`;
 // ─── Ticker-specific system prompts ──────────────────────────────────────────
 
 const TICKER_SYSTEM_PROMPTS: Record<string, string> = {
-  SATS: `SATS (EchoStar) is a satellite broadband restructuring story, NOT a standard earnings analysis.
-The company filed for Chapter 11 bankruptcy in 2023 and emerged as a reorganized entity in 2024.
-There are no recent earnings 8-K filings available on EDGAR — you are working from training knowledge.
-Focus your analysis on: the post-emergence capital structure and debt reduction, spectrum asset value
-(700 MHz and other bands retained), Hughes broadband subscriber trends and churn pressure from
-Starlink/competitors, cash runway and burn rate, and any strategic options (partnerships, asset sales,
-spectrum monetization). Treat this like a distressed/turnaround analysis, not a growth story.
-Be explicit about data limitations where your training knowledge is uncertain.`,
-
   NBIS: `NBIS (Nebius Group N.V.) is a Dutch foreign private issuer — formerly the international
 (non-Russia) assets of Yandex N.V., rebranded as Nebius Group after Yandex's Russia operations
 were sold in 2024. It trades on NASDAQ but files 6-K forms on EDGAR rather than 8-K earnings

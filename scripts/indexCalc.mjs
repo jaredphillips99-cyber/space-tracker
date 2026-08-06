@@ -55,7 +55,7 @@ const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 const PRIMARY_SECTOR = {
   // Space
   RKLB: 'space', PL: 'space', RDW: 'space', LUNR: 'space', ASTS: 'space',
-  BKSY: 'space', FLY: 'space', SATS: 'space', SPCX: 'space',
+  BKSY: 'space', FLY: 'space', SPCX: 'space',
   // Defense
   KTOS: 'defense', LHX: 'defense', AVAV: 'defense',
   // AI Infrastructure

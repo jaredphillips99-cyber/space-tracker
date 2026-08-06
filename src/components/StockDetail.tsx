@@ -29,7 +29,7 @@ const SECTOR_LABEL_MAP: Record<string, string> = {
 const CIK_MAP: Record<string, string> = {
   RKLB: '0001819994', PL:   '0001836833', RDW:  '0001819810',
   LUNR: '0001844452', ASTS: '0001780312', KTOS: '0001069258',
-  BKSY: '0001753539', FLY:  '0001860160', SATS: '0001415404',
+  BKSY: '0001753539', FLY:  '0001860160',
   NVDA: '0001045810', PLTR: '0001321655', CRWV: '0001769628',
   IREN: '0001878848', NBIS: '0001513845', CIFR: '0001819989',
   RIOT: '0001167419', VRT:  '0001674101', MOD:  '0000067347',
@@ -46,9 +46,8 @@ const CIK_MAP: Record<string, string> = {
   ZS:   '0001713683', FTNT: '0001262039',
 };
 
-const SPECULATIVE          = new Set(['OKLO', 'NNE', 'NXE', 'SATS']);
+const SPECULATIVE          = new Set(['OKLO', 'NNE', 'NXE']);
 const SEDAR_ONLY           = new Set(['NXE']);
-const TRAINING_ONLY        = new Set(['SATS']);  // no usable EDGAR filings; use training knowledge
 
 // ─── EDGAR types ──────────────────────────────────────────────────────────────
 
@@ -150,19 +149,6 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
         filingDate: null, period: null, documentUrl: null,
         isSedarOnly: true, sources: null,
         note: 'NXE files on SEDAR. Analysis based on training knowledge only.',
-      },
-    };
-  }
-
-  if (TRAINING_ONLY.has(ticker)) {
-    return {
-      ticker,
-      earningsText:  'SATS (EchoStar) is a satellite broadband restructuring story. The company filed for Chapter 11 bankruptcy in 2023 and emerged as a reorganized entity in 2024. Its most recent EDGAR 8-K item 2.02 dates from 2017 and is not useful for current analysis. Use your training knowledge to analyze EchoStar post-emergence: debt reduction achieved through restructuring, the DISH Network merger history and spectrum assets retained, Hughes broadband subscriber trends and competitive pressure from Starlink, cash runway, and strategic path forward. Focus on milestones, key risks, and catalysts.',
-      isSpeculative: true,
-      filingMeta: {
-        filingDate: null, period: null, documentUrl: null,
-        isSedarOnly: false, sources: null,
-        note: 'SATS has no recent earnings 8-K on EDGAR (last filing 2017). Analysis based on training knowledge of post-bankruptcy restructuring.',
       },
     };
   }

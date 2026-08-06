@@ -1673,3 +1673,52 @@ analysis is >30d old does NOT show STALE (the case that was broken).
 **Files modified:** src/components/StockDetail.tsx ·
   src/components/SidePanel/index.tsx · src/components/PriceTable/index.tsx ·
   CLAUDE.md
+
+---
+
+### August 6, 2026 (patch) — Remove SATS (EchoStar) from the tracked universe
+
+**Why:** per Jared, SATS is being dropped from the dashboard. Removed across all
+taxonomy + pipeline files per the universe-change checklist (the reverse of an
+add). SATS was a `space`-primary name, so no Sector type / pill change was
+needed — the Space pill stays; its membership just shrinks by one.
+
+**Index status (checked, per Jared's question):** SATS was NOT factored into the
+stored indexes. The July-30 backfill wrote composite completeness 49/50 with
+SATS the sole omission (its Yahoo quote fetch fails — noted in the Aug 4 index
+entry), so `index_history` / `index_constituents` never contained it — nothing
+to clean up in Supabase. The only place it was still counted was the CLIENT-side
+live composite value (`src/lib/indexCalc.ts` derives membership directly from
+`TICKERS`); removing it from `tickers.ts` drops it from the live composite +
+Space sub-index automatically AND brings the live value into line with the
+stored history (previously the live path could include a SATS live price the
+history didn't have).
+
+**Files modified:**
+  - `src/config/tickers.ts` — removed the SATS TickerConfig entry (drives
+    dashboard PriceTable rows + live index membership + the useLivePrice fetch list).
+  - `src/config/gics.ts` — removed the UNIVERSE_SECTOR_MAP entry.
+  - `src/config/themes.ts` — removed the TICKER_THEME_MAP entry.
+  - `src/components/StockDetail.tsx` — removed the CIK_MAP entry, the SPECULATIVE
+    set membership, the now-empty `TRAINING_ONLY` set (SATS was its only member),
+    and the SATS-specific training-knowledge earningsText branch in
+    `fetchEdgarInBrowser`.
+  - `api/analyze.ts` — removed the SATS entry from `TICKER_SYSTEM_PROMPTS`.
+  - `scripts/newswire.mjs` — removed SATS from `TICKERS` + `COMPANY_ALIASES`.
+  - `scripts/indexCalc.mjs` — removed SATS from the `PRIMARY_SECTOR` map (daily
+    cron close writer). `src/lib/indexCalc.ts` needs no edit — membership derives
+    from tickers.ts.
+
+**Not touched:** no Supabase schema/data change (nothing to migrate or delete —
+SATS was never in the index tables; any stale `analyses`/`newswire_items` rows
+for SATS simply age out of the recent windows and no longer have a dashboard
+row to open). Historical session-log counts (e.g. "space 9") left as-is — they
+record what was true then; the Space sub-index is now 8.
+
+**Verification:** `grep` confirms zero remaining SATS / TRAINING_ONLY references
+in src/ scripts/ api/. `node --check` passes on both scripts; `npx tsc --noEmit`
+and `npm run build` pass.
+
+**Files modified:** src/config/tickers.ts · src/config/gics.ts ·
+  src/config/themes.ts · src/components/StockDetail.tsx · api/analyze.ts ·
+  scripts/newswire.mjs · scripts/indexCalc.mjs · CLAUDE.md
