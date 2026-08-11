@@ -1958,3 +1958,75 @@ EDGAR-fetch branch).
 
 **Files modified:** src/components/StockDetail.tsx · src/hooks/useAnalysis.ts ·
   api/analyze.ts · CLAUDE.md
+
+---
+
+### August 11, 2026 — Needs Attention: ground-truth last-reported-quarter signal + earningsToday same-day-rerun fix
+
+**Two related bugs in the earnings-freshness system:**
+  1. **Just-released reports were sometimes never flagged.** `getAnalysisFreshness()`
+     relied entirely on Yahoo's forward-looking `nextEarningsDate`
+     (calendarEvents). That estimate can roll to the FOLLOWING quarter before or
+     immediately after a report drops — so its `daysUntilEarnings > 7` early
+     return fired and returned `analyzed`, silently masking a released-but-
+     unanalyzed 10-Q/8-K. There was no ground-truth "what quarter did Yahoo
+     actually report" signal to fall back on.
+  2. **A same-day re-run didn't clear `earningsToday`** (e.g. CRWV, earnings out
+     today). The `daysUntilEarnings === 0` branch returned `earningsToday`
+     unconditionally without comparing `analysis.lastEarningsDate`, unlike the
+     "earnings in the past" branch — so re-running (which correctly updates
+     `lastEarningsDate`) left the ticker stuck in the "reports today" tier until
+     a refresh.
+
+**Fix — new `lastReportedQuarterEnd` ground-truth field, primary reportDue signal.**
+  - `api/prices.ts`: added `defaultKeyStatistics` to the existing non-fund/
+    non-crypto `quoteSummary` modules array (same request, no extra round-trip),
+    read `defaultKeyStatistics.mostRecentQuarter` (the fiscal period-end Yahoo
+    has ACTUAL reported data for), and exposed it as
+    `lastReportedQuarterEnd: string | null` (ISO date, same null convention as
+    `nextEarningsDate`; also added to the error stub).
+  - `src/types/index.ts`: `lastReportedQuarterEnd?: string | null` on `LivePrice`.
+    No store/hook normalization needed — `useLivePrice.fetchPrices` returns
+    `res.json()` wholesale and `useStore.setPrices` spreads the whole object, so
+    the field passes through untouched (verified, no code change to useStore.ts).
+  - `src/lib/analysisFreshness.ts`: `getAnalysisFreshness(analysis,
+    nextEarningsDate, lastReportedQuarterEnd)`. New PRIMARY check evaluated
+    before the `daysUntilEarnings > 7` early return: if `reportedQuarter` is
+    present and newer than `analysis.lastEarningsDate` (or none recorded) →
+    `reportDue`, regardless of `nextEarningsDate`. `nextEarningsDate` now only
+    drives the upcoming/soon messaging + "overdue since" text. The
+    `earningsToday` branch (Bug 2) and the past-earnings branch both gained the
+    same `lastAnalyzed >= reportedQuarter → analyzed` ground-truth comparison.
+    Date note baked into the header comment: `lastEarningsDate` is a FILING date,
+    `lastReportedQuarterEnd` is a PERIOD-END date — a filing always postdates its
+    own quarter-end, so `filingDate >= quarterEnd` = "already covers that
+    quarter", and a quarter-end later than the last filing = a newer quarter
+    reported. The flat 30-day `isAnalysisStale()` fallback is unchanged and still
+    fires only when Yahoo has no upcoming earnings date at all.
+  - Both call sites pass the third arg:
+    `src/components/SidePanel/index.tsx` (needsAttention useMemo) and
+    `src/components/PriceTable/index.tsx` (STALE badge) →
+    `prices[…]?.lastReportedQuarterEnd ?? null`.
+  - Verified `StockDetail.tsx handleComplete` still writes
+    `lastEarningsDate: meta.filingDate ?? undefined` on every completed run (Aug
+    6 fix intact) — the same-day-rerun clear in Fix 2c/2d depends on it.
+
+**Verified `defaultKeyStatistics` is a real yahoo-finance2 v3 quoteSummary module
+and `mostRecentQuarter?: Date` exists in its schema** (guards against a runtime
+module-name rejection).
+
+**Privacy:** untouched — reads only public Yahoo earnings/quarter data + analysis
+timestamps; no dollars/shares.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Not locally
+browser-verifiable (needs live Yahoo `mostRecentQuarter`/`nextEarningsDate` +
+Supabase-synced `filing_date`). Post-deploy manual checks: (1) a ticker whose
+Yahoo `nextEarningsDate` already rolled to next quarter but whose latest 10-Q/8-K
+is unanalyzed now shows reportDue in Needs Attention; (2) re-running CRWV
+(earnings today) clears it from the "reports today" tier immediately, no refresh;
+(3) a ticker with no upcoming earnings data still falls back to the 30-day
+staleFallback unaffected.
+
+**Files modified:** api/prices.ts · src/types/index.ts ·
+  src/lib/analysisFreshness.ts · src/components/SidePanel/index.tsx ·
+  src/components/PriceTable/index.tsx · CLAUDE.md

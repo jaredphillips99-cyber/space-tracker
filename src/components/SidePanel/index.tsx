@@ -111,7 +111,8 @@ export function SidePanel() {
     for (const t of TICKERS) {
       const a = analyses[t.ticker];
       const earningsDate = prices[t.ticker]?.nextEarningsDate ?? null;
-      const { status, daysUntilEarnings } = getAnalysisFreshness(a, earningsDate);
+      const lastReportedQuarterEnd = prices[t.ticker]?.lastReportedQuarterEnd ?? null;
+      const { status, daysUntilEarnings } = getAnalysisFreshness(a, earningsDate, lastReportedQuarterEnd);
 
       switch (status) {
         case 'reportDue': {

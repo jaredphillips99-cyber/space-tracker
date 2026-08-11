@@ -322,7 +322,7 @@ export function PriceTable() {
             // actually been released since the last analysis (reportDue), or —
             // absent any Yahoo earnings date — the flat 30-day fallback fires.
             // Never stale from elapsed time alone while the next report is months out.
-            const freshness   = getAnalysisFreshness(analysis, price?.nextEarningsDate);
+            const freshness   = getAnalysisFreshness(analysis, price?.nextEarningsDate, price?.lastReportedQuarterEnd ?? null);
             const stale       = freshness.status === 'reportDue' || freshness.status === 'staleFallback';
             const awaiting    = !hasAnalysis;
             // Upside now sourced from Yahoo Finance analyst consensus target — available for all stocks

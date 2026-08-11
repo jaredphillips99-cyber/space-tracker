@@ -50,6 +50,12 @@ export interface LivePrice {
   // Earliest upcoming earnings date, sourced from Yahoo calendarEvents.
   // null when Yahoo has no earnings data for this ticker (e.g. some ETFs, thin coverage names).
   nextEarningsDate?: string | null;
+  // Fiscal period-end Yahoo has ACTUAL reported data for, sourced from
+  // defaultKeyStatistics.mostRecentQuarter. Ground-truth "last actually
+  // reported quarter" — the primary reportDue signal (nextEarningsDate is a
+  // forward-looking estimate that can roll forward before the app catches up).
+  // null when Yahoo has no such data for this ticker.
+  lastReportedQuarterEnd?: string | null;
   fetchError?: boolean;
   fetchedAt: number;        // unix ms timestamp
 }

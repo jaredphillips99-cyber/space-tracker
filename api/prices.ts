@@ -47,6 +47,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Null (not undefined) when Yahoo has no earnings data for this ticker —
       // callers should treat null/undefined the same, but null is the explicit signal.
       let nextEarningsDate: string | null = null;
+      // Ground-truth fiscal period-end that Yahoo has ACTUAL reported data for,
+      // from defaultKeyStatistics.mostRecentQuarter — independent of the
+      // forward-looking nextEarningsDate estimate (which can roll to the next
+      // quarter before/right after a release). Null when unavailable.
+      let lastReportedQuarterEnd: string | null = null;
 
       try {
         if (isCrypto) {
@@ -71,7 +76,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // calendarEvents is bundled into the same request — Yahoo returns all
           // requested modules in one HTTP call, so this adds no extra round-trip.
           const summary = await yahooFinance.quoteSummary(ticker, {
-            modules: ['financialData', 'assetProfile', 'calendarEvents'],
+            modules: ['financialData', 'assetProfile', 'calendarEvents', 'defaultKeyStatistics'],
           });
           const fd = summary?.financialData;
           if (fd) {
@@ -94,6 +99,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               .filter((d) => !isNaN(d.getTime()))
               .sort((a, b) => a.getTime() - b.getTime())[0];
             if (earliest) nextEarningsDate = earliest.toISOString().split('T')[0];
+          }
+          const mrq = (summary?.defaultKeyStatistics as any)?.mostRecentQuarter;
+          if (mrq) {
+            const mrqDate = new Date(mrq);
+            if (!isNaN(mrqDate.getTime())) {
+              lastReportedQuarterEnd = mrqDate.toISOString().split('T')[0];
+            }
           }
         }
       } catch {
@@ -145,6 +157,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         expenseRatio,
         // Earliest upcoming earnings date — sourced from quoteSummary.calendarEvents (stocks only)
         nextEarningsDate,
+        // Fiscal period-end Yahoo has actual reported data for — sourced from
+        // quoteSummary.defaultKeyStatistics.mostRecentQuarter (stocks only).
+        // Ground-truth "last actually reported quarter", independent of the
+        // forward-looking nextEarningsDate estimate.
+        lastReportedQuarterEnd,
         fetchError: false,
         fetchedAt,
       };
@@ -160,6 +177,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       change: 0,
       changePercent: 0,
       nextEarningsDate: null,
+      lastReportedQuarterEnd: null,
       fetchError: true,
       fetchedAt,
     };
