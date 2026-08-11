@@ -25,6 +25,11 @@ interface AnalyzeRequestBody {
   ticker:       string;
   earningsText: string;       // raw text from EDGAR, fetched by the browser
   isSpeculative: boolean;
+  // Auto-detected browser-side from the fetched filing (filingShowsRevenue in
+  // StockDetail.tsx). Switches prompt framing to standard earnings the moment a
+  // speculative ticker's most recent filing reports real revenue — no manual
+  // SPECULATIVE-set edit needed. Defaults false.
+  hasReportedRevenue?: boolean;
   filingMeta: {
     filingDate:  string | null;
     period:      string | null;
@@ -37,8 +42,16 @@ interface AnalyzeRequestBody {
 
 // ─── Claude prompts ───────────────────────────────────────────────────────────
 
-function buildJsonPrompt(ticker: string, isSpeculative: boolean, earningsText: string): string {
-  const speculativeNote = isSpeculative
+function buildJsonPrompt(
+  ticker: string,
+  isSpeculative: boolean,
+  hasReportedRevenue: boolean,
+  earningsText: string,
+): string {
+  // Pre-revenue/milestone framing applies ONLY while a speculative ticker has
+  // not yet reported real revenue. Once its most recent filing shows revenue
+  // (hasReportedRevenue), fall through to standard framing automatically.
+  const speculativeNote = isSpeculative && !hasReportedRevenue
     ? `NOTE: ${ticker} is a pre-revenue or early-stage company. Focus on milestones, partnerships, burn rate, cash runway, and TAM. Set revenue/margin fields to null if not applicable.`
     : '';
 
@@ -100,16 +113,21 @@ For speculative/pre-revenue companies, lead with the most important milestone or
 instead. Keep it under 60 words.
 
 EARNINGS FILING — ${ticker}:
-${earningsText.substring(0, 60000)}`;
+${/* earningsText for SPECULATIVE tickers is capped per-section in StockDetail.tsx
+      (8-K ≤15k, 10-Q MD&A ≤40k) and ordered most-recent-first — do not lower
+      without checking fetchEdgarInBrowser()'s caps first. */''}${earningsText.substring(0, 65000)}`;
 }
 
 function buildNarrativePrompt(
   ticker: string,
   isSpeculative: boolean,
+  hasReportedRevenue: boolean,
   earningsText: string,
   jsonData: string,
 ): string {
-  const focus = isSpeculative
+  // Milestone/pre-revenue focus applies ONLY while a speculative ticker has not
+  // yet reported real revenue; standard focus takes over automatically once it has.
+  const focus = isSpeculative && !hasReportedRevenue
     ? `Focus on milestone progress, cash runway, regulatory and partnership developments. Management tone and credibility should inform how confidently you frame the bull and bear cases. Avoid dwelling on lack of revenue.`
     : `Business momentum, margin trajectory, and guidance quality are the core. Management tone and credibility — how candid they were, whether they hedged, whether the numbers matched their words — should directly shape how you frame the bull and bear cases, not appear as a separate section.`;
 
@@ -137,7 +155,9 @@ STRUCTURED DATA EXTRACTED:
 ${jsonData}
 
 EARNINGS FILING:
-${earningsText.substring(0, 40000)}`;
+${/* earningsText for SPECULATIVE tickers is capped per-section in StockDetail.tsx
+      (8-K ≤15k, 10-Q MD&A ≤40k) and ordered most-recent-first — do not lower
+      without checking fetchEdgarInBrowser()'s caps first. */''}${earningsText.substring(0, 45000)}`;
 }
 
 // ─── Ticker-specific system prompts ──────────────────────────────────────────
@@ -192,7 +212,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   }
 
   const body = req.body as Partial<AnalyzeRequestBody>;
-  const { ticker, earningsText, isSpeculative, filingMeta } = body;
+  const { ticker, earningsText, isSpeculative, hasReportedRevenue, filingMeta } = body;
 
   if (!ticker || typeof ticker !== 'string') {
     res.status(400).json({ error: 'ticker is required' });
@@ -219,6 +239,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       period:        filingMeta?.period        ?? null,
       documentUrl:   filingMeta?.documentUrl   ?? null,
       isSpeculative: isSpeculative             ?? false,
+      hasReportedRevenue: hasReportedRevenue   ?? false,
       isSedarOnly:   filingMeta?.isSedarOnly   ?? false,
       sources:       filingMeta?.sources       ?? null,
       note:          filingMeta?.note          ?? null,
@@ -234,7 +255,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       model:     'claude-sonnet-4-6',
       max_tokens: 2000,
       ...(systemPrompt ? { system: systemPrompt } : {}),
-      messages:  [{ role: 'user', content: buildJsonPrompt(upperTicker, isSpeculative ?? false, earningsText) }],
+      messages:  [{ role: 'user', content: buildJsonPrompt(upperTicker, isSpeculative ?? false, hasReportedRevenue ?? false, earningsText) }],
     });
 
     const rawJson = jsonRes.content[0]?.type === 'text' ? jsonRes.content[0].text.trim() : '';
@@ -258,7 +279,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       model:     'claude-sonnet-4-6',
       max_tokens: 2500,
       ...(systemPrompt ? { system: systemPrompt } : {}),
-      messages:  [{ role: 'user', content: buildNarrativePrompt(upperTicker, isSpeculative ?? false, earningsText, JSON.stringify(parsedJson, null, 2)) }],
+      messages:  [{ role: 'user', content: buildNarrativePrompt(upperTicker, isSpeculative ?? false, hasReportedRevenue ?? false, earningsText, JSON.stringify(parsedJson, null, 2)) }],
     });
 
     for await (const chunk of stream) {

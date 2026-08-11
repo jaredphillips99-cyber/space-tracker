@@ -1887,3 +1887,74 @@ import. Post-deploy: re-curl both endpoints to confirm they no longer 500.
 **Files modified:** api/portfolio.ts (reverted) · api/retirement.ts (helpers
 inlined) · CLAUDE.md
 **Files deleted:** api/_shared/netWorth.ts
+
+---
+
+### August 11, 2026 — SPECULATIVE-ticker EDGAR: per-section caps, recency ordering, auto revenue-framing
+
+**Two root causes fixed:**
+  1. **Front-truncation silently dropped the most recent filing.** For
+     SPECULATIVE tickers (OKLO/NNE/NXE) `fetchEdgarInBrowser()` fetched the most
+     recent 8-K + most recent 10-Q, concatenated them 8-K-FIRST with no
+     per-section cap, then `api/analyze.ts` truncated the combined text from the
+     FRONT (60000/40000 chars). A large 8-K could push the 10-Q — often the
+     newer, denser filing — out of the window entirely. `filingMeta` also always
+     preferred the 8-K's date/period regardless of which filing was actually
+     more recent.
+  2. **SPECULATIVE-set required manual upkeep to reflect revenue status.** The
+     hand-maintained set both chose which filings to fetch AND forced
+     pre-revenue/milestone prompt framing forever — so a name that had started
+     reporting real revenue kept getting burn-rate/milestone framing until
+     someone manually edited the set.
+
+**Fix 1 — per-section caps + recency ordering (`src/components/StockDetail.tsx`).**
+Each section is now capped BEFORE concatenation (`EIGHT_K_CAP = 15000`,
+`TEN_Q_CAP = 40000`; the 10-Q is already MD&A-extracted ≤20k, so 40k is
+headroom), so neither filing can truncate the other downstream. Sections are
+ordered most-recent-first by ISO filing-date comparison (was always 8-K-first).
+`filingMeta.filingDate`/`period` now come from `mostRecent` (whichever filing is
+actually newest), so the UI's "Filed" date matches the newest filing (e.g. a
+10-Q filed after the last 8-K).
+
+**Fix 2 — raised `api/analyze.ts` ceilings to match (`60000→65000`,
+`40000→45000`)** with a comment above each locking in the per-section caps as
+the reason not to lower them.
+
+**Fix 3 — automatic revenue detection replaces manual reclassification.** New
+deterministic, zero-Claude-cost `filingShowsRevenue(text)` heuristic (regex: a
+real reported revenue/net-sales dollar line, negated by
+"pre-revenue"/"no revenue to date"/"have not generated any revenue") runs
+against the combined fetched text and sets a new `hasReportedRevenue` flag,
+threaded through `RunPayload`/`AnalysisMeta` (`src/hooks/useAnalysis.ts`) and the
+`/api/analyze` request body. `buildJsonPrompt()` and `buildNarrativePrompt()`
+now gate the pre-revenue framing on `isSpeculative && !hasReportedRevenue` —
+the moment a SPECULATIVE ticker's most recent filing shows revenue, the very
+next run uses standard earnings framing with no set edit. `hasReportedRevenue`
+defaults false for non-speculative tickers and for SEDAR_ONLY (NXE never reaches
+the EDGAR-fetch branch). SPECULATIVE membership was NOT changed — the dual
+8-K+10-Q fetch stays correct and cheap for all three regardless of revenue
+status.
+
+**Clarified definition (now in code comments):** **SPECULATIVE set = which
+filings to FETCH (8-K + 10-Q), NOT which prompt framing to use** — framing is
+auto-detected per analysis run via `hasReportedRevenue`.
+
+**Fix 4 — UI visibility.** When `isSpeculative && hasReportedRevenue`, the meta
+row shows a small green inline note "Now reporting revenue — standard earnings
+framing applied" so the auto-detection is visible without digging into the text.
+
+**Privacy:** untouched — reads only public EDGAR filing text; no dollars/shares
+of the user's own holdings.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass; standalone strict
+api/ typecheck clean (only the expected env-only `process`/module-resolution
+notes). NOT browser-verified locally — the Run Analysis flow is admin-gated and
+`/api/analyze` + browser-side EDGAR fetch aren't served by plain `vite dev`.
+Post-deploy manual checks: re-run OKLO (Filed date = true most-recent filing;
+narrative reflects 10-Q content; framing matches OKLO's actual current
+revenue-reporting status), re-run NNE, and confirm NXE (SEDAR_ONLY) is
+unaffected (`hasReportedRevenue` stays false/unused — it never reaches the
+EDGAR-fetch branch).
+
+**Files modified:** src/components/StockDetail.tsx · src/hooks/useAnalysis.ts ·
+  api/analyze.ts · CLAUDE.md

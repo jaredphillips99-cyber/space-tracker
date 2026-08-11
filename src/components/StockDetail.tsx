@@ -46,8 +46,26 @@ const CIK_MAP: Record<string, string> = {
   ZS:   '0001713683', FTNT: '0001262039',
 };
 
+// SPECULATIVE = which filings to FETCH (both most-recent 8-K + most-recent 10-Q),
+// NOT which prompt framing to use. Prompt framing (pre-revenue/milestone vs.
+// standard earnings) is now auto-detected per analysis run via the
+// filingShowsRevenue() heuristic → hasReportedRevenue flag, so a name never
+// needs manual removal from this set once it starts reporting revenue.
 const SPECULATIVE          = new Set(['OKLO', 'NNE', 'NXE']);
 const SEDAR_ONLY           = new Set(['NXE']);
+
+// Deterministic, zero-Claude-cost revenue detection against fetched filing text.
+// Returns true when the filing reports a real (non-zero) revenue line — used to
+// switch prompt framing away from pre-revenue/milestone automatically.
+function filingShowsRevenue(text: string): boolean {
+  // Look for a real reported revenue line: a dollar figure adjacent to
+  // "revenue" / "total revenue" / "net sales" that is NOT explicitly zero /
+  // "no revenue" / "pre-revenue" / "have not generated any revenue".
+  const noRevenuePatterns = /have not generated (any )?revenue|no revenue to date|pre-revenue/i;
+  if (noRevenuePatterns.test(text)) return false;
+  const revenueLine = /(total revenue|net sales|revenues?)[^.\n]{0,80}\$[\d,]+(\.\d+)?\s*(million|billion|thousand)?/i;
+  return revenueLine.test(text);
+}
 
 // ─── EDGAR types ──────────────────────────────────────────────────────────────
 
@@ -145,6 +163,7 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
       ticker,
       earningsText:  `${ticker} is a Canadian company that files on SEDAR, not SEC EDGAR. Use your training knowledge for analysis.`,
       isSpeculative: true,
+      hasReportedRevenue: false,
       filingMeta: {
         filingDate: null, period: null, documentUrl: null,
         isSedarOnly: true, sources: null,
@@ -183,23 +202,63 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
       return mda ? extractMDA(text) : text;
     };
 
-    const [eightKText, tenQText] = await Promise.all([
+    const [eightKTextRaw, tenQTextRaw] = await Promise.all([
       eightKFiling ? fetchExhibit(eightKFiling, false) : Promise.resolve(null),
       tenQFiling   ? fetchExhibit(tenQFiling,   true)  : Promise.resolve(null),
     ]);
 
-    let combined = '';
-    if (eightKText) combined += `=== MOST RECENT 8-K ===\nFiled: ${eightKFiling!.filingDate}\n\n${eightKText}`;
-    if (tenQText)   combined += `${combined ? '\n\n' : ''}=== MOST RECENT 10-Q (MD&A) ===\nFiled: ${tenQFiling!.filingDate}\n\n${tenQText}`;
-    if (!combined)  throw new Error('Could not retrieve any EDGAR filings');
+    // Cap EACH section BEFORE concatenation so a large 8-K can never truncate
+    // the 10-Q (or vice versa) once the combined text hits api/analyze.ts's
+    // front-truncation ceiling. tenQText is already MD&A-extracted (≤20k), so
+    // 40k is generous headroom.
+    const EIGHT_K_CAP = 15000;
+    const TEN_Q_CAP   = 40000;
+    const eightKText = eightKTextRaw ? eightKTextRaw.substring(0, EIGHT_K_CAP) : null;
+    const tenQText   = tenQTextRaw   ? tenQTextRaw.substring(0, TEN_Q_CAP)     : null;
+
+    // Build the two labelled sections, then order them most-recent-first by
+    // actual filing date so whichever filing is newest is never the one at
+    // risk of front-truncation downstream.
+    const eightKSection = eightKText
+      ? `=== MOST RECENT 8-K ===\nFiled: ${eightKFiling!.filingDate}\n\n${eightKText}`
+      : null;
+    const tenQSection = tenQText
+      ? `=== MOST RECENT 10-Q (MD&A) ===\nFiled: ${tenQFiling!.filingDate}\n\n${tenQText}`
+      : null;
+
+    const eightKNewer =
+      !!eightKFiling && !!tenQFiling
+        ? (eightKFiling.filingDate >= tenQFiling.filingDate)
+        : !!eightKFiling; // if only one exists, it leads trivially
+
+    const orderedSections = (eightKNewer
+      ? [eightKSection, tenQSection]
+      : [tenQSection, eightKSection]
+    ).filter(Boolean) as string[];
+
+    const combined = orderedSections.join('\n\n');
+    if (!combined) throw new Error('Could not retrieve any EDGAR filings');
+
+    // filingMeta reflects whichever filing is ACTUALLY most recent (not always
+    // the 8-K), so the "Filed" date/period in the UI matches the newest filing.
+    const mostRecent =
+      !eightKFiling ? tenQFiling :
+      !tenQFiling   ? eightKFiling :
+      eightKFiling.filingDate >= tenQFiling.filingDate ? eightKFiling : tenQFiling;
+
+    // Auto-detect revenue against the combined fetched text (post-cap). If the
+    // most recent filing reports real revenue, the analysis run switches to
+    // standard earnings framing — no manual SPECULATIVE-set edit required.
+    const hasReportedRevenue = filingShowsRevenue(combined);
 
     return {
       ticker,
       earningsText:  combined,
       isSpeculative: true,
+      hasReportedRevenue,
       filingMeta: {
-        filingDate:  eightKFiling?.filingDate ?? tenQFiling?.filingDate ?? null,
-        period:      tenQFiling?.period ?? eightKFiling?.period ?? null,
+        filingDate:  mostRecent?.filingDate ?? null,
+        period:      mostRecent?.period ?? null,
         documentUrl: null,
         isSedarOnly: false,
         sources:     { hasEightK: !!eightKText, hasTenQ: !!tenQText },
@@ -223,6 +282,7 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
     ticker,
     earningsText:  docText,
     isSpeculative: false,
+    hasReportedRevenue: false, // not evaluated for non-speculative tickers
     filingMeta: {
       filingDate:  filing.filingDate,
       period:      filing.period,
@@ -536,6 +596,20 @@ export function StockDetail() {
                 <>
                   <span style={{ color: 'var(--text-dim)' }}>·</span>
                   <span style={{ color: 'var(--text-dim)' }}>Cached {formatAge(storedAnalysis.analyzedAt)}</span>
+                </>
+              )}
+              {displayMeta?.isSpeculative && displayMeta?.hasReportedRevenue && (
+                <>
+                  <span style={{ color: 'var(--text-dim)' }}>·</span>
+                  <span style={{
+                    color: '#00e676',
+                    border: '1px solid #00e67640',
+                    background: '#00e67615',
+                    padding: '1px 8px', borderRadius: '4px',
+                    textTransform: 'none', letterSpacing: 'normal',
+                  }}>
+                    Now reporting revenue — standard earnings framing applied
+                  </span>
                 </>
               )}
             </>

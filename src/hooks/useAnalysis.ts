@@ -22,6 +22,10 @@ export interface AnalysisMeta {
   period:        string | null;
   documentUrl:   string | null;
   isSpeculative: boolean;
+  // Auto-detected from the fetched filing text (see filingShowsRevenue in
+  // StockDetail.tsx). When true for a speculative ticker, standard earnings
+  // framing is applied instead of pre-revenue/milestone framing.
+  hasReportedRevenue: boolean;
   isSedarOnly:   boolean;
   sources:       { hasEightK: boolean; hasTenQ: boolean } | null;
   note:          string | null;
@@ -63,6 +67,8 @@ export interface RunPayload {
   ticker:        string;
   earningsText:  string;
   isSpeculative: boolean;
+  // Auto-detected per run; defaults false for non-speculative + SEDAR_ONLY.
+  hasReportedRevenue: boolean;
   filingMeta: {
     filingDate:  string | null;
     period:      string | null;
@@ -182,10 +188,11 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          ticker:        payload.ticker,
-          earningsText:  payload.earningsText,
-          isSpeculative: payload.isSpeculative,
-          filingMeta:    payload.filingMeta,
+          ticker:             payload.ticker,
+          earningsText:       payload.earningsText,
+          isSpeculative:      payload.isSpeculative,
+          hasReportedRevenue: payload.hasReportedRevenue,
+          filingMeta:         payload.filingMeta,
         }),
         signal: ctrl.signal,
       });
