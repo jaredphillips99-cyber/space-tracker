@@ -4,6 +4,17 @@ import YahooFinance from 'yahoo-finance2';
 // yahoo-finance2 v3 requires instantiation (breaking change from v2)
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
+const SYMBOL_OVERRIDES: Record<string, string> = {
+  // Bare "STRC" has resolved inconsistently on Yahoo (incl. an unrelated
+  // small-cap name); pin explicitly to Strategy Inc's (formerly
+  // MicroStrategy) variable-rate preferred stock, the intended ticker.
+  STRC: 'STRC',
+};
+
+function resolveSymbol(ticker: string): string {
+  return SYMBOL_OVERRIDES[ticker] ?? ticker;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -24,8 +35,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const results = await Promise.allSettled(
     tickers.map(async (ticker) => {
+      // Resolve any ambiguous symbol to its canonical Yahoo listing before any
+      // fetch. The returned `ticker` field stays the original input — the rest
+      // of the app keys off that string.
+      const symbol = resolveSymbol(ticker);
+
       // Primary quote for price/market data
-      const quote = await yahooFinance.quote(ticker);
+      const quote = await yahooFinance.quote(symbol);
 
       // quoteType tells us whether this is a stock, ETF, or mutual fund —
       // stocks-only modules (financialData/assetProfile) return empty for
@@ -61,7 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // against ICLN, ITA, VFIAX, VTSAX, FXAIX. categoryName is a
           // Morningstar-style label (e.g. "Large Blend", "Industrials"),
           // not a GICS sector — mapped downstream in PortfolioTab.tsx.
-          const summary = await yahooFinance.quoteSummary(ticker, {
+          const summary = await yahooFinance.quoteSummary(symbol, {
             modules: ['fundProfile'],
           });
           const fp = summary?.fundProfile;
@@ -75,7 +91,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // the authoritative source — it always includes both fields when available.
           // calendarEvents is bundled into the same request — Yahoo returns all
           // requested modules in one HTTP call, so this adds no extra round-trip.
-          const summary = await yahooFinance.quoteSummary(ticker, {
+          const summary = await yahooFinance.quoteSummary(symbol, {
             modules: ['financialData', 'assetProfile', 'calendarEvents', 'defaultKeyStatistics'],
           });
           const fd = summary?.financialData;
@@ -117,7 +133,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Compute 1-week change via chart data
       let weekChangePercent: number | undefined;
       try {
-        const spark = await yahooFinance.chart(ticker, {
+        const spark = await yahooFinance.chart(symbol, {
           period1: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
           period2: new Date(),
           interval: '1d',
