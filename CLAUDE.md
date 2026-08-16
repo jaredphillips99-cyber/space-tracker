@@ -1,11 +1,15 @@
 # InvestAI — CLAUDE.md
 
 ## What This Project Is
-A curated-universe investment analysis dashboard tracking five sectors: space
-economy, AI infrastructure, defense, clean energy/nuclear, and cyber. Built in
-React + Vite + Tailwind, deployed on Vercel. Personal research tool, eventually
-semi-public. (Ticker count is intentionally not treated as a fixed number in
-prose — the universe grows; say "tracked universe," not a hard-coded count.)
+A curated-universe investment analysis dashboard tracking five dashboard
+sectors: space economy, AI infrastructure, defense, clean energy/nuclear, and
+cyber, with a full GICS taxonomy underlying the Portfolio tab. Built in
+React + Vite + Tailwind, deployed on Vercel, Supabase for persistence.
+Personal research tool, also presented professionally (resume, finance/wealth
+management audiences). (Ticker count is intentionally not treated as a fixed
+number in prose — the universe grows and has already been resized twice
+[31→50, then 50→49 on SATS's removal]; say "tracked universe," not a
+hard-coded count.)
 
 ## Site Name
 InvestAI — displayed in the header as INVEST (cyan #00c8ff) + AI (white #e2e4ef)
@@ -14,7 +18,9 @@ in Space Mono font.
 ## Current Build Stage
 Stage 1.5 (active): React app with on-demand Claude analysis, live prices from
 Yahoo Finance, Supabase persistence for shared analyses, admin magic-link auth,
-sessionStorage for portfolio. No scheduled automation.
+sessionStorage for portfolio, a zero-Claude-cost newswire pipeline (GitHub
+Actions cron → Supabase), and a zero-Claude-cost AI Index layer computed from
+prices already in hand. No scheduled Claude analysis pipeline.
 
 Stage 2 (not started): Python backend, SEC EDGAR monitoring, scheduled
 analysis pipeline.
@@ -26,47 +32,95 @@ analysis pipeline.
 - React Router v6
 - Vercel serverless functions in /api/ for all external API calls
 - localStorage for stock analysis cache (Stage 1 fallback)
-- Supabase for shared analysis persistence (Stage 1.5)
-- sessionStorage for portfolio data (privacy — clears on browser close)
-- Supabase magic-link auth for admin access (admin-only write, public read)
+- Supabase for shared analysis persistence (Stage 1.5) and admin magic-link auth
+- sessionStorage for portfolio position data (privacy — clears on browser close)
 - react-markdown + remark-gfm for rendering all AI output cards
+- No charting library — all charts (index sparkline/line chart) are hand-rolled
+  inline SVG; keep it that way unless discussed
+- GitHub Actions for scheduled cron jobs (newswire + daily index close)
 
 ## Production URL
 https://portfolio-analysis-six.vercel.app
-(Corrected July 24, 2026 — the previously documented stock-tracker-five-tau.vercel.app
-is confirmed DEAD: missing VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY env vars,
-throws a fatal Supabase init exception on load. Do not test against it or use
-it in deploy instructions. See July 24 session log entry for how this was
-diagnosed.)
+Do NOT use stock-tracker-five-tau.vercel.app — confirmed DEAD (missing
+VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY env vars, throws a fatal Supabase
+init exception on load, nothing renders). Do not test against it or reference
+it in deploy docs. See the July 24, 2026 session log entry for how this was
+diagnosed.
 
 ---
 
-## App Layout — Two Pages
+## App Layout — Five Top-Level Tabs
 
-### Page 1: Dashboard (/)
-Two zones:
-1. Price Table: the full tracked universe, sortable, scannable. Default sort: 1D% change
-   descending. Sector filter pills in sub-header (ALL / SPACE / AI INFRA /
-   DEFENSE / CLEAN ENERGY). Pills only render on the Dashboard route — they
-   disappear when on the Portfolio page.
-2. Sidebar (right): "What's New" — recently analyzed with snippet, awaiting
-   ticker grid, stale warnings, upcoming earnings.
+Nav order (`src/components/Layout/index.tsx`, `NAV_LINKS`): **News · Dashboard
+· Portfolio · Net Worth · Retirement**.
 
-StockDetail deep dive opens on row click → /stock/:ticker.
+### News (`/`) — landing page
+Zero-Claude-cost front page ranked entirely from data already in hand
+(`marketCap`/`changePercent` from the store + the `newswire_items` archive).
+No LLM calls, no new API cost. Three tiers via the pure `rankFrontPage()`
+(`src/lib/newsRanking.ts`):
+  - **Lead stories** — sorted by materiality-category presence first, market
+    cap as tiebreaker (categorized headlines outrank uncategorized ones
+    regardless of cap).
+  - **Also moving** — any ticker with an outsized 1-day move (≥5% abs),
+    regardless of cap.
+  - **Feed** — everything else, reverse-chronological, paginated.
+  Diversity-capped at `MAX_PER_TICKER = 3` per tier so one ticker's news day
+  can't sweep every slot. Items are deduped by URL and filtered for
+  generic/listicle noise and ticker mis-attribution at ingestion (see
+  `scripts/newswire.mjs`).
+  `IndexTicker` (the AI Index composite + 5 sub-index pills) mounts above Lead
+  Stories on this page.
 
-### Page 2: Portfolio (/portfolio)
-Standalone page. Navigation: Dashboard ↔ Portfolio links in top nav.
-The Compare page and ResearchCompare/StockPicker sub-components have been
-deleted. Do not reference or rebuild them.
+### Dashboard (`/dashboard`)
+The full tracked universe as a sortable price table (default sort: 1D% change
+descending), sector filter pills (ALL / SPACE / AI INFRA / DEFENSE / CLEAN
+ENERGY / CYBER — Dashboard-route-only), and a right-hand sidebar ("What's
+New"/"Needs Attention") for recently analyzed stocks, awaiting tickers,
+staleness warnings, and a "Today's Wire" news teaser (first 3 items + "See
+all news →" link to `/`). Row click opens a stock deep dive at
+`/stock/:ticker`.
 
----
+### Portfolio (`/portfolio`)
+The investor's actual holdings: live values, unrealized gains, sector
+concentration vs. target weights (GICS taxonomy), a thematic conviction layer
+(lean-in / neutral / avoid across the four curated themes AND the 8 remaining
+GICS sectors), a simulation panel for modeling adds/trims/exits, and
+AI-generated macro risk, trim/exit memos, sector exploration, and
+cash-deployment suggestions.
 
-## Navigation / Layout
+**Hard privacy rule:** raw dollar amounts and share counts are never sent to
+the Anthropic API from this tab — only computed weight percentages and gain
+percentages. Scoped to Portfolio specifically; does not apply to Net Worth or
+Retirement (see below).
 
-Top nav lives in src/components/Layout/index.tsx.
-Links: Dashboard (/) · Portfolio (/portfolio)
-Sector filter bar is gated with `{isDashboard && ...}` using useLocation().
-Brand: INVEST (cyan) + AI (white) in Space Mono.
+### Net Worth (`/networth`)
+Broader balance-sheet view: cash/balance/credit-card/crypto accounts alongside
+Portfolio holdings, admin-gated (`NetWorthAuthGate.tsx`). Crypto accounts are
+a **manual dollar value** by default (decision reversed Aug 4, 2026 — the
+earlier live-Yahoo-priced symbol+quantity flow is dormant, not deleted; a
+legacy row with a stored `crypto_symbol`/`crypto_quantity` still live-prices
+until removed and re-added).
+
+**Deliberate exception to the percentage-only privacy rule:** `networth_analysis`
+(on `api/portfolio.ts`, same rate-limit bucket as everything else on that
+endpoint) may send real dollar figures. Scoped tightly to this feature —
+must not bleed into Portfolio prompt-building code.
+
+### Retirement (`/retirement`)
+AI contribution-waterfall advisor, admin-gated (`RetirementAuthGate.tsx`).
+Fixed prioritization order: employer match → high-APR debt (pulled from Net
+Worth data when connected) → remaining tax-advantaged room → other goals.
+Single one-shot analysis via `api/retirement.ts` (own 15/IP/hr rate-limit
+bucket, separate from both analyze.ts and portfolio.ts). Same deliberate
+dollar-figure exception as Net Worth — real salary/balances by design,
+admin-only.
+
+Deleted — do not reference or rebuild: `src/pages/Compare.tsx`,
+`src/components/compare/ResearchCompare.tsx`,
+`src/components/compare/StockPicker.tsx`, `api/edgar.ts` (confirmed dead,
+deleted), `api/_shared/` (any shared module under `api/` — see the Aug 6
+hotfix log entry for why this breaks on Vercel).
 
 ---
 
@@ -82,60 +136,146 @@ Rendered via ReactMarkdown in the purple snapshot block on StockDetail.
 
 status — computed at render, never stored:
   "awaiting"  — analysis is null
-  "analyzed"  — analyzedAt within 30 days
-  "stale"     — analyzedAt more than 30 days ago
+  "analyzed"  — within the freshness window (see Analysis Freshness below)
+  "stale"     — outside it
 
 segments array is nullable. When null, UI skips segment chart entirely.
 
 businessModel has its own lastUpdated timestamp separate from analyzedAt.
 
+lastEarningsDate is written client-side in `StockDetail.tsx`'s
+`handleComplete` (from the EDGAR-fetched filing date) so freshness reflects
+the just-analyzed filing immediately, without waiting on a Supabase
+round-trip. Also mapped from Supabase's `filing_date` column on sync.
+
+---
+
+## Analysis Freshness — Single Shared Definition
+
+`src/lib/analysisFreshness.ts` — `getAnalysisFreshness(analysis,
+nextEarningsDate)` → `{ status, daysUntilEarnings }`. Consumed by BOTH the
+sidebar (`SidePanel/index.tsx`) and the Dashboard price table
+(`PriceTable/index.tsx`) so the two definitions cannot drift apart again (they
+used to be separate and both flawed — see the Aug 6, 2026 session log entry).
+
+Statuses: `awaiting` · `reportDue` · `earningsToday` · `earningsSoon` ·
+`staleFallback` · `analyzed`.
+
+Core rule: **elapsed time alone never makes an analysis stale.** `reportDue`
+fires only when Yahoo's earnings date is now in the past AND newer than the
+filing actually analyzed (`analysis.lastEarningsDate`). When Yahoo has no
+earnings date for a ticker, and only then, it falls back to the flat
+`isAnalysisStale()` / `ANALYSIS_STALE_DAYS` rule (`src/types/index.ts`).
+
+---
+
+## KNOWN OPEN BUG — Supabase write not wired up (unresolved as of this session)
+
+`useSupabaseSync.ts` returns a `pushAnalysis(...)` function meant to write a
+completed analysis to Supabase. It is currently **never called**:
+  - `App.tsx` calls `useSupabaseSync()` and discards the return value entirely.
+  - `StockDetail.tsx`'s `handleComplete` only writes to Zustand/localStorage
+    via `setAnalysis(...)` — it does not call `pushAnalysis`.
+
+Effect: analyses run in the admin session update local state correctly, but
+never reach Supabase, so public (non-admin) visitors and fresh sessions never
+see the new analysis, and the "Needs Attention" panel can flag stocks that
+were, in fact, just analyzed. This is a real, currently-reproducing bug — not
+yet fixed despite earlier diagnosis. Before touching this, re-confirm it still
+reproduces on the live deployed build (per the "never re-diagnose from theory"
+rule below), then wire `pushAnalysis` into `handleComplete`, gated on
+`isAdmin`, and note in the session log that each previously-run ticker needs
+one re-run post-deploy to trigger its first real Supabase write.
+
 ---
 
 ## API Architecture — Do Not Change
 
-Yahoo Finance → /api/prices.ts (Vercel serverless)
-  Never call yahoo-finance2 from the browser.
-  Cache 5 minutes. On error: fetchError: true, UI shows last cached values.
-  Returns: price, change, changePercent, weekChangePercent, marketCap,
-           volume, regularMarketOpen, fiftyTwoWeekHigh, fiftyTwoWeekLow,
-           analystTargetPrice, recommendationMean, yahooSector, yahooIndustry
-  Works for ANY ticker symbol — used by Portfolio for external positions too.
-  yahooSector/yahooIndustry sourced from assetProfile module — used to classify
-  external tickers that fall outside the GICS KNOWN_TICKERS map.
+Yahoo Finance → `api/prices.ts` (Vercel serverless)
+  Never call yahoo-finance2 from the browser. Cache 5 minutes. On error:
+  `fetchError: true`, UI shows last cached values. Works for ANY ticker
+  symbol — used by Portfolio for external positions too. Has a
+  `quoteType === 'CRYPTOCURRENCY'` short-circuit branch that skips the
+  stock-only `quoteSummary` round-trip for crypto symbols.
 
-Anthropic API → /api/analyze.ts (stock analysis, streaming SSE)
-  Rate limit: 10 calls per IP per hour.
-  Model: claude-sonnet-4-6
-  max_tokens: 2000 (Call 1 JSON) · 2500 (Call 2 narrative)
-  vercel.json maxDuration: 60s — do not remove.
-  Two-call pattern:
-    Call 1 — JSON extraction (financials, guidance, segments, conviction, snapshot)
-    Call 2 — narrative (What Happened, Bull Case, Bear Case, Key Catalysts)
+Anthropic API → `api/analyze.ts` (stock analysis, streaming SSE)
+  Rate limit: 10 calls per IP per hour. Model: claude-sonnet-4-6.
+  Two-call pattern: Call 1 — JSON extraction; Call 2 — narrative (What
+  Happened / Bull Case / Bear Case / Key Catalysts).
 
-Anthropic API → /api/portfolio.ts (portfolio features, non-streaming)
-  Rate limit: 20 calls per IP per hour (separate bucket from analyze.ts).
-  Model: claude-sonnet-4-6
-  Request types: "macro_risk" | "macro_scenario" | "trim" | "trim_memo" | "sector_explore" | "cash_deploy" | "networth_analysis"
-  max_tokens: 1200 (macro_risk) · 1000 (macro_scenario) · 800 (trim) · 800 (trim_memo) · 600 (sector_explore) · 900 (networth_analysis Tier 1) · 1400 (networth_analysis Tier 2)
-  vercel.json maxDuration: 60s covers all api/* functions.
-  cash_deploy and macro_risk are the ONLY calls with live web access — they
-  include the web_search_20250305 tool, so a round-trip can take 10-20s
-  (well within the 60s limit). Every other request type is tool-free. Their
-  responses can interleave server_tool_use / web_search_tool_result / text
-  blocks, so the handler filters for type === 'text' and joins; tool-free
-  types keep the single-block content[0].text read.
-  networth_analysis shares this same 20-calls/hour bucket — it does not get
-  its own rate limit; it's the same endpoint as everything else above.
+Anthropic API → `api/portfolio.ts` (portfolio + net worth features, non-streaming)
+  Rate limit: 20 calls per IP per hour (separate bucket from analyze.ts AND
+  from retirement.ts). Model: claude-sonnet-4-6.
+  Request types: `"macro_risk" | "macro_scenario" | "trim" | "trim_memo" |
+  "sector_explore" | "cash_deploy" | "networth_analysis"`.
+  `useWebSearch` is true for `cash_deploy`, `macro_risk`, and `sector_explore`
+  only (`web_search_20250305` tool) — everything else on this endpoint is
+  tool-free. Web-search responses can interleave `server_tool_use` /
+  `web_search_tool_result` / text blocks, so the handler filters for
+  `type === 'text'` and joins; tool-free types keep the single-block
+  `content[0].text` read.
+  `networth_analysis` shares this same 20-calls/hour bucket — no separate
+  limit. It is the ONE exception to the percentage-only privacy rule — do not
+  use it as precedent for any other request type on this endpoint.
+  JSON-returning types under web search (`sector_explore`) slice from the
+  first `[` to the last `]` before `JSON.parse` to survive incidental search
+  narration around the array.
 
-  networth_analysis is the ONE exception to the percentage-only privacy rule
-  below — see "Net Worth Privacy Exception" section further down. Do not use
-  this exception as precedent for any other request type on this endpoint.
+Anthropic API → `api/retirement.ts` (retirement contribution-waterfall, non-streaming)
+  Rate limit: 15 calls per IP per hour — own bucket, separate from both
+  analyze.ts and portfolio.ts. Model: claude-sonnet-4-6. No `tools` array
+  (tool-free by design this pass). Single request type
+  (`retirement_analysis`), 400s if `annualSalary` or `primaryContributionPct`
+  is missing.
+  `NETWORTH_GROUNDING_RULE` / `fmtUsd` / `buildAccountLines` /
+  `NetWorthAccountPayload` are **duplicated inline** here, matching the same
+  copy in `api/portfolio.ts` — deliberately NOT factored into a shared
+  `api/_shared/` module. Vercel does not bundle underscore-prefixed `api/`
+  paths as importable dependencies, so a shared module 500s both functions at
+  runtime with no local-build signal (`tsc`/`npm run build` can't catch it —
+  see the Aug 6, 2026 hotfix log entry). Duplicate small `api/` helpers
+  inline; do not reintroduce a shared module across Vercel functions here.
 
-SEC EDGAR → fetched browser-side in StockDetail.tsx
-  CORS proxy at /api/edgar-proxy.ts for /Archives/ URLs.
-  Normal: EX-99.1 from most recent 8-K item 2.02
-  Speculative (OKLO, NNE): dual 8-K + 10-Q MD&A
-  SEDAR-only (NXE): training knowledge fallback
+SEC EDGAR → fetched browser-side in `StockDetail.tsx`
+  CORS proxy at `api/edgar-proxy.ts` for both `/Archives/` URLs and
+  `data.sec.gov/submissions/` (generalized Aug 16, 2026 — see session log;
+  every SEC request goes through the proxy now, none direct-from-browser).
+  Normal (domestic filer): EX-99.1 from most recent 8-K item 2.02.
+  Speculative names (currently OKLO, NNE): dual 8-K + 10-Q MD&A, gated by
+  automatic revenue detection (`hasReportedRevenue`, via `filingShowsRevenue()`
+  heuristic) rather than a hardcoded pre/post-revenue split — the
+  `SPECULATIVE` set now only controls fetch behavior (always pull both).
+  Foreign private issuers (NBIS, CCJ): file 6-K, not 8-K — see "Foreign
+  Private Issuer filing framework" below. SEDAR-only (NXE): training
+  knowledge fallback, no EDGAR fetch at all.
+  Newly-public names with thin/registration-heavy EDGAR history (FLY, SPCX):
+  a thin "most recent 8-K item 2.02" result is expected, not a bug — not
+  added to SPECULATIVE/SEDAR_ONLY/TRAINING_ONLY, which are for pre-revenue or
+  non-EDGAR-filing names specifically.
+
+### Foreign Private Issuer filing framework (`FILING_REGIME` / `FPI_CONFIG`)
+A classification axis in `StockDetail.tsx` parallel to (not a replacement
+for) `SPECULATIVE`/`SEDAR_ONLY` — those control how many filings to fetch;
+`FILING_REGIME` controls which SEC form to look for. `filingRegimeFor()`
+defers to `SEDAR_ONLY` first so the two axes can't disagree about NXE.
+Currently populated: `NBIS: 'foreign_private_issuer'` (Dutch, 6-K + 20-F),
+`CCJ: 'foreign_private_issuer'` (Canadian, 6-K + 40-F, enabled Aug 16 2026 —
+see session log). Adding a new FPI is one `FILING_REGIME` line + one
+`FPI_CONFIG` line, no other file touched.
+
+`fetchForeignIssuerFiling()` scans the `SIX_K_SCAN_LIMIT = 5` most recent
+6-Ks (not just the single most recent one — 6-Ks carry no `items` code like
+8-K's `2.02`, so FPIs routinely interleave earnings 6-Ks with routine
+press-release 6-Ks under the same form) and tests each candidate's resolved
+exhibit text with `looksLikeEarningsFiling()`, returning the first that reads
+as an earnings release. Falls back to the literal most-recent 6-K (logged
+warning) if none scan as earnings-shaped, then to the annual form (20-F/40-F)
+if the filer has no 6-K on record. `resolveForeignExhibitUrl()` +
+`parseIndexEntries()` match `FPI_EXHIBIT_HINTS` against both the filing
+index's Description/Type columns and the filename (FPI exhibit filenames are
+inconsistently mangled across filers — NBIS uses `ex99d1`, not `ex-99.1`).
+UI filing-type badge (`filingFormLabel()`) renders "6-K" generically for any
+`foreign_private_issuer` ticker — not hardcoded per name.
 
 ---
 
@@ -155,8 +295,8 @@ Layout top to bottom:
      — What Happened (neutral) · Bull Case (green tint) · Bear Case (red tint)
        · Key Catalysts (neutral)
   10. Empty state
-  11. Re-run button (only when cached analysis exists)
-  12. Re-run confirmation modal
+  11. Re-run button (admin-only, only when cached analysis exists)
+  12. Re-run confirmation modal (admin-only)
 
 ## Narrative Structure — 4 Sections, This Order
   ## What Happened → ## Bull Case → ## Bear Case → ## Key Catalysts
@@ -198,16 +338,29 @@ Do NOT use per-ticker color overrides — all color derives from primary sector.
   ai_infrastructure: #a259ff   violet
   defense:           #f97316   orange
   clean_energy:      #00e676   green
+  cyber:             #ff4b6e   pink/red (reuses the existing red accent — no
+                                new hex added)
   lng_export:        #fbbf24   amber (reserved, not displayed)
 
 The `color` field on TickerConfig is deprecated and unused. Do not add new
 per-ticker color overrides. accentColor in PriceTable is always derived from
 SECTOR_COLORS[ticker.sectors[0]].
 
+Card color coding on AI-output MarkdownCards (Portfolio + Net Worth + Retirement):
+  Macro Risk card       — red left border (#ff4b6e), red tint background
+  Trim Suggestion       — amber left border (#ffd166), amber tint background
+  Scenario Analysis     — purple left border (#a259ff), purple tint background
+  Should I? memo        — purple left border (#a259ff), purple tint background
+  Trim/Exit memo        — purple left border (#a259ff), purple tint background
+  Retirement waterfall  — teal left border (#06b6d4, GICS health_care accent)
+
 ## Row Status Visual Rules
 Awaiting:  dimmed row, "AWAITING" label, no sector dot
 Analyzed:  normal row, colored sector dot, ✓ ANALYZED label
-Stale:     subtle amber outline on row, "⚠ STALE" label
+Stale:     subtle amber outline on row, "⚠ STALE" label — driven by
+           `getAnalysisFreshness()`, fires only on `reportDue` or
+           `staleFallback`, never from elapsed time alone (see Analysis
+           Freshness section above).
 
 Second dot after sector label = crossover sector membership (intentional).
 Example: RKLB shows "• SPACE •" — primary space, crossover defense.
@@ -220,29 +373,32 @@ guidanceDirection badge colors:
   raised → green    maintained → gray    lowered → red    initiated → blue
 
 ## Speculative Names — Handle Differently in Analysis Prompts
-OKLO, NNE  — pre-revenue. Focus on milestones, partnerships, burn rate, TAM.
-NXE        — pre-production uranium. Same treatment as above.
+OKLO, NNE  — pre-revenue by default; prompt framing auto-switches once
+             `hasReportedRevenue` is detected from the filing.
+NXE        — pre-production uranium, Canadian SEDAR-only filer (no EDGAR
+             presence at all) — training-knowledge fallback, not a live fetch.
+CCJ        — Canadian foreign private issuer, but an established uranium
+             producer (not pre-revenue) — files 6-K on EDGAR, live-fetched via
+             the `FILING_REGIME`/`FPI_CONFIG` framework (enabled Aug 16, 2026 —
+             see session log). Contrast with NXE: NXE has no EDGAR filings to
+             fetch at all (SEDAR-only), CCJ has real EDGAR history and is
+             fetched the same way a domestic 8-K filer's earnings text is.
 CIFR, RIOT — Bitcoin miners, AI pivot less advanced than IREN. Be explicit.
-SATS       — satellite broadband restructuring story, not pure space infra.
+SATS       — REMOVED from the tracked universe (Aug 6, 2026). Do not
+             reference or re-add without discussion — see the removal
+             session log entry for the full checklist that was run.
 
 ---
 
 ## Markdown Rendering — AI Output Cards
 
-All AI-generated text in the Portfolio page is rendered via a shared
-<MarkdownCard> component using ReactMarkdown + remark-gfm. Do not render
-AI output as plain text strings anywhere.
+All AI-generated text across Portfolio, Net Worth, and Retirement is rendered
+via a shared `<MarkdownCard>` component (`src/components/common/MarkdownCard.tsx`
+— extracted from an original PortfolioTab-local copy) using ReactMarkdown +
+remark-gfm. Do not render AI output as plain text strings anywhere.
 
-MarkdownCard component lives in src/components/compare/PortfolioTab.tsx.
 It overrides: h2 (suppressed), h3 (uppercase mono label), p, strong, ul, li,
 table/thead/tbody/tr/th/td, hr, code.
-
-Card color coding:
-  Macro Risk card     — red left border (#ff4b6e), red tint background
-  Trim Suggestion     — amber left border (#ffd166), amber tint background
-  Scenario Analysis   — purple left border (#a259ff), purple tint background
-  Should I? memo      — purple left border (#a259ff), purple tint background
-  Trim/Exit memo      — purple left border (#a259ff), purple tint background
 
 Prompts must NOT include a top-level ## heading — the card header already
 labels the section. Prompts use ### for internal section headings.
@@ -271,53 +427,201 @@ VITE_SUPABASE_URL       → Vercel dashboard → Settings → Environment Variab
 VITE_SUPABASE_ANON_KEY  → Vercel dashboard → Settings → Environment Variables
 (Yahoo Finance requires no key — uses yahoo-finance2 npm package)
 
+Set for Production, Preview, AND Development. Missing any of the three
+Supabase-related vars throws a fatal init exception on load — this is exactly
+what killed the old stock-tracker-five-tau deployment.
+
 ---
 
 ## Key File Locations
 src/types/index.ts                             canonical data schema + SECTOR_COLORS
-src/config/tickers.ts                          tracked universe, sector assignments
+src/config/tickers.ts                          tracked universe (49 tickers), sector assignments
 src/config/gics.ts                             GICS two-tier taxonomy + classifyTicker()
+src/config/themes.ts                           4-theme conviction taxonomy + TICKER_THEME_MAP
 src/store/useStore.ts                          Zustand store, all global state
-src/App.tsx                                    router — routes: / · /stock/:ticker · /portfolio · /admin
-src/components/Layout/index.tsx                top nav, brand, sector filter bar (dashboard-only)
-src/pages/Dashboard.tsx                        dashboard page
-src/pages/Portfolio.tsx                        portfolio page (thin wrapper over PortfolioTab)
+src/App.tsx                                    router — routes: / · /dashboard · /stock/:ticker ·
+                                                /index/:indexName · /portfolio · /networth ·
+                                                /retirement · /admin
+src/components/Layout/index.tsx                top nav (NAV_LINKS), brand, sector filter bar
+                                                (Dashboard-route-only)
+src/pages/News.tsx                             News landing page (/)
+src/pages/Dashboard.tsx                        Dashboard page (/dashboard)
+src/pages/Portfolio.tsx                        thin wrapper over PortfolioTab
+src/pages/NetWorth.tsx                         Net Worth page wrapper (gate/anon/auth flow)
+src/pages/Retirement.tsx                       Retirement page wrapper (gate/anon/auth flow)
 src/pages/StockDetail.tsx                      re-export only — logic in components/StockDetail
-src/components/StockDetail.tsx                 stock deep dive — canonical component;
-                                                 CIK_MAP + SPECULATIVE/SEDAR_ONLY sets +
-                                                 FILING_REGIME/FPI_CONFIG (foreign private
-                                                 issuer 6-K framework, see Aug 16 session log)
+src/pages/IndexDetail.tsx                      re-export only — logic in components/IndexDetail
+src/components/StockDetail.tsx                 stock deep dive — canonical component; local
+                                                CIK_MAP + SECTOR_COLOR_MAP/SECTOR_LABEL_MAP +
+                                                FILING_REGIME/FPI_CONFIG (foreign private issuer
+                                                6-K framework, see Aug 16 2026 session log)
+                                                (does NOT import tickers.ts — see universe-change
+                                                checklist below)
 src/components/ConvictionBadge.tsx             conviction rating badge
+src/components/ErrorBoundary.tsx               wraps /index/:indexName, /portfolio, /networth,
+                                                /retirement routes
 src/hooks/useAnalysis.ts                       SSE stream parsing, localStorage cache
-src/components/SidePanel/index.tsx             What's New sidebar — uses extractSnippet()
-src/components/PriceTable/index.tsx            dashboard watchlist table
+src/hooks/useLivePrice.ts                      live price fetch, runs once in App.tsx (hoisted
+                                                from Dashboard so News can rank on it too)
+src/hooks/useSupabaseSync.ts                   hydrates Zustand from Supabase on mount;
+                                                pushAnalysis() — SEE "KNOWN OPEN BUG" above,
+                                                currently never called
+src/hooks/useNewswire.ts                       reads latest newswire run, wired into SidePanel
+src/hooks/useNewsArchive.ts                    News-tab archive read (feeds rankFrontPage())
+src/hooks/usePortfolioSync.ts                  Portfolio-tab preferences sync (theme/sector
+                                                conviction, account type)
+src/hooks/useNetWorthSync.ts                   accounts table sync — debounced writes,
+                                                visibilitychange/pagehide flush
+src/hooks/useFinancialProfile.ts               optional income/savings/goal profile — mirrors
+                                                useNetWorthSync.ts pattern
+src/hooks/useCryptoPrices.ts                   live crypto pricing — dormant for new accounts
+                                                (Aug 4, 2026 decision), still active for any
+                                                legacy live-priced row
+src/hooks/useRetirementProfile.ts              retirement_profile table sync — mirrors
+                                                useFinancialProfile.ts pattern
+src/hooks/useIndexValue.ts                     live index values (client-side) + history +
+                                                constituent fetchers
+src/lib/newsRanking.ts                         pure rankFrontPage() + selectWithDiversityCap()
+src/lib/indexCalc.ts                           AI Index pure math (computeIndexValue) +
+                                                membership/eligibility by primary sector
+src/lib/analysisFreshness.ts                   shared getAnalysisFreshness() — see section above
+src/lib/supabase.ts                            Supabase client singleton + sendMagicLink() +
+                                                signOut()
+src/components/SidePanel/index.tsx             What's New / Needs Attention sidebar —
+                                                uses extractSnippet() + getAnalysisFreshness()
+src/components/PriceTable/index.tsx            Dashboard watchlist table — STALE badge driven
+                                                by getAnalysisFreshness()
+src/components/NewsFeed/index.tsx              News-tab Lead/Also Moving/Feed renderer
+src/components/IndexTicker/index.tsx           News-tab AI Index widget (composite hero +
+                                                sub-index pills + sparkline)
+src/components/IndexDetail/index.tsx           /index/:indexName drill-down — hand-rolled SVG
+                                                chart w/ hover crosshair + constituent table
 src/components/compare/PortfolioTab.tsx        main portfolio component (default export)
 src/components/compare/SectorTargetsPanel.tsx  sector target weights slide-in panel
-api/prices.ts                                  Yahoo Finance proxy
+src/components/compare/ThematicFrameworkPanel.tsx theme + non-theme sector conviction slide-in
+src/components/networth/NetWorthTab.tsx        net worth aggregation + financial profile panel
+                                                + AI analysis card
+src/components/networth/AddAccountPanel.tsx    add-account form (crypto = manual $ field only)
+src/components/networth/NetWorthAuthGate.tsx   Net Worth admin magic-link gate
+src/components/networth/kindDisplay.ts         account-kind label/icon mapping
+src/components/retirement/RetirementTab.tsx    Retirement tab — inputs form + waterfall AI card
+src/components/retirement/RetirementAuthGate.tsx Retirement admin magic-link gate
+src/components/common/MarkdownCard.tsx         shared AI-output Markdown renderer
+src/components/PortfolioAuthGate.tsx           Portfolio-tab anonymous/admin gate (distinct from
+                                                the Net Worth / Retirement auth gates — Portfolio
+                                                itself is publicly readable, this only gates admin
+                                                write actions)
+src/components/AuthGate.tsx                    /admin route login screen
+src/components/Onboarding/OnboardingModal.tsx  per-tab onboarding cards (NOT per-feature)
+api/prices.ts                                  Yahoo Finance proxy (+ crypto short-circuit branch)
 api/analyze.ts                                 Anthropic streaming proxy, stock analysis
 api/edgar-proxy.ts                             CORS proxy for SEC /Archives/ URLs
-api/portfolio.ts                               portfolio API — macro_risk · macro_scenario · trim · trim_memo · sector_explore
-src/lib/supabase.ts                            Supabase client singleton + sendMagicLink() + signOut()
-src/hooks/useSupabaseSync.ts                   hydrates Zustand from Supabase on mount; pushAnalysis() after run
-src/hooks/useNetWorthSync.ts                   accounts table sync — debounced writes, visibilitychange/pagehide flush
-src/hooks/useFinancialProfile.ts               optional income/savings/goal profile — mirrors useNetWorthSync.ts pattern
-src/components/networth/NetWorthTab.tsx        net worth aggregation + financial profile panel + AI analysis card
-api/retirement.ts                              retirement API — single retirement_analysis one-shot (own 15/hr bucket); net-worth prompt helpers inlined (see Aug 6 hotfix)
-src/hooks/useRetirementProfile.ts              retirement_profile table sync — mirrors useFinancialProfile.ts pattern
-src/components/retirement/RetirementTab.tsx    Retirement tab — inputs form + contribution-waterfall AI card
-src/components/common/MarkdownCard.tsx         shared AI-output Markdown renderer (extracted; used by RetirementTab)
-src/components/AuthGate.tsx                    admin magic-link login screen (/admin route)
-src/lib/indexCalc.ts                           AI Index pure math (computeIndexValue) + membership by primary sector
-src/hooks/useIndexValue.ts                     live index values (client-side) + history + constituent fetchers
-src/components/IndexTicker/index.tsx           News-tab AI Index widget (composite hero + sub-index pills + sparkline)
-src/components/IndexDetail/index.tsx           /index/:indexName drill-down — SVG chart + constituent table
-scripts/indexCalc.mjs                          daily index close writer (post-market cron); exports helpers for backfill
-scripts/indexBackfill.mjs                      one-time manual ~1yr history backfill (approx caps); NOT in CI
+api/portfolio.ts                               portfolio + net worth API — macro_risk ·
+                                                macro_scenario · trim · trim_memo ·
+                                                sector_explore · cash_deploy · networth_analysis
+                                                (self-contained; no api/_shared import — see
+                                                Aug 6 hotfix)
+api/retirement.ts                              retirement API — single retirement_analysis
+                                                one-shot (own 15/hr bucket); net-worth prompt
+                                                helpers inlined, not imported (see Aug 6 hotfix)
+scripts/newswire.mjs                           RSS pull + classification cron; own
+                                                TICKERS/COMPANY_ALIASES (does not import
+                                                tickers.ts — plain .mjs, no build step)
+scripts/indexCalc.mjs                          daily index close writer (post-market cron);
+                                                own PRIMARY_SECTOR + TICKER_INTRO_MONTH maps;
+                                                exports helpers for backfill
+scripts/indexBackfill.mjs                      one-time manual ~1yr history backfill
+                                                (approximated caps); NOT in CI
+.github/workflows/newswire.yml                 newswire cron (weekdays 7:30am ET) + index calc
+                                                step (post-market leg only, 5pm ET / 21:00 UTC)
 
 Deleted — do not recreate:
   src/pages/Compare.tsx
   src/components/compare/ResearchCompare.tsx
   src/components/compare/StockPicker.tsx
+  api/edgar.ts  (confirmed dead code — actually deleted, not just deprioritized)
+  api/_shared/  (any shared module under api/ — breaks silently on Vercel)
+
+---
+## GICS Sector Taxonomy (Portfolio Use Only)
+
+Defined in src/config/gics.ts. SEPARATE from dashboard filter pill sectors and
+from the thematic conviction taxonomy (src/config/themes.ts). Do NOT conflate
+the three.
+
+classifyTicker(ticker): priority → UNIVERSE_SECTOR_MAP → KNOWN_TICKERS → 'other'
+For any ticker where classifyTicker returns 'other', PortfolioTab falls back to
+yahooSector from the live prices response via YAHOO_TO_GICS mapper.
+
+### Top-Level Sectors (12)
+  information_technology  #a259ff  violet
+  industrials             #f97316  orange
+  energy                  #00e676  green
+  communication_services  #00c8ff  cyan
+  financials              #fbbf24  yellow
+  consumer_discretionary  #f59e0b  amber
+  consumer_staples        #84cc16  lime
+  health_care             #06b6d4  teal
+  materials               #a78bfa  lavender
+  real_estate             #fb923c  orange-light
+  utilities               #34d399  emerald
+  other                   #8b93a8  muted gray
+
+### Tracked Universe → GICS Mapping (current, 49 tickers — SATS removed Aug 6, 2026)
+RKLB  → industrials / space_launch
+FLY   → industrials / space_launch
+SPCX  → industrials / space_launch
+RDW   → industrials / space_systems
+LUNR  → industrials / space_systems
+KTOS  → industrials / aerospace_defense
+LHX   → industrials / aerospace_defense
+AVAV  → industrials / aerospace_defense
+ASTS  → communication_services / satellite_comms
+PL    → communication_services / earth_observation
+BKSY  → communication_services / earth_observation
+NVDA  → information_technology / semiconductors
+MU    → information_technology / semiconductors
+AVGO  → information_technology / semiconductors
+INTC  → information_technology / semiconductors
+PLTR  → information_technology / it_services
+ANET  → information_technology / it_services
+CRWV  → information_technology / internet_infrastructure
+IREN  → information_technology / internet_infrastructure
+NBIS  → information_technology / internet_infrastructure
+CIFR  → information_technology / internet_infrastructure
+RIOT  → information_technology / internet_infrastructure
+VRT   → information_technology / electronic_equipment
+MOD   → information_technology / electronic_equipment
+SMCI  → information_technology / hardware
+DELL  → information_technology / hardware
+MSFT  → information_technology / software
+CRWD  → information_technology / software
+PANW  → information_technology / software
+NET   → information_technology / software
+ZS    → information_technology / software
+FTNT  → information_technology / software
+GOOGL → communication_services / interactive_media
+META  → communication_services / interactive_media
+AMZN  → consumer_discretionary / ecommerce
+CEG   → energy / nuclear_power
+VST   → energy / nuclear_power
+BWXT  → energy / nuclear_components
+GEV   → energy / power_equipment
+BE    → energy / fuel_cells
+CCJ   → energy / uranium_mining
+LEU   → energy / uranium_mining
+NXE   → energy / uranium_mining
+OKLO  → energy / advanced_reactors
+NNE   → energy / advanced_reactors
+PWR   → industrials / construction_engineering
+ETN   → industrials / electrical_equipment
+GNRC  → industrials / electrical_equipment
+EQIX  → real_estate / data_center_reits
+
+Note: SPCX and PWR carry crossover tags on the dashboard-pill taxonomy
+(SPCX → space primary / ai_infrastructure crossover; PWR → ai_infrastructure
+primary / clean_energy crossover) — this GICS table shows only the single
+primary GICS sector/subSector, a separate axis from that crossover tagging.
 
 ---
 
@@ -332,6 +636,9 @@ Four connected workflows on one page:
      trim/exit/add memo and redeployment suggestions.
   3. Sector explore — Claude suggests 3-4 stocks for any underweight sector,
      each with a "Simulate →" button that pre-fills the simulation panel.
+     Web-search-grounded (varies across repeated calls), excludes recently
+     suggested tickers per sector (sessionStorage-tracked, capped 6/sector),
+     and respects theme/sector conviction (AVOID is a hard exclusion).
   4. Scenario analysis — investor proposes new sector target weightings,
      Claude analyzes how the shift fits the current macro environment.
 
@@ -355,9 +662,9 @@ Never send dollar amounts, share counts, or cost basis to the API.
 Send only: ticker, sector, subSector, weightPct, gainPct, inUniverse.
 
 This rule is scoped to the Portfolio tab specifically (built for eventual
-semi-public sharing). It does NOT apply to the Net Worth tab — see
-"Net Worth AI Analysis" section below for the one deliberate exception.
-Do not let that exception bleed back into Portfolio prompt-building code.
+semi-public sharing). It does NOT apply to the Net Worth or Retirement tabs —
+see their sections above for the deliberate dollar-figure exceptions. Do not
+let those exceptions bleed back into Portfolio prompt-building code.
 
 ### Account Type
 Stored in sessionStorage. Passed as accountType + accountContext to all calls.
@@ -367,6 +674,26 @@ buildAccountBlock() injects account-specific hard rules into every prompt.
   taxable                     → short vs long-term gain callouts, TLH where applicable
   hsa                         → whole shares preferred, limited TLH benefit
 
+### Thematic + Sector Conviction (three-state lean)
+Two independent, persisted preference sets — both `'lean_in' | 'neutral' |
+'avoid'` (`ThemeStance`), both default `neutral`, both surfaced in
+`ThematicFrameworkPanel.tsx`:
+  - **Theme conviction** — one stance per curated theme (space_economy,
+    ai_infrastructure, defense, clean_energy_nuclear). No numeric target here;
+    conviction is directional only.
+  - **Sector conviction** — one stance per remaining 8 non-theme GICS sector
+    (financials, health_care, materials, real_estate, consumer_discretionary,
+    consumer_staples, utilities, communication_services). utilities/
+    communication_services mean the BROAD sector beyond the nuclear-operator/
+    satellite names already in the tracked universe.
+Both persist through `usePortfolioSync` (Supabase `user_preferences.theme_preferences`
+/ `.sector_conviction` jsonb columns for signed-in users; sessionStorage for
+anonymous). LEAN IN is a priority signal; AVOID is a hard prohibition (never
+recommend, even to fill a gap) in `cash_deploy`, `macro_risk`, and
+`sector_explore`. The four curated themes are a conviction OVERLAY, not a
+boundary — non-theme sectors are judged on diversification merit and are not
+in competition with a LEAN IN theme pick.
+
 ### Portfolio Page Layout
 
 Account type bar (above everything):
@@ -375,7 +702,6 @@ Account type bar (above everything):
 
 Left column (2fr):
   1. Positions table — TICKER · SECTOR · PRICE · COST BASIS · GAIN/LOSS · ALLOCATION · ×
-     Tighter row padding (6px 10px) and smaller fonts than original.
   2. Sector concentration chart
      - ▶/▼ expand for sub-sectors
      - Dual bars when targets set (solid actual, outline target)
@@ -383,25 +709,20 @@ Left column (2fr):
      - "↗ explore" button on each underweight row (≥2pp under target)
      - "↗ Explore gaps" button in chart header when any sector is underweight
      - "Set targets / Edit targets" button → SectorTargetsPanel
+     - "Theme conviction" button (neutral violet #9a7dff) → ThematicFrameworkPanel
   3. Macro risk — red left-border card, MarkdownCard rendering, account type badge,
      re-run button, "⟳ Run scenario analysis" button (purple, appears after macro runs)
 
 Right column (3fr):
-  1. Simulation panel (was "Add simulation" — now covers add AND trim/exit)
-     See "Simulation Panel — Full Spec" section below.
-  2. Should I? / Trim memo card — purple left-border, MarkdownCard rendering,
-     re-run button. Header shows context: "Should I? — META at 20%" or
-     "Trim memo — NVDA 17.0% → 8%" or "Exit memo — NVDA".
-  3. Trim suggestion card — amber left-border card, MarkdownCard rendering,
-     account type badge, re-run button.
+  1. Simulation panel (covers add AND trim/exit — see spec below)
+  2. Should I? / Trim memo card — purple left-border, MarkdownCard rendering
+  3. Trim suggestion card — amber left-border card, MarkdownCard rendering
 
-Grid: `minmax(0,2fr) minmax(0,3fr)` — left column narrower, right column wider.
-This replaced the old fixed `minmax(0,1fr) 320px` layout.
+Grid: `minmax(0,2fr) minmax(0,3fr)`.
 
 ### Simulation Panel — Full Spec
 
-The simulation panel handles both adding new positions AND trimming/exiting
-existing ones. Mode is auto-detected — no toggle needed.
+Mode is auto-detected — no toggle needed.
 
 **Mode detection (derived at render, never stored):**
   simExistingPos  — computed.find(p => p.ticker === simTicker) or null
@@ -413,85 +734,42 @@ existing ones. Mode is auto-detected — no toggle needed.
 
 **Slider behavior:**
   - Range: 0–100% (0% = full exit)
-  - When ticker entered that IS already held: slider snaps to current weight
-  - When ticker entered that is NOT held: slider defaults to 8%
   - Slider accent color: red at 0% exit, amber when trimming, white when adding
-  - Labels: "0% exit" on left, "▲ X% now" marker when ticker is held, "100%" on right
   - Target allocation label shows "(currently X.X%)" when ticker is held
 
 **Sector impact math:**
-  For NEW positions (not held):
-    scaleFactor = (100 - targetPct) / 100
-    newWeight[sector] = existing * scaleFactor
-    newWeight[simSector] += targetPct
-
-  For EXISTING positions (already held):
-    // Removes current weight, rescales remainder, applies new target
-    remainingBase = 100 - currentPct
-    scaleFactor = (100 - newTargetPct) / remainingBase
-    newWeight[simSector] = (existing[simSector] - currentPct) * scaleFactor + newTargetPct
-    newWeight[otherSectors] = existing * scaleFactor
-
-  This prevents double-counting when simulating an existing position.
-  Full exit (0%) correctly removes the position entirely.
+  For NEW positions: scaleFactor = (100 - targetPct) / 100; existing sectors
+  scale down, simSector gains targetPct.
+  For EXISTING positions: remainingBase = 100 - currentPct; scaleFactor =
+  (100 - newTargetPct) / remainingBase; prevents double-counting and correctly
+  zeroes out a full exit.
 
 **Action buttons — labels change by mode:**
-  Primary (purple in add mode, amber in trim mode):
-    Add mode:   "✦ Should I? — get memo"
-    Trim mode:  "✦ Trim memo — should I reduce?"
-    Exit mode:  "✦ Full exit — where should proceeds go?"
+  Primary: "✦ Should I? — get memo" (add) / "✦ Trim memo — should I reduce?"
+  (trim) / "✦ Full exit — where should proceeds go?" (exit)
+  Secondary: "Quick trim suggestion" (add) / "Where should proceeds go?" (trim)
 
-  Secondary (subtle):
-    Add mode:   "Quick trim suggestion"
-    Trim mode:  "Where should proceeds go?"
-
-**Auto sector explore on trim/exit:**
-  After running either button in trim mode, the code automatically finds the
-  most underweight sector (≥2pp gap vs target, different from trimmed sector)
-  and opens SectorExplorePanel. This surfaces redeployment candidates without
-  an extra click.
-  Only fires when hasTargets is true (sector targets have been set).
+**Auto sector explore on trim/exit:** after running either button in trim
+mode, automatically finds the most underweight sector (≥2pp gap, different
+from trimmed sector) and opens SectorExplorePanel. Only fires when
+`hasTargets` is true.
 
 ### SectorTargetsPanel
 Width: 460px. Grid: 24px 1fr 60px 80px 64px.
-% symbol is a sibling span outside the input (not inside) — prevents clipping.
 Number spinners hidden. Must sum to exactly 100% to enable Save.
-Columns: ▶/▼ · SECTOR · ACTUAL · TARGET · DELTA
-Sub-sectors: collapsible, show actual only, no target input.
-
 ALL 12 GICS sectors are always shown — not filtered to only sectors currently
-held. This allows setting targets for sectors you don't yet own (e.g. setting
-a 10% health_care target before adding any healthcare stocks).
-Previously the panel only showed sectors where actuals > 0.05% — this was a
-bug that prevented setting targets for unowned sectors. Fixed June 4, 2026.
+held, so targets can be set for sectors you don't yet own.
 
 ### Sector Explore Panel
-Slide-in from right (same style as AccountTypePanel and SectorTargetsPanel).
-Shows the underweight gap (e.g. "You're 8pp underweight vs 15% target").
-Claude returns a JSON array of { ticker, rationale, marketCapRange }.
-Each card has a "Simulate →" button that closes the panel and pre-fills
-the simulation ticker input.
-API call type: "sector_explore" in api/portfolio.ts.
-Claude is instructed to skip tickers already held, growth-style framing,
-target gap context when available.
+Slide-in from right. Shows the underweight gap. Claude returns a JSON array of
+`{ ticker, rationale, marketCapRange }`. Each card has a "Simulate →" button.
+`api/portfolio.ts` request type: `"sector_explore"`.
 
 ### Scenario Analysis Panel
-Width: 500px. Slide-in from right, opened via "⟳ Run scenario analysis" button
-that appears below the Macro Risk card after macro risk has been run.
-
-Layout:
-  - Header: title + description
-  - Sector weight editor grid: Sector · Actual · Current target · Proposed
-    · Proposed column: number inputs, purple-tinted when filled, pre-filled
-      from current targets (or rounded actuals if no targets set)
-    · Delta pp shown inline next to sector name (green = increase, red = decrease)
-  - Running total row: turns green ✓ at 100%, yellow within 5pp, red otherwise
-  - Warning text if total ≠ 100%
-  - "✦ Analyze proposed weightings" button — purple, disabled until total = 100%
-  - Result: purple left-border MarkdownCard with 4 sections
-
-initProjectedTargets() pre-fills proposed weights from sectorTargets (or
-rounded actuals for sectors without a current target).
+Width: 500px. Opened via "⟳ Run scenario analysis" below the Macro Risk card.
+Sector weight editor grid (Sector · Actual · Current target · Proposed),
+running total row (green ✓ at 100%, yellow within 5pp, red otherwise), "✦
+Analyze proposed weightings" button disabled until total = 100%.
 
 ---
 
@@ -499,7 +777,8 @@ rounded actuals for sectors without a current target).
 
 POST body shape:
 {
-  type: "macro_risk" | "macro_scenario" | "trim" | "trim_memo" | "sector_explore"
+  type: "macro_risk" | "macro_scenario" | "trim" | "trim_memo" |
+        "sector_explore" | "cash_deploy" | "networth_analysis"
   positions: PositionPayload[]       // includes keyMetrics?: string
   accountType?: string
   accountContext?: string
@@ -507,25 +786,14 @@ POST body shape:
   sectorActuals?: Record<string, number>
   subSectorActuals?: Record<string, number>
   projectedTargets?: Record<string, number | null>  // macro_scenario only
-  candidate?: CandidatePayload                       // trim + trim_memo; includes keyMetrics?: string
+  candidate?: CandidatePayload                       // trim + trim_memo
   exploreSector?: string                             // sector_explore only
+  themePreferences?: ThemePreferences                // cash_deploy/macro_risk/sector_explore
+  themeActuals?: Record<string, number>
+  sectorConviction?: SectorConviction
+  recentlySuggested?: string[]                       // sector_explore only
+  accounts?: NetWorthAccountPayload[]                 // networth_analysis only
 }
-
-CandidatePayload shape:
-{
-  ticker: string
-  sector: string
-  subSector?: string
-  targetWeightPct: number        // desired new weight (0 = full exit)
-  currentWeightPct?: number      // current weight if already held
-  isTrimMode?: boolean           // true when reducing an existing position
-  inUniverse: boolean
-  keyMetrics?: string
-}
-
-PositionPayload includes keyMetrics?: string — populated from localStorage
-(space-tracker-analyses → state.analyses[ticker].keyMetrics).
-getKeyMetrics(ticker) helper in PortfolioTab.tsx reads this at call time.
 
 macro_risk prompt structure (### sections, no top-level ##):
   ### Concentration Risks
@@ -533,145 +801,112 @@ macro_risk prompt structure (### sections, no top-level ##):
   ### Tail Risks
   ### Rebalancing Priority
   ### Sector Opportunity Watchlist
-    — suggests 2-3 tickers for any sector ≥3pp underweight
-    — format: **TICKER** — rationale · Risk: Low/Medium/High
 
-macro_scenario prompt structure (### sections, no top-level ##):
-  ### What Changes
-  ### Macro Fit
-  ### Execution Path
-  ### Risks of This Shift
+macro_scenario prompt structure:
+  ### What Changes → ### Macro Fit → ### Execution Path → ### Risks of This Shift
 
-trim prompt structure — BRANCHES on isTrimMode:
-  Add mode (isTrimMode false):
-    ### Trim Plan to Fund {ticker} ({pct}%)
-    ### Post-Rebalance Sector Weights  (markdown table)
+trim / trim_memo — BRANCH on isTrimMode (add vs. trim/exit), see full detail
+in the July session log entries for exact section headers per branch.
 
-  Trim/exit mode (isTrimMode true):
-    ### Exit Plan — {ticker}  OR  ### Trim Plan — {ticker} (X% → Y%)
-    ### Redeployment Suggestions   (2-3 sectors/tickers for freed capital)
-    ### Post-Rebalance Sector Weights  (markdown table)
+sector_explore response is validated as JSON before returning to client (slice
+from first `[` to last `]` to survive web-search narration around the array).
 
-trim_memo prompt structure — BRANCHES on isTrimMode:
-  Add mode:
-    ### The Case For
-    ### The Case Against
-    ### Verdict  (Buy / Pass / Watch)
-
-  Trim/exit mode:
-    ### The Case For Exiting/Trimming
-    ### The Case Against
-    ### Verdict  (Exit / Hold  OR  Trim / Hold)
-    — suggests redeployment target for freed pp
-
-  Under 200 words. Opinionated — one clear verdict sentence.
-  References keyMetrics from localStorage for candidate and existing positions.
-  Card color: purple left border (#a259ff), purple tint background.
-
-sector_explore response is validated as JSON before returning to client.
-Returns { error } if Claude output is not parseable.
+networth_analysis — Net Worth tab only, real dollar figures permitted per the
+deliberate exception. Shares this endpoint's 20-calls/hour bucket.
 
 ---
 
-## GICS Sector Taxonomy (Portfolio Use Only)
+## Known Issues
 
-Defined in src/config/gics.ts. SEPARATE from dashboard filter pill sectors.
-Do NOT conflate them.
-
-classifyTicker(ticker): priority → UNIVERSE_SECTOR_MAP → KNOWN_TICKERS → 'other'
-For any ticker where classifyTicker returns 'other', PortfolioTab falls back to
-yahooSector from the live prices response via YAHOO_TO_GICS mapper.
-
-### Top-Level Sectors (12)
-  information_technology  #a259ff  violet
-  industrials             #f97316  orange
-  energy                  #00e676  green
-  communication_services  #00c8ff  cyan
-  financials              #fbbf24  yellow
-  consumer_discretionary  #f59e0b  amber
-  consumer_staples        #84cc16  lime
-  health_care             #06b6d4  teal
-  materials               #a78bfa  lavender
-  real_estate             #fb923c  orange-light
-  utilities               #34d399  emerald
-  other                   #8b93a8  muted gray
-
-### 31-Stock Universe → GICS Mapping
-RKLB → industrials / space_launch
-FLY  → industrials / space_launch
-RDW  → industrials / space_systems
-LUNR → industrials / space_systems
-KTOS → industrials / aerospace_defense
-LHX  → industrials / aerospace_defense
-AVAV → industrials / aerospace_defense
-ASTS → communication_services / satellite_comms
-SATS → communication_services / satellite_comms
-PL   → communication_services / earth_observation
-BKSY → communication_services / earth_observation
-NVDA → information_technology / semiconductors
-PLTR → information_technology / it_services
-CRWV → information_technology / internet_infrastructure
-IREN → information_technology / internet_infrastructure
-NBIS → information_technology / internet_infrastructure
-CIFR → information_technology / internet_infrastructure
-RIOT → information_technology / internet_infrastructure
-VRT  → information_technology / electronic_equipment
-MOD  → information_technology / electronic_equipment
-CEG  → energy / nuclear_power
-VST  → energy / nuclear_power
-BWXT → energy / nuclear_components
-GEV  → energy / power_equipment
-BE   → energy / fuel_cells
-CCJ  → energy / uranium_mining
-LEU  → energy / uranium_mining
-NXE  → energy / uranium_mining
-OKLO → energy / advanced_reactors
-NNE  → energy / advanced_reactors
-
----
-
-## Known Issues (as of June 4, 2026)
-
-- Stocks analyzed in old 5-section format (IREN, MOD) lack snapshot block.
-  Re-run to upgrade to current 4-section + snapshot format.
-
-- Toast notifications not built — no success/error feedback on analysis completion.
-
-- FLY (Firefly Aerospace) — IPO'd Aug 8 2025, CIK 0001860160. Verify EDGAR
-  pipeline pulls filings correctly when analyzed.
-
-- SPCX (SpaceX) — IPO'd Nasdaq June 2026, CIK 0001181412. Same situation as FLY:
-  EDGAR history so far is mostly S-1/S-1-A/424B4 registration paperwork, not the
-  normal operating-company 10-Q/8-K cadence. A thin/empty "most recent 8-K item
-  2.02" lookup result is expected for now, not a bug. NOT added to
-  SPECULATIVE/SEDAR_ONLY/TRAINING_ONLY (those are for pre-revenue or
-  non-EDGAR-filing names — SPCX is neither, just newly public).
+- **Supabase analysis sync (`pushAnalysis`) is unwired — see "KNOWN OPEN BUG"
+  section above.** This is the single most important open item; re-verify it
+  still reproduces before making any further changes to sync/timing logic.
+- Stocks analyzed in the old 5-section format (IREN, MOD) lack a snapshot
+  block. Re-run to upgrade to the current 4-section + snapshot format.
+- Toast notifications not built — no success/error feedback on analysis
+  completion.
+- FLY (Firefly Aerospace) and SPCX (SpaceX) — both newly public, thin
+  registration-heavy EDGAR history. A thin/empty "most recent 8-K item 2.02"
+  result is expected, not a bug. Not added to SPECULATIVE/SEDAR_ONLY/
+  TRAINING_ONLY (those are for pre-revenue or non-EDGAR-filing names).
+- SATS's stale Yahoo-quote-fetch failure (noted in the Aug 4 index entry) is
+  now moot — SATS was removed from the tracked universe entirely on Aug 6.
 
 ---
 
 ## Next Session Priorities (in order)
 
-1. **Financial Overview tab (idea captured, not scoped)** — new top-level tab
-   for whole-picture net worth, separate from the Portfolio tab's stock/fund
-   tracking. Central hub for asset types the app doesn't touch yet: crypto,
-   401k balance, cash on hand (separate from Portfolio's "dry powder" cash).
-   Roth IRA / brokerage holdings would pull from the existing Portfolio tab
-   rather than being re-entered. Architectural note: the app currently models
-   "one portfolio" per user, not "multiple accounts" — a real net-worth hub
-   needs a proper `accounts`/`asset_holdings` table scoped to user_id, rather
-   than extending the single-portfolio schema. Scope as its own project —
-   likely bigger than it looks from the UI description alone.
-
-2. **Sharpen AI portfolio recommendations** — current suggestions read as
-   generalist and low-diversity (same 2-of-3 stocks recur across cash-deploy
-   runs regardless of amount). Want more in-depth, theme-based
-   recommendations (a few stocks/funds per theme, one line each), accepting
-   higher token cost for deeper, more varied reasoning. Need to figure out
-   token cost of that level of prompt detail and how to structure it.
+1. **Fix the `pushAnalysis` Supabase write** (see "KNOWN OPEN BUG" above) —
+   highest-priority open item; blocks correct public/shared analysis state.
+2. **Financial Overview / net-worth architecture** — the app currently models
+   "one portfolio" per user, not "multiple accounts." Net Worth and Retirement
+   both now exist and pull from a proper `accounts`/`asset_holdings` +
+   `retirement_profile` shape, so this item is largely superseded by shipped
+   work — revisit only if a genuinely new asset-tracking gap appears.
+3. **Sharpen AI portfolio recommendations further** — `sector_explore` was
+   sharpened (patch 4, July 28: web search, conviction-aware, recent-exclusion,
+   deeper rationale). Re-evaluate whether `cash_deploy` needs the same
+   deepening pass, and whether token cost at that depth is worth it.
+4. **Dead code cleanup** — confirm no other stale `api/*.ts` files or
+   `_shared`-style modules have crept back in; `api/edgar.ts` is deleted.
 
 ---
 
 ## Claude Behavior Rules
+
+### Read actual source files before writing any prompt or fix
+Documentation drifts; the codebase is ground truth. TypeScript compilation
+passing is not a proxy for correctness — silent runtime failures (missing CIK
+entries, wrong file paths, an unwired hook return value like `pushAnalysis`)
+won't be caught by `tsc`.
+
+### Never re-diagnose already-fixed bugs from theory
+Before modifying sync/timing/seeding logic a prior session claimed to have
+fixed, verify the bug still reproduces on the current deployed build. Do not
+layer architectural changes on top of an unverified diagnosis.
+
+### Universe-change checklist — update ALL of these on every ticker add/remove
+  1. `src/config/tickers.ts` — TICKERS array
+  2. `src/config/gics.ts` — UNIVERSE_SECTOR_MAP
+  3. `src/config/themes.ts` — TICKER_THEME_MAP (+ new sub-themes if needed)
+  4. `src/types/index.ts` + `src/components/Layout/index.tsx` — Sector type,
+     SECTOR_LABELS/COLORS, and the Layout SECTORS pill array (only on a new pill)
+  5. `src/components/StockDetail.tsx` — CIK_MAP + SECTOR_COLOR_MAP/SECTOR_LABEL_MAP.
+     If the new ticker is foreign-domiciled and files 6-K instead of 8-K, also
+     add a `FILING_REGIME` + `FPI_CONFIG` entry (see the Foreign Private Issuer
+     framework section above and the Aug 16 2026 session log) — mirrors how
+     CIK_MAP already requires an entry per ticker.
+  6. `scripts/newswire.mjs` — TICKERS + COMPANY_ALIASES
+  7. `scripts/indexCalc.mjs` — PRIMARY_SECTOR map (+ TICKER_INTRO_MONTH entry
+     for a newly-added ticker, so it "floats on" the AI Index the following
+     month). `src/lib/indexCalc.ts` derives membership from tickers.ts
+     directly and needs no manual edit, but ITS OWN `TICKER_INTRO_MONTH` copy
+     must be kept hand-in-sync with the .mjs one (see Aug/July 30 patch).
+Skipping any of these causes a silent failure that `tsc`/`npm run build`
+cannot catch.
+
+### Do not factor shared code into an api/_shared/ (or any underscore-prefixed)
+module and import it across Vercel functions — it deploys broken with no
+local-build signal. Duplicate small `api/` helpers inline instead (see Aug 6,
+2026 hotfix). Always curl the production endpoint after deploying a
+new/changed `api/*.ts` function rather than trusting tsc/build alone.
+
+### Ticker counts should not be hardcoded in UI copy
+Use "the full tracked universe" to stay resilient to future changes.
+
+### Index math is hand-synced, not imported
+`.ts` and `.mjs` copies of ticker/sector/theme constants are kept in sync by
+convention across the api↔src and src↔scripts boundaries — never introduce a
+shared import across those boundaries for this reason.
+
+### Supabase migrations are always handed off for manual execution
+In the Supabase SQL Editor — never auto-run by Claude Code.
+
+### File delivery preference
+Complete replacement files or Claude Code prompts with exact file/line
+references, not diffs or partial snippets. `npx tsc --noEmit` (and, for `api/`
+changes, a standalone strict typecheck plus a post-deploy curl) is the
+correctness gate before every deploy.
 
 ### After every file delivery
 Whenever Claude produces modified files for this project (whether via
@@ -691,8 +926,42 @@ Format:
   vercel --prod
 
 Claude must fill in the actual filenames, destination paths, and a meaningful
-commit message based on what was just built. Never use placeholder text — always
-use the real paths from the session.
+commit message based on what was just built. Never use placeholder text —
+always use the real paths from the session.
+
+### CLAUDE.md's session log
+Is the record of what actually shipped and when — check it before assuming a
+feature is or isn't built, but treat the current source files as ground truth
+when the two disagree (this rewrite was done for exactly that reason — see
+the header note below).
+
+---
+
+**Note on this rewrite (Aug 16, 2026):** the sections above were reconciled
+directly against the current zipped project source, not just against the
+prior session log. Two corrections of note: (1) `pushAnalysis` — documented in
+places as an active/recent issue — was re-verified against the actual code and
+is confirmed STILL UNWIRED (see "KNOWN OPEN BUG"); do not assume it was fixed
+in an undocumented session. (2) Everything else in the session log below
+(SATS removal, 31→50 expansion, AI Index, Net Worth, Retirement, the
+`api/_shared` revert) was verified to match the current source exactly and is
+kept as an accurate historical record — no content changes below this line
+apart from this note.
+
+**Correction (Aug 16, 2026, later same day):** this rewrite's source snapshot
+predated commit `c48a728` ("Generalize NBIS 6-K fix into reusable Foreign
+Private Issuer filing framework"), which had already been committed to git
+with its own CLAUDE.md update. Committing this rewrite as originally written
+would have silently regressed that documentation — the "Foreign Private Issuer
+filing framework" doc section, the `Speculative Names`/universe-checklist
+mentions of `FILING_REGIME`/`FPI_CONFIG`, and the corresponding session log
+entry were all missing. Restored during the CCJ-enablement session (see the
+two "August 16, 2026" session log entries near the end of this file) before
+this rewrite was ever committed — the live CLAUDE.md you're reading now
+includes that restoration. Lesson: a source-snapshot-based rewrite can silently
+regress documentation for work committed after the snapshot was taken; diff
+against `git show HEAD:CLAUDE.md` before treating a full rewrite as safe to
+commit, not just against the session log narrative.
 
 ---
 
@@ -1185,10 +1454,7 @@ SPECULATIVE/SEDAR_ONLY/TRAINING_ONLY).
   3. `src/config/themes.ts` — TICKER_THEME_MAP (+ new sub-themes)
   4. `src/types/index.ts` + `src/components/Layout/index.tsx` — Sector type,
      SECTOR_LABELS/COLORS, and the Layout SECTORS pill array (only on new pill)
-  5. `src/components/StockDetail.tsx` — CIK_MAP + SECTOR_COLOR_MAP/SECTOR_LABEL_MAP.
-     If the new ticker is foreign-domiciled and files 6-K instead of 8-K, also
-     add a `FILING_REGIME` + `FPI_CONFIG` entry (see Aug 16 2026 session log) —
-     mirrors how CIK_MAP already requires an entry per ticker.
+  5. `src/components/StockDetail.tsx` — CIK_MAP + SECTOR_COLOR_MAP/SECTOR_LABEL_MAP
   6. `scripts/newswire.mjs` — TICKERS + COMPANY_ALIASES
   7. `scripts/indexCalc.mjs` — PRIMARY_SECTOR map (+ TICKER_INTRO_MONTH for any
      newly-added ticker, so it "floats on" the AI Index the next month). Added
@@ -1896,150 +2162,13 @@ inlined) · CLAUDE.md
 
 ---
 
-### August 11, 2026 — SPECULATIVE-ticker EDGAR: per-section caps, recency ordering, auto revenue-framing
-
-**Two root causes fixed:**
-  1. **Front-truncation silently dropped the most recent filing.** For
-     SPECULATIVE tickers (OKLO/NNE/NXE) `fetchEdgarInBrowser()` fetched the most
-     recent 8-K + most recent 10-Q, concatenated them 8-K-FIRST with no
-     per-section cap, then `api/analyze.ts` truncated the combined text from the
-     FRONT (60000/40000 chars). A large 8-K could push the 10-Q — often the
-     newer, denser filing — out of the window entirely. `filingMeta` also always
-     preferred the 8-K's date/period regardless of which filing was actually
-     more recent.
-  2. **SPECULATIVE-set required manual upkeep to reflect revenue status.** The
-     hand-maintained set both chose which filings to fetch AND forced
-     pre-revenue/milestone prompt framing forever — so a name that had started
-     reporting real revenue kept getting burn-rate/milestone framing until
-     someone manually edited the set.
-
-**Fix 1 — per-section caps + recency ordering (`src/components/StockDetail.tsx`).**
-Each section is now capped BEFORE concatenation (`EIGHT_K_CAP = 15000`,
-`TEN_Q_CAP = 40000`; the 10-Q is already MD&A-extracted ≤20k, so 40k is
-headroom), so neither filing can truncate the other downstream. Sections are
-ordered most-recent-first by ISO filing-date comparison (was always 8-K-first).
-`filingMeta.filingDate`/`period` now come from `mostRecent` (whichever filing is
-actually newest), so the UI's "Filed" date matches the newest filing (e.g. a
-10-Q filed after the last 8-K).
-
-**Fix 2 — raised `api/analyze.ts` ceilings to match (`60000→65000`,
-`40000→45000`)** with a comment above each locking in the per-section caps as
-the reason not to lower them.
-
-**Fix 3 — automatic revenue detection replaces manual reclassification.** New
-deterministic, zero-Claude-cost `filingShowsRevenue(text)` heuristic (regex: a
-real reported revenue/net-sales dollar line, negated by
-"pre-revenue"/"no revenue to date"/"have not generated any revenue") runs
-against the combined fetched text and sets a new `hasReportedRevenue` flag,
-threaded through `RunPayload`/`AnalysisMeta` (`src/hooks/useAnalysis.ts`) and the
-`/api/analyze` request body. `buildJsonPrompt()` and `buildNarrativePrompt()`
-now gate the pre-revenue framing on `isSpeculative && !hasReportedRevenue` —
-the moment a SPECULATIVE ticker's most recent filing shows revenue, the very
-next run uses standard earnings framing with no set edit. `hasReportedRevenue`
-defaults false for non-speculative tickers and for SEDAR_ONLY (NXE never reaches
-the EDGAR-fetch branch). SPECULATIVE membership was NOT changed — the dual
-8-K+10-Q fetch stays correct and cheap for all three regardless of revenue
-status.
-
-**Clarified definition (now in code comments):** **SPECULATIVE set = which
-filings to FETCH (8-K + 10-Q), NOT which prompt framing to use** — framing is
-auto-detected per analysis run via `hasReportedRevenue`.
-
-**Fix 4 — UI visibility.** When `isSpeculative && hasReportedRevenue`, the meta
-row shows a small green inline note "Now reporting revenue — standard earnings
-framing applied" so the auto-detection is visible without digging into the text.
-
-**Privacy:** untouched — reads only public EDGAR filing text; no dollars/shares
-of the user's own holdings.
-
-**Verification:** `npx tsc --noEmit` and `npm run build` pass; standalone strict
-api/ typecheck clean (only the expected env-only `process`/module-resolution
-notes). NOT browser-verified locally — the Run Analysis flow is admin-gated and
-`/api/analyze` + browser-side EDGAR fetch aren't served by plain `vite dev`.
-Post-deploy manual checks: re-run OKLO (Filed date = true most-recent filing;
-narrative reflects 10-Q content; framing matches OKLO's actual current
-revenue-reporting status), re-run NNE, and confirm NXE (SEDAR_ONLY) is
-unaffected (`hasReportedRevenue` stays false/unused — it never reaches the
-EDGAR-fetch branch).
-
-**Files modified:** src/components/StockDetail.tsx · src/hooks/useAnalysis.ts ·
-  api/analyze.ts · CLAUDE.md
-
----
-
-### August 11, 2026 — Needs Attention: ground-truth last-reported-quarter signal + earningsToday same-day-rerun fix
-
-**Two related bugs in the earnings-freshness system:**
-  1. **Just-released reports were sometimes never flagged.** `getAnalysisFreshness()`
-     relied entirely on Yahoo's forward-looking `nextEarningsDate`
-     (calendarEvents). That estimate can roll to the FOLLOWING quarter before or
-     immediately after a report drops — so its `daysUntilEarnings > 7` early
-     return fired and returned `analyzed`, silently masking a released-but-
-     unanalyzed 10-Q/8-K. There was no ground-truth "what quarter did Yahoo
-     actually report" signal to fall back on.
-  2. **A same-day re-run didn't clear `earningsToday`** (e.g. CRWV, earnings out
-     today). The `daysUntilEarnings === 0` branch returned `earningsToday`
-     unconditionally without comparing `analysis.lastEarningsDate`, unlike the
-     "earnings in the past" branch — so re-running (which correctly updates
-     `lastEarningsDate`) left the ticker stuck in the "reports today" tier until
-     a refresh.
-
-**Fix — new `lastReportedQuarterEnd` ground-truth field, primary reportDue signal.**
-  - `api/prices.ts`: added `defaultKeyStatistics` to the existing non-fund/
-    non-crypto `quoteSummary` modules array (same request, no extra round-trip),
-    read `defaultKeyStatistics.mostRecentQuarter` (the fiscal period-end Yahoo
-    has ACTUAL reported data for), and exposed it as
-    `lastReportedQuarterEnd: string | null` (ISO date, same null convention as
-    `nextEarningsDate`; also added to the error stub).
-  - `src/types/index.ts`: `lastReportedQuarterEnd?: string | null` on `LivePrice`.
-    No store/hook normalization needed — `useLivePrice.fetchPrices` returns
-    `res.json()` wholesale and `useStore.setPrices` spreads the whole object, so
-    the field passes through untouched (verified, no code change to useStore.ts).
-  - `src/lib/analysisFreshness.ts`: `getAnalysisFreshness(analysis,
-    nextEarningsDate, lastReportedQuarterEnd)`. New PRIMARY check evaluated
-    before the `daysUntilEarnings > 7` early return: if `reportedQuarter` is
-    present and newer than `analysis.lastEarningsDate` (or none recorded) →
-    `reportDue`, regardless of `nextEarningsDate`. `nextEarningsDate` now only
-    drives the upcoming/soon messaging + "overdue since" text. The
-    `earningsToday` branch (Bug 2) and the past-earnings branch both gained the
-    same `lastAnalyzed >= reportedQuarter → analyzed` ground-truth comparison.
-    Date note baked into the header comment: `lastEarningsDate` is a FILING date,
-    `lastReportedQuarterEnd` is a PERIOD-END date — a filing always postdates its
-    own quarter-end, so `filingDate >= quarterEnd` = "already covers that
-    quarter", and a quarter-end later than the last filing = a newer quarter
-    reported. The flat 30-day `isAnalysisStale()` fallback is unchanged and still
-    fires only when Yahoo has no upcoming earnings date at all.
-  - Both call sites pass the third arg:
-    `src/components/SidePanel/index.tsx` (needsAttention useMemo) and
-    `src/components/PriceTable/index.tsx` (STALE badge) →
-    `prices[…]?.lastReportedQuarterEnd ?? null`.
-  - Verified `StockDetail.tsx handleComplete` still writes
-    `lastEarningsDate: meta.filingDate ?? undefined` on every completed run (Aug
-    6 fix intact) — the same-day-rerun clear in Fix 2c/2d depends on it.
-
-**Verified `defaultKeyStatistics` is a real yahoo-finance2 v3 quoteSummary module
-and `mostRecentQuarter?: Date` exists in its schema** (guards against a runtime
-module-name rejection).
-
-**Privacy:** untouched — reads only public Yahoo earnings/quarter data + analysis
-timestamps; no dollars/shares.
-
-**Verification:** `npx tsc --noEmit` and `npm run build` pass. Not locally
-browser-verifiable (needs live Yahoo `mostRecentQuarter`/`nextEarningsDate` +
-Supabase-synced `filing_date`). Post-deploy manual checks: (1) a ticker whose
-Yahoo `nextEarningsDate` already rolled to next quarter but whose latest 10-Q/8-K
-is unanalyzed now shows reportDue in Needs Attention; (2) re-running CRWV
-(earnings today) clears it from the "reports today" tier immediately, no refresh;
-(3) a ticker with no upcoming earnings data still falls back to the 30-day
-staleFallback unaffected.
-
-**Files modified:** api/prices.ts · src/types/index.ts ·
-  src/lib/analysisFreshness.ts · src/components/SidePanel/index.tsx ·
-  src/components/PriceTable/index.tsx · CLAUDE.md
-
----
-
 ### August 16, 2026 — Generalize NBIS into a reusable Foreign Private Issuer filing framework
+
+**Note:** this entry documents work from commit `c48a728`, whose CLAUDE.md
+update was accidentally dropped by an unrelated same-day documentation rewrite
+(see the header note near the top of this file) before being committed —
+restored here from git history because the code it describes is real, live,
+and directly relevant to the CCJ entry immediately below.
 
 **Context:** a prior session added an `api/analyze.ts` `TICKER_SYSTEM_PROMPTS`
 entry for NBIS (Nebius Group N.V.) noting it "files 6-K forms on EDGAR rather
@@ -2061,8 +2190,9 @@ both (structurally unblocked, not implemented as a combination yet).
   interface FPIConfig { annualForm: '20-F' | '40-F'; exhibitHints: string[]; }
   ```
   `filingRegimeFor(ticker)` defers to the existing `SEDAR_ONLY` set first so the
-  two axes can't disagree about NXE. Only NBIS is populated in `FILING_REGIME`/
-  `FPI_CONFIG` this session — CCJ is deliberately left out (see below).
+  two axes can't disagree about NXE. Only NBIS was populated in `FILING_REGIME`/
+  `FPI_CONFIG` this session — CCJ was deliberately left out (see below; enabled
+  the same day in the follow-up entry directly below this one).
 
 **Shared fetch path (`fetchForeignIssuerFiling`), branched once in
 `fetchEdgarInBrowser`** before the domestic 8-K lookup:
@@ -2071,15 +2201,15 @@ both (structurally unblocked, not implemented as a combination yet).
   No per-ticker logic inside it — adding a new FPI is one `FILING_REGIME` line +
   one `FPI_CONFIG` line.
 
-**Bug found and fixed during verification, not assumed:** the spec's literal
-"take the most recent 6-K" plan is unreliable in practice. Live-traced CCJ (used
-only as a design proof — not activated, see below): its most recent 6-K
+**Bug found and fixed during verification, not assumed:** the naive "take the
+most recent 6-K" plan is unreliable in practice. Live-traced CCJ (used only as
+a design proof this session — not activated yet): its most recent 6-K
 (2026-07-31) was a Westinghouse registration-statement press release, not
 earnings; the actual quarterly-results 6-K was filed the same day, one entry
-back. NBIS happened to work with "most recent" today (its latest 6-K was the
+back. NBIS happened to work with "most recent" that day (its latest 6-K was the
 earnings release), but nothing in EDGAR guarantees that going forward — 6-Ks
 carry no `items` code distinguishing earnings from routine press releases (8-Ks
-have `2.02`; 6-Ks have nothing). Fix: `fetchForeignIssuerFiling` now pulls the
+have `2.02`; 6-Ks have nothing). Fix: `fetchForeignIssuerFiling` pulls the
 `SIX_K_SCAN_LIMIT = 5` most recent 6-Ks via a new `findFilings()` (plural,
 `findFiling` now delegates to it with limit 1) and tests each candidate's
 resolved exhibit text with `looksLikeEarningsFiling()` (regex for "results of
@@ -2089,22 +2219,21 @@ if none of the scanned candidates look like earnings, then to the annual
 form (20-F/40-F) only if the filer has no 6-K on record at all. Live-verified
 against both NBIS (matches on the first candidate, zero extra fetches — same
 outcome as the naive version) and CCJ (correctly skips the Westinghouse 6-K,
-selects the earnings one on the second candidate) — confirms the scan logic is
-sound for whenever a second FPI is actually enabled.
+selects the earnings one on the second candidate).
 
 **Exhibit resolution (`resolveForeignExhibitUrl` + `parseIndexEntries`):**
 separate from the existing domestic `resolveExhibitUrl` (left untouched) because
 FPI exhibit filenames are inconsistent in ways the domestic regex didn't cover —
-live-checked NBIS's own filing uses `ex99d1` (not `ex99-1`/`ex-99.1`), which the
-literal hint list from the task spec would have missed on filename alone.
-`parseIndexEntries()` parses the SEC index table's Description + Type columns
-(both carry a clean "EX-99.1" label regardless of filename mangling) in addition
-to the filename, so `exhibitHints` matches against `"${description} ${filename}"`
-— hint-match succeeds even when the filename doesn't contain the hint text.
-`FPI_EXHIBIT_HINTS` covers the filename variants seen across NBIS/CCJ:
-`ex-99.1`, `ex99.1`, `ex99-1`, `ex99d1`, `ex991`. Falls back to the first
-non-cover exhibit (index entry 1) with a logged warning if no hint matches, same
-graceful-degradation shape as the domestic path.
+live-checked NBIS's own filing uses `ex99d1` (not `ex99-1`/`ex-99.1`), which a
+literal hint list on filename alone would have missed. `parseIndexEntries()`
+parses the SEC index table's Description + Type columns (both carry a clean
+"EX-99.1" label regardless of filename mangling) in addition to the filename, so
+`exhibitHints` matches against `"${description} ${filename}"` — hint-match
+succeeds even when the filename doesn't contain the hint text. `FPI_EXHIBIT_HINTS`
+covers the filename variants seen across NBIS/CCJ: `ex-99.1`, `ex99.1`, `ex99-1`,
+`ex99d1`, `ex991`. Falls back to the first non-cover exhibit (index entry 1)
+with a logged warning if no hint matches, same graceful-degradation shape as the
+domestic path.
 
 **Proxy generalized (`api/edgar-proxy.ts`):** was `/Archives/` only; NBIS/future
 FPI fetches need `data.sec.gov/submissions/` too (previously called directly,
@@ -2121,18 +2250,7 @@ derived from `FILING_REGIME` — renders "6-K" for any `foreign_private_issuer`
 ticker generically (not NBIS-specific), "8-K + 10-Q" for SPECULATIVE names,
 "8-K" for standard domestic, nothing for SEDAR_ONLY.
 
-**Why CCJ is NOT enabled despite being live-verified working:** out of scope —
-the task asked for the general framework with NBIS as the concrete target;
-CCJ's existing `api/analyze.ts` system prompt deliberately treats it as
-training-knowledge-only, a prior explicit decision this session didn't have
-grounds to silently reverse. CCJ was used only to prove the earnings-scan logic
-handles a filer that interleaves non-earnings 6-Ks (a case NBIS's own history
-doesn't currently exercise). Enabling it is a one-line follow-up
-(`FILING_REGIME`/`FPI_CONFIG` entries) whenever that's actually wanted.
-
 **Untouched, per scope:** `SPECULATIVE`/`SEDAR_ONLY` sets and their fetch logic,
-`api/analyze.ts` (filing-content-agnostic once text is extracted — no NBIS-
-specific prompt change needed since the fetched text now speaks for itself),
 and every `CIK_MAP` entry other than the one already-present NBIS row (unchanged
 value, just now consumed by the FPI path instead of the dead domestic path).
 
@@ -2142,11 +2260,88 @@ against live SEC data through the actual new code path (not just compiled):
 resolves accession `0001104659-26-094844` (filed 2026-08-12), exhibit
 `nbis-20260812xex99d1.htm` via the EX-99.1 hint match, 39,324 chars of real Q2
 MD&A text, correctly identified as earnings-shaped on the first scanned
-candidate. Not browser-verified live (Run Analysis is admin-gated and
-`/api/edgar-proxy` + `/api/analyze` aren't served by plain `vite dev`).
-Post-deploy manual check: open NBIS, Run Analysis, confirm the Meta row shows
-a "6-K" badge and Filed date 2026-08-12, and that the narrative reflects the
-actual Q2 2026 filing content rather than generic training-knowledge framing.
+candidate.
 
 **Files modified:** src/components/StockDetail.tsx · api/edgar-proxy.ts ·
   CLAUDE.md
+
+---
+
+### August 16, 2026 (patch) — Enable CCJ in the FPI framework, fix stale training-knowledge-only system prompt
+
+**Live bug reported:** running "Run Analysis" on CCJ (Cameco) on production
+threw `No earnings 8-K (item 2.02) found for CCJ`. Root cause confirmed against
+live SEC EDGAR (CIK `0001009001`, verified correct): Cameco is a Canadian
+foreign private issuer — it has never filed an 8-K, only 6-K (quarterly/interim
+results) and 40-F (annual). The prior session's FPI framework (entry directly
+above) had already built and live-verified the exact fetch path CCJ needs —
+CCJ was used as that session's own test case for the "6-K scan" bug fix — but
+left CCJ unpopulated in `FILING_REGIME`/`FPI_CONFIG` deliberately, deferring
+enablement as a separate decision because `api/analyze.ts` still carried a CCJ
+system prompt that explicitly says "no automated filing fetch is available,
+you are working from training knowledge" — flipping on live fetch without
+addressing that sentence would have shipped a prompt actively contradicting the
+real filing text now being passed to the model.
+
+**Change 1 — `src/components/StockDetail.tsx`:** added `CCJ:
+'foreign_private_issuer'` to `FILING_REGIME` and `CCJ: { annualForm: '40-F',
+exhibitHints: FPI_EXHIBIT_HINTS }` to `FPI_CONFIG` — the exact one-line-each
+follow-up the prior entry called out. Removed the now-obsolete comment
+explaining why CCJ was excluded. `CIK_MAP`'s existing CCJ entry
+(`0001009001`) was verified correct directly against SEC EDGAR and left
+unchanged. No other set (`SPECULATIVE`, `SEDAR_ONLY`) touched.
+
+**Change 2 — `api/analyze.ts` `TICKER_SYSTEM_PROMPTS.CCJ`:** removed "It...
+files 6-K forms on EDGAR rather than 8-K earnings releases, so no automated
+filing fetch is available. You are working from training knowledge." (now
+false) and the closing "Be explicit about data limitations where your training
+knowledge may be incomplete or outdated" (now backwards — the filing text is
+the primary source, training knowledge is the fallback for context gaps).
+Replaced with a short pointer that the EARNINGS FILING text below is the real
+6-K press-release exhibit and should ground the analysis the same way an 8-K
+exhibit does for a domestic filer. All the CCJ-specific coverage guidance
+(production volumes, contracting book, Westinghouse stake, uranium macro
+outlook) was left untouched — that framing is correct regardless of source.
+NBIS's `TICKER_SYSTEM_PROMPTS` entry has the identical stale "no automated
+fetch" sentence (also now false, since the entry above already enabled NBIS's
+live fetch) but was left untouched — out of scope for a CCJ-scoped fix; flagged
+as a follow-up.
+
+**Re-verified live against SEC EDGAR before assuming the fix works** (per the
+"never re-diagnose from theory" rule): curled `data.sec.gov/submissions/
+CIK0001009001.json` directly — confirms CIK belongs to CAMECO CORP, and that
+the two most-recent 6-Ks (both filed 2026-07-31) are exactly the interleaved
+case the prior session's scan logic was built for: the more-recent one
+(`0001193125-26-327250`) is "Cameco Announces Westinghouse's Confidential
+Submission of Draft Registration Statement..." (not earnings), the one filed
+just before it (`0001193125-26-326768`) is "Cameco reports second quarter
+results..." (the actual earnings release, EX-99.1 through EX-99.4). Confirmed
+`looksLikeEarningsFiling()`'s `reports?\s+(first|second|third|fourth)\s+quarter`
+pattern matches the second one's headline, so the existing scan-and-skip logic
+correctly selects it over the newer Westinghouse filing.
+
+**Meta-row filing-type label:** no code change needed — `filingFormLabel()`
+already derives "6-K" generically from `FILING_REGIME` for any
+`foreign_private_issuer` ticker (built in the prior session), so CCJ picks up
+the correct badge automatically once added to the map.
+
+**Also found and flagged (not fixed here — separate from this task):** the
+current on-disk CLAUDE.md had an uncommitted rewrite in progress (see the
+header note near the top of this file) that was generated from a source
+snapshot predating commit `c48a728`, and had silently dropped that commit's
+entire "Generalize NBIS..." session log entry, its "Foreign Private Issuer
+filing framework" doc section, and its `Speculative Names`/universe-checklist
+updates. Restored all of it (entry directly above, plus the corresponding doc
+sections earlier in this file) as part of this session rather than losing real,
+verified history to an unrelated in-progress rewrite.
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Standalone
+strict + noUnusedLocals tsc pass over `api/analyze.ts` (and the other `api/*.ts`
+files) clean. Live-verified against current SEC EDGAR data as described above.
+Not browser-verified locally — Run Analysis is admin-gated and `/api/analyze`
++ `/api/edgar-proxy` are Vercel functions not served by plain `vite dev`.
+Post-deploy: open CCJ, Run Analysis, confirm it completes (no error), the Meta
+row shows a "6-K" badge, and Filed date is 2026-07-31 pointing at the earnings
+6-K's exhibit — not the Westinghouse one.
+
+**Files modified:** src/components/StockDetail.tsx · api/analyze.ts · CLAUDE.md

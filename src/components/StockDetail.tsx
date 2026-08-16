@@ -81,16 +81,15 @@ interface FPIConfig {
 
 const FILING_REGIME: Record<string, FilingRegime> = {
   NBIS: 'foreign_private_issuer',  // Nebius Group N.V. — Dutch, 6-K + 20-F
+  CCJ:  'foreign_private_issuer',  // Cameco Corp — Canadian, 6-K + 40-F
   // future FPIs added here — single line each, no other file touched.
-  // Note: CCJ (Cameco) is also a 6-K filer but is deliberately NOT enabled
-  // here — it keeps its existing training-knowledge-only system prompt in
-  // api/analyze.ts. Turning on automated fetch for it is a separate decision.
 };
 
 const FPI_EXHIBIT_HINTS = ['ex-99.1', 'ex99.1', 'ex99-1', 'ex99d1', 'ex991'];
 
 const FPI_CONFIG: Record<string, FPIConfig> = {
   NBIS: { annualForm: '20-F', exhibitHints: FPI_EXHIBIT_HINTS },
+  CCJ:  { annualForm: '40-F', exhibitHints: FPI_EXHIBIT_HINTS },
 };
 
 // SEDAR_ONLY stays the authority for its own tickers so the two never diverge.

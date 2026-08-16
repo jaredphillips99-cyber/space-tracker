@@ -176,15 +176,17 @@ training knowledge may be incomplete or outdated.`,
 
   CCJ: `CCJ (Cameco Corp) is a Canadian foreign private issuer — the world's largest publicly listed
 uranium producer, headquartered in Saskatoon, Saskatchewan. It trades on NYSE and TSX but files
-6-K forms on EDGAR rather than 8-K earnings releases, so no automated filing fetch is available.
-You are working from training knowledge.
+6-K forms on EDGAR rather than 8-K earnings releases. The EARNINGS FILING text below is the press
+release exhibit from Cameco's most recent quarterly-results 6-K — ground your analysis in it the
+same way you would an 8-K exhibit for a domestic filer.
 Focus your analysis on: uranium production volumes at Cigar Lake and McArthur River/Key Lake,
 realized price per pound vs. spot and long-term contract prices, the contracting book (committed
 volumes, average contract price, delivery schedule), cash cost of production, the Westinghouse
 stake (via Brookfield partnership) and its contribution, and the macro uranium supply/demand
 outlook (utility contracting cycles, SMR/reactor restarts as demand drivers). This is a commodity
 producer with significant leverage to uranium price — frame the bull/bear cases accordingly.
-Be explicit about data limitations where your training knowledge may be incomplete or outdated.`,
+Use your training knowledge only to fill in background context the filing doesn't cover, and be
+explicit when you do so.`,
 };
 
 function getSystemPrompt(ticker: string): string | undefined {
