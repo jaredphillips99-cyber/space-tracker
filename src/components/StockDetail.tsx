@@ -54,6 +54,60 @@ const CIK_MAP: Record<string, string> = {
 const SPECULATIVE          = new Set(['OKLO', 'NNE', 'NXE']);
 const SEDAR_ONLY           = new Set(['NXE']);
 
+// ─── Filing regime ────────────────────────────────────────────────────────────
+//
+// Which SEC form carries a company's earnings release. Domestic issuers file an
+// 8-K item 2.02; foreign private issuers file a 6-K and have no 8-K on EDGAR at
+// all, so the domestic lookup finds nothing for them.
+//
+// This is a PARALLEL axis to SPECULATIVE / SEDAR_ONLY, not a replacement:
+// SPECULATIVE controls how many filings to fetch, regime controls which form to
+// look for. A ticker could be both — nothing here assumes exclusivity.
+//
+// To support a new foreign-domiciled ticker, add one FILING_REGIME entry and one
+// FPI_CONFIG entry. No other file changes.
+
+type FilingRegime = 'domestic' | 'foreign_private_issuer' | 'sedar_only';
+
+interface FPIConfig {
+  // The issuer's annual report form — fallback target when no 6-K is on file.
+  annualForm: '20-F' | '40-F';
+  // Case-insensitive substrings matched against each index row's description
+  // and filename. EDGAR filers mangle exhibit filenames inconsistently
+  // (nbis-…xex99d1.htm vs. d307413dex991.htm), so the index's "EX-99.1"
+  // description is the reliable signal and filename variants are backup.
+  exhibitHints: string[];
+}
+
+const FILING_REGIME: Record<string, FilingRegime> = {
+  NBIS: 'foreign_private_issuer',  // Nebius Group N.V. — Dutch, 6-K + 20-F
+  // future FPIs added here — single line each, no other file touched.
+  // Note: CCJ (Cameco) is also a 6-K filer but is deliberately NOT enabled
+  // here — it keeps its existing training-knowledge-only system prompt in
+  // api/analyze.ts. Turning on automated fetch for it is a separate decision.
+};
+
+const FPI_EXHIBIT_HINTS = ['ex-99.1', 'ex99.1', 'ex99-1', 'ex99d1', 'ex991'];
+
+const FPI_CONFIG: Record<string, FPIConfig> = {
+  NBIS: { annualForm: '20-F', exhibitHints: FPI_EXHIBIT_HINTS },
+};
+
+// SEDAR_ONLY stays the authority for its own tickers so the two never diverge.
+function filingRegimeFor(ticker: string): FilingRegime {
+  if (SEDAR_ONLY.has(ticker)) return 'sedar_only';
+  return FILING_REGIME[ticker] ?? 'domestic';
+}
+
+// Which form(s) the UI should say it pulled, derived from the regime rather
+// than assuming 8-K.
+function filingFormLabel(ticker: string): string | null {
+  const regime = filingRegimeFor(ticker);
+  if (regime === 'sedar_only') return null;
+  if (regime === 'foreign_private_issuer') return '6-K';
+  return SPECULATIVE.has(ticker) ? '8-K + 10-Q' : '8-K';
+}
+
 // Deterministic, zero-Claude-cost revenue detection against fetched filing text.
 // Returns true when the filing reports a real (non-zero) revenue line — used to
 // switch prompt framing away from pre-revenue/milestone automatically.
@@ -96,19 +150,37 @@ function stripHtml(html: string): string {
 }
 
 function findFiling(sub: EdgarSubmission, form: string, requireItem?: string) {
+  return findFilings(sub, form, requireItem, 1)[0] ?? null;
+}
+
+// 6-Ks (unlike 8-Ks) carry no "items" code distinguishing an earnings release
+// from a routine press release, so callers that need to tell them apart pull
+// several and inspect the actual filed content.
+function findFilings(sub: EdgarSubmission, form: string, requireItem?: string, limit = 1) {
   const r = sub.filings.recent;
-  for (let i = 0; i < r.form.length; i++) {
+  const out: {
+    filingDate: string; accessionNumber: string; period: string;
+    items: string; primaryDocument: string;
+  }[] = [];
+  for (let i = 0; i < r.form.length && out.length < limit; i++) {
     if (r.form[i] !== form) continue;
     if (requireItem && !(r.items[i] ?? '').includes(requireItem)) continue;
-    return {
+    out.push({
       filingDate:      r.filingDate[i],
       accessionNumber: r.accessionNumber[i],
       period:          r.reportDate[i],
       items:           r.items[i] ?? '',
       primaryDocument: (r.primaryDocument ?? [])[i] ?? '',
-    };
+    });
   }
-  return null;
+  return out;
+}
+
+// Distinguishes an earnings/financial-results 6-K from routine FPI press
+// releases (deal announcements, executive changes, registration statements —
+// all also filed as 6-K, interleaved with earnings on the same filer).
+function looksLikeEarningsFiling(text: string): boolean {
+  return /(three|six|nine|twelve)\s+months\s+ended|results of operations|financial (results|statements)|management'?s?\s+discussion|quarterly (report|results)|reports?\s+(first|second|third|fourth)\s+quarter|full\s+year\s+results/i.test(text);
 }
 
 function extractMDA(text: string): string {
@@ -121,10 +193,9 @@ function extractMDA(text: string): string {
 
 async function secFetch(url: string): Promise<string | null> {
   try {
-    const proxyUrl = url.includes('data.sec.gov')
-      ? url
-      : `/api/edgar-proxy?url=${encodeURIComponent(url)}`;
-    const res = await fetch(proxyUrl);
+    // Everything goes through the proxy — data.sec.gov included — so SEC always
+    // receives the declared User-Agent it requires.
+    const res = await fetch(`/api/edgar-proxy?url=${encodeURIComponent(url)}`);
     return res.ok ? res.text() : null;
   } catch { return null; }
 }
@@ -157,6 +228,158 @@ async function resolveExhibitUrl(
   return archiveHrefs[1] ?? archiveHrefs[0];
 }
 
+// ─── Foreign private issuer path ──────────────────────────────────────────────
+
+interface IndexEntry {
+  description: string;
+  filename:    string;
+  url:         string;
+}
+
+// Parses a filing index page into its document rows. The table layout is
+// Seq · Description · Document · Type · Size — both Description and Type carry
+// the exhibit label (e.g. "EX-99.1"), so both feed the hint match.
+function parseIndexEntries(html: string, root: string): IndexEntry[] {
+  const entries: IndexEntry[] = [];
+  for (const rowMatch of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const row  = rowMatch[1];
+    const href = row.match(/href\s*=\s*["']([^"']+\.html?)["']/i)?.[1];
+    if (!href || !href.includes('/Archives/')) continue;
+
+    const cells = Array.from(row.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi))
+      .map(c => stripHtml(c[1]));
+
+    entries.push({
+      description: [cells[1], cells[3]].filter(Boolean).join(' '),
+      filename:    href.split('/').pop() ?? '',
+      url:         href.startsWith('/') ? root + href : href,
+    });
+  }
+  return entries;
+}
+
+async function resolveForeignExhibitUrl(
+  cikNum: number,
+  accessionNumber: string,
+  exhibitHints: string[],
+): Promise<string | null> {
+  const SEC_ROOT  = 'https://www.sec.gov';
+  const accNodash = accessionNumber.replace(/-/g, '');
+  const indexUrl  = `${SEC_ROOT}/Archives/edgar/data/${cikNum}/${accNodash}/${accessionNumber}-index.htm`;
+
+  const html = await secFetch(indexUrl);
+  if (!html) return null;
+
+  const entries = parseIndexEntries(html, SEC_ROOT);
+  if (entries.length === 0) return null;
+
+  const hints = exhibitHints.map(h => h.toLowerCase());
+  const match = entries.find(e =>
+    hints.some(h => `${e.description} ${e.filename}`.toLowerCase().includes(h)),
+  );
+  if (match) return match.url;
+
+  // Entry 0 is the cover document (the 6-K shell itself), which carries no
+  // financials — prefer the first attached exhibit when no hint matched.
+  const fallback = entries[1] ?? entries[0];
+  console.warn(
+    `[edgar] No exhibit hint matched in ${accessionNumber} — falling back to ${fallback.filename}`,
+  );
+  return fallback.url;
+}
+
+// How many of the most recent 6-Ks to inspect before giving up on finding an
+// earnings-shaped one. FPIs commonly interleave deal/exec/registration press
+// releases with quarterly results under the same form, so "most recent 6-K"
+// alone is not reliable — bounded to cap worst-case network round-trips.
+const SIX_K_SCAN_LIMIT = 5;
+
+// Shared across every foreign private issuer — no per-ticker logic. Scans the
+// most recent 6-Ks for one that reads as an earnings release; the annual
+// report (20-F/40-F) is the fallback when a filer has no 6-K on record at all.
+async function fetchForeignIssuerFiling(
+  ticker: string,
+  cik: string,
+  config: FPIConfig,
+): Promise<RunPayload> {
+  const subJson = await secFetch(`https://data.sec.gov/submissions/CIK${cik}.json`);
+  if (!subJson) throw new Error(`Failed to fetch SEC submission index for ${ticker}`);
+
+  let sub: EdgarSubmission;
+  try {
+    sub = JSON.parse(subJson) as EdgarSubmission;
+  } catch {
+    throw new Error(`Malformed SEC submission index for ${ticker}`);
+  }
+
+  const cikNum = parseInt(sub.cik, 10);
+  if (!cikNum) throw new Error(`Invalid CIK in submission response: ${sub.cik}`);
+
+  const candidates = findFilings(sub, '6-K', undefined, SIX_K_SCAN_LIMIT);
+  const annual      = candidates.length === 0 ? findFiling(sub, config.annualForm) : null;
+  if (candidates.length === 0 && !annual) {
+    throw new Error(`No 6-K or ${config.annualForm} filing found for ${ticker}`);
+  }
+
+  let fallback: { filing: (typeof candidates)[number]; docUrl: string; text: string } | null = null;
+
+  for (const filing of candidates) {
+    const docUrl = await resolveForeignExhibitUrl(cikNum, filing.accessionNumber, config.exhibitHints);
+    if (!docUrl) continue;
+    const rawDoc = await secFetch(docUrl);
+    if (!rawDoc) continue;
+    const text = stripHtml(rawDoc).substring(0, 80000);
+    if (!text) continue;
+
+    if (!fallback) fallback = { filing, docUrl, text };
+    if (looksLikeEarningsFiling(text)) {
+      return buildFpiPayload(ticker, filing.filingDate, filing.period, docUrl, text);
+    }
+  }
+
+  if (fallback) {
+    console.warn(
+      `[edgar] No earnings-shaped 6-K found in the last ${SIX_K_SCAN_LIMIT} filings for ${ticker} — using most recent 6-K (${fallback.filing.filingDate}) as-is.`,
+    );
+    return buildFpiPayload(ticker, fallback.filing.filingDate, fallback.filing.period, fallback.docUrl, fallback.text);
+  }
+
+  if (annual) {
+    const docUrl = await resolveForeignExhibitUrl(cikNum, annual.accessionNumber, config.exhibitHints);
+    const text = docUrl ? stripHtml((await secFetch(docUrl)) ?? '').substring(0, 80000) : '';
+    if (docUrl && text) {
+      return buildFpiPayload(ticker, annual.filingDate, annual.period, docUrl, text);
+    }
+  }
+
+  throw new Error(`Could not retrieve a readable 6-K or ${config.annualForm} filing for ${ticker}`);
+}
+
+function buildFpiPayload(
+  ticker: string,
+  filingDate: string,
+  period: string,
+  docUrl: string,
+  text: string,
+): RunPayload {
+  // Regimes are independent axes — an FPI can also be speculative.
+  const isSpeculative = SPECULATIVE.has(ticker);
+  return {
+    ticker,
+    earningsText:  text,
+    isSpeculative,
+    hasReportedRevenue: isSpeculative ? filingShowsRevenue(text) : false,
+    filingMeta: {
+      filingDate,
+      period,
+      documentUrl: docUrl,
+      isSedarOnly: false,
+      sources:     null,
+      note:        null,
+    },
+  };
+}
+
 async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
   if (SEDAR_ONLY.has(ticker)) {
     return {
@@ -174,6 +397,14 @@ async function fetchEdgarInBrowser(ticker: string): Promise<RunPayload> {
 
   const cik = CIK_MAP[ticker];
   if (!cik) throw new Error(`Unknown ticker: ${ticker}`);
+
+  // Foreign private issuers file no 8-K at all — route them before the
+  // domestic item 2.02 lookup, which would otherwise always come up empty.
+  if (filingRegimeFor(ticker) === 'foreign_private_issuer') {
+    const config = FPI_CONFIG[ticker];
+    if (!config) throw new Error(`Missing FPI config for ${ticker}`);
+    return fetchForeignIssuerFiling(ticker, cik, config);
+  }
 
   const subJson = await secFetch(`https://data.sec.gov/submissions/CIK${cik}.json`);
   if (!subJson) throw new Error('Failed to fetch SEC submission index');
@@ -394,6 +625,7 @@ export function StockDetail() {
   const tickerConfig  = TICKERS.find(t => t.ticker === ticker?.toUpperCase());
   const sectors       = tickerConfig?.sectors ?? [];
   const companyName   = tickerConfig?.name ?? '';
+  const filingForm    = filingFormLabel(ticker.toUpperCase());
 
   // ── Yahoo Finance-sourced numbers ─────────────────────────────────────────
   const yahooTarget   = livePrice?.analystTargetPrice;
@@ -575,6 +807,15 @@ export function StockDetail() {
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#00e676', flexShrink: 0, display: 'inline-block' }} />
               {displayMeta?.period    && <span>{displayMeta.period} Earnings</span>}
               {displayMeta?.filingDate && <span style={{ color: 'var(--text-dim)' }}>·</span>}
+              {displayMeta?.filingDate && filingForm && (
+                <span style={{
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)',
+                  padding: '1px 6px', borderRadius: '4px',
+                }}>
+                  {filingForm}
+                </span>
+              )}
               {displayMeta?.filingDate && <span>Filed {displayMeta.filingDate}</span>}
               {displayMeta?.documentUrl && (
                 <>

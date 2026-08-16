@@ -283,7 +283,10 @@ src/components/Layout/index.tsx                top nav, brand, sector filter bar
 src/pages/Dashboard.tsx                        dashboard page
 src/pages/Portfolio.tsx                        portfolio page (thin wrapper over PortfolioTab)
 src/pages/StockDetail.tsx                      re-export only — logic in components/StockDetail
-src/components/StockDetail.tsx                 stock deep dive — canonical component
+src/components/StockDetail.tsx                 stock deep dive — canonical component;
+                                                 CIK_MAP + SPECULATIVE/SEDAR_ONLY sets +
+                                                 FILING_REGIME/FPI_CONFIG (foreign private
+                                                 issuer 6-K framework, see Aug 16 session log)
 src/components/ConvictionBadge.tsx             conviction rating badge
 src/hooks/useAnalysis.ts                       SSE stream parsing, localStorage cache
 src/components/SidePanel/index.tsx             What's New sidebar — uses extractSnippet()
@@ -1182,7 +1185,10 @@ SPECULATIVE/SEDAR_ONLY/TRAINING_ONLY).
   3. `src/config/themes.ts` — TICKER_THEME_MAP (+ new sub-themes)
   4. `src/types/index.ts` + `src/components/Layout/index.tsx` — Sector type,
      SECTOR_LABELS/COLORS, and the Layout SECTORS pill array (only on new pill)
-  5. `src/components/StockDetail.tsx` — CIK_MAP + SECTOR_COLOR_MAP/SECTOR_LABEL_MAP
+  5. `src/components/StockDetail.tsx` — CIK_MAP + SECTOR_COLOR_MAP/SECTOR_LABEL_MAP.
+     If the new ticker is foreign-domiciled and files 6-K instead of 8-K, also
+     add a `FILING_REGIME` + `FPI_CONFIG` entry (see Aug 16 2026 session log) —
+     mirrors how CIK_MAP already requires an entry per ticker.
   6. `scripts/newswire.mjs` — TICKERS + COMPANY_ALIASES
   7. `scripts/indexCalc.mjs` — PRIMARY_SECTOR map (+ TICKER_INTRO_MONTH for any
      newly-added ticker, so it "floats on" the AI Index the next month). Added
@@ -2030,3 +2036,117 @@ staleFallback unaffected.
 **Files modified:** api/prices.ts · src/types/index.ts ·
   src/lib/analysisFreshness.ts · src/components/SidePanel/index.tsx ·
   src/components/PriceTable/index.tsx · CLAUDE.md
+
+---
+
+### August 16, 2026 — Generalize NBIS into a reusable Foreign Private Issuer filing framework
+
+**Context:** a prior session added an `api/analyze.ts` `TICKER_SYSTEM_PROMPTS`
+entry for NBIS (Nebius Group N.V.) noting it "files 6-K forms on EDGAR rather
+than 8-K earnings releases, so no automated filing fetch is available" — i.e. a
+documented gap, not a shipped fetch fix. Grep + git-log confirmed no
+NBIS-specific fetch logic ever existed in `StockDetail.tsx` — NBIS just fell
+through the standard domestic 8-K item 2.02 path, which finds nothing for it
+(live-verified: NBIS's EDGAR history is 241 6-Ks + 16 20-Fs, zero 8-Ks). This
+session builds the actual fetch path, generalized from the start rather than as
+an NBIS-only patch, since CCJ (Cameco) is a second real 6-K filer already
+present in `TICKER_SYSTEM_PROMPTS` and more will likely follow.
+
+**New parallel classification axis — `FILING_REGIME` / `FPI_CONFIG`.** Explicitly
+NOT a replacement for `SPECULATIVE`/`SEDAR_ONLY` — those control how many
+filings to fetch; regime controls which SEC form to look for. A ticker can be
+both (structurally unblocked, not implemented as a combination yet).
+  ```
+  type FilingRegime = 'domestic' | 'foreign_private_issuer' | 'sedar_only';
+  interface FPIConfig { annualForm: '20-F' | '40-F'; exhibitHints: string[]; }
+  ```
+  `filingRegimeFor(ticker)` defers to the existing `SEDAR_ONLY` set first so the
+  two axes can't disagree about NXE. Only NBIS is populated in `FILING_REGIME`/
+  `FPI_CONFIG` this session — CCJ is deliberately left out (see below).
+
+**Shared fetch path (`fetchForeignIssuerFiling`), branched once in
+`fetchEdgarInBrowser`** before the domestic 8-K lookup:
+  `if (filingRegimeFor(ticker) === 'foreign_private_issuer') return
+  fetchForeignIssuerFiling(ticker, cik, FPI_CONFIG[ticker]);`
+  No per-ticker logic inside it — adding a new FPI is one `FILING_REGIME` line +
+  one `FPI_CONFIG` line.
+
+**Bug found and fixed during verification, not assumed:** the spec's literal
+"take the most recent 6-K" plan is unreliable in practice. Live-traced CCJ (used
+only as a design proof — not activated, see below): its most recent 6-K
+(2026-07-31) was a Westinghouse registration-statement press release, not
+earnings; the actual quarterly-results 6-K was filed the same day, one entry
+back. NBIS happened to work with "most recent" today (its latest 6-K was the
+earnings release), but nothing in EDGAR guarantees that going forward — 6-Ks
+carry no `items` code distinguishing earnings from routine press releases (8-Ks
+have `2.02`; 6-Ks have nothing). Fix: `fetchForeignIssuerFiling` now pulls the
+`SIX_K_SCAN_LIMIT = 5` most recent 6-Ks via a new `findFilings()` (plural,
+`findFiling` now delegates to it with limit 1) and tests each candidate's
+resolved exhibit text with `looksLikeEarningsFiling()` (regex for "results of
+operations" / "three months ended" / "reports Q_ results" / etc.), returning the
+first match. Falls back to the literal most-recent 6-K (with a console warning)
+if none of the scanned candidates look like earnings, then to the annual
+form (20-F/40-F) only if the filer has no 6-K on record at all. Live-verified
+against both NBIS (matches on the first candidate, zero extra fetches — same
+outcome as the naive version) and CCJ (correctly skips the Westinghouse 6-K,
+selects the earnings one on the second candidate) — confirms the scan logic is
+sound for whenever a second FPI is actually enabled.
+
+**Exhibit resolution (`resolveForeignExhibitUrl` + `parseIndexEntries`):**
+separate from the existing domestic `resolveExhibitUrl` (left untouched) because
+FPI exhibit filenames are inconsistent in ways the domestic regex didn't cover —
+live-checked NBIS's own filing uses `ex99d1` (not `ex99-1`/`ex-99.1`), which the
+literal hint list from the task spec would have missed on filename alone.
+`parseIndexEntries()` parses the SEC index table's Description + Type columns
+(both carry a clean "EX-99.1" label regardless of filename mangling) in addition
+to the filename, so `exhibitHints` matches against `"${description} ${filename}"`
+— hint-match succeeds even when the filename doesn't contain the hint text.
+`FPI_EXHIBIT_HINTS` covers the filename variants seen across NBIS/CCJ:
+`ex-99.1`, `ex99.1`, `ex99-1`, `ex99d1`, `ex991`. Falls back to the first
+non-cover exhibit (index entry 1) with a logged warning if no hint matches, same
+graceful-degradation shape as the domestic path.
+
+**Proxy generalized (`api/edgar-proxy.ts`):** was `/Archives/` only; NBIS/future
+FPI fetches need `data.sec.gov/submissions/` too (previously called directly,
+unproxied, from the browser — bypassing the declared SEC User-Agent). Added
+`ALLOWED_PATH_PREFIXES = ['/Archives/', '/submissions/']` and a shorter edge
+cache for submissions (`s-maxage=300` vs. Archives' unchanged `3600`) since a
+filing index can change same-day and a stale cache would hide a just-filed 6-K
+right after it posts. `secFetch()` in StockDetail.tsx now routes every SEC
+request (`data.sec.gov` included) through the proxy — previously
+`data.sec.gov` calls went direct.
+
+**UI (Meta row):** the filing-type badge now reads `filingFormLabel(ticker)`,
+derived from `FILING_REGIME` — renders "6-K" for any `foreign_private_issuer`
+ticker generically (not NBIS-specific), "8-K + 10-Q" for SPECULATIVE names,
+"8-K" for standard domestic, nothing for SEDAR_ONLY.
+
+**Why CCJ is NOT enabled despite being live-verified working:** out of scope —
+the task asked for the general framework with NBIS as the concrete target;
+CCJ's existing `api/analyze.ts` system prompt deliberately treats it as
+training-knowledge-only, a prior explicit decision this session didn't have
+grounds to silently reverse. CCJ was used only to prove the earnings-scan logic
+handles a filer that interleaves non-earnings 6-Ks (a case NBIS's own history
+doesn't currently exercise). Enabling it is a one-line follow-up
+(`FILING_REGIME`/`FPI_CONFIG` entries) whenever that's actually wanted.
+
+**Untouched, per scope:** `SPECULATIVE`/`SEDAR_ONLY` sets and their fetch logic,
+`api/analyze.ts` (filing-content-agnostic once text is extracted — no NBIS-
+specific prompt change needed since the fetched text now speaks for itself),
+and every `CIK_MAP` entry other than the one already-present NBIS row (unchanged
+value, just now consumed by the FPI path instead of the dead domestic path).
+
+**Verification:** `npx tsc --noEmit` and `npm run build` pass. Standalone strict
++ noUnusedLocals tsc pass on `api/edgar-proxy.ts` clean. NBIS traced end-to-end
+against live SEC data through the actual new code path (not just compiled):
+resolves accession `0001104659-26-094844` (filed 2026-08-12), exhibit
+`nbis-20260812xex99d1.htm` via the EX-99.1 hint match, 39,324 chars of real Q2
+MD&A text, correctly identified as earnings-shaped on the first scanned
+candidate. Not browser-verified live (Run Analysis is admin-gated and
+`/api/edgar-proxy` + `/api/analyze` aren't served by plain `vite dev`).
+Post-deploy manual check: open NBIS, Run Analysis, confirm the Meta row shows
+a "6-K" badge and Filed date 2026-08-12, and that the narrative reflects the
+actual Q2 2026 filing content rather than generic training-knowledge framing.
+
+**Files modified:** src/components/StockDetail.tsx · api/edgar-proxy.ts ·
+  CLAUDE.md
