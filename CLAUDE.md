@@ -76,10 +76,13 @@ No LLM calls, no new API cost. Three tiers via the pure `rankFrontPage()`
 The full tracked universe as a sortable price table (default sort: 1D% change
 descending), sector filter pills (ALL / SPACE / AI INFRA / DEFENSE / CLEAN
 ENERGY / CYBER — Dashboard-route-only), and a right-hand sidebar ("What's
-New"/"Needs Attention") for recently analyzed stocks, awaiting tickers,
-staleness warnings, and a "Today's Wire" news teaser (first 3 items + "See
-all news →" link to `/`). Row click opens a stock deep dive at
-`/stock/:ticker`.
+New") with a "Today's Wire" news teaser (first 3 items + "See all news →" link
+to `/`), an "Upcoming Earnings" section (next 5 tracked tickers with a known
+earnings date, soonest first — purely date-driven, added Aug 16, 2026,
+replacing the old staleness-based "Needs Attention" section), and "Recently
+Analyzed". Staleness warnings live only on the Dashboard price table's STALE
+badge (`PriceTable/index.tsx`), driven by `getAnalysisFreshness()`. Row click
+opens a stock deep dive at `/stock/:ticker`.
 
 ### Portfolio (`/portfolio`)
 The investor's actual holdings: live values, unrealized gains, sector
@@ -153,10 +156,13 @@ round-trip. Also mapped from Supabase's `filing_date` column on sync.
 ## Analysis Freshness — Single Shared Definition
 
 `src/lib/analysisFreshness.ts` — `getAnalysisFreshness(analysis,
-nextEarningsDate)` → `{ status, daysUntilEarnings }`. Consumed by BOTH the
-sidebar (`SidePanel/index.tsx`) and the Dashboard price table
-(`PriceTable/index.tsx`) so the two definitions cannot drift apart again (they
-used to be separate and both flawed — see the Aug 6, 2026 session log entry).
+nextEarningsDate, lastReportedQuarterEnd)` → `{ status, daysUntilEarnings }`.
+Consumed by the Dashboard price table (`PriceTable/index.tsx`) for the STALE
+badge. The sidebar (`SidePanel/index.tsx`) no longer consumes this helper as
+of Aug 16, 2026 — its "Needs Attention" section was replaced with a purely
+date-driven "Upcoming Earnings" section (see that session log entry); do not
+assume the two are still unified just because this section predates the
+change.
 
 Statuses: `awaiting` · `reportDue` · `earningsToday` · `earningsSoon` ·
 `staleFallback` · `analyzed`.
@@ -179,9 +185,10 @@ completed analysis to Supabase. It is currently **never called**:
 
 Effect: analyses run in the admin session update local state correctly, but
 never reach Supabase, so public (non-admin) visitors and fresh sessions never
-see the new analysis, and the "Needs Attention" panel can flag stocks that
-were, in fact, just analyzed. This is a real, currently-reproducing bug — not
-yet fixed despite earlier diagnosis. Before touching this, re-confirm it still
+see the new analysis, and the Dashboard price table's STALE badge
+(`PriceTable/index.tsx`, driven by `getAnalysisFreshness()`) can flag stocks
+that were, in fact, just analyzed. This is a real, currently-reproducing bug —
+not yet fixed despite earlier diagnosis. Before touching this, re-confirm it still
 reproduces on the live deployed build (per the "never re-diagnose from theory"
 rule below), then wire `pushAnalysis` into `handleComplete`, gated on
 `isAdmin`, and note in the session log that each previously-run ticker needs
@@ -484,11 +491,13 @@ src/hooks/useIndexValue.ts                     live index values (client-side) +
 src/lib/newsRanking.ts                         pure rankFrontPage() + selectWithDiversityCap()
 src/lib/indexCalc.ts                           AI Index pure math (computeIndexValue) +
                                                 membership/eligibility by primary sector
-src/lib/analysisFreshness.ts                   shared getAnalysisFreshness() — see section above
+src/lib/analysisFreshness.ts                   getAnalysisFreshness() — see section above; consumed
+                                                only by PriceTable/index.tsx as of Aug 16, 2026
 src/lib/supabase.ts                            Supabase client singleton + sendMagicLink() +
                                                 signOut()
-src/components/SidePanel/index.tsx             What's New / Needs Attention sidebar —
-                                                uses extractSnippet() + getAnalysisFreshness()
+src/components/SidePanel/index.tsx             What's New sidebar — Today's Wire teaser, Upcoming
+                                                Earnings (date-driven, uses extractSnippet() for
+                                                Recently Analyzed snippets only)
 src/components/PriceTable/index.tsx            Dashboard watchlist table — STALE badge driven
                                                 by getAnalysisFreshness()
 src/components/NewsFeed/index.tsx              News-tab Lead/Also Moving/Feed renderer
@@ -2345,3 +2354,51 @@ row shows a "6-K" badge, and Filed date is 2026-07-31 pointing at the earnings
 6-K's exhibit — not the Westinghouse one.
 
 **Files modified:** src/components/StockDetail.tsx · api/analyze.ts · CLAUDE.md
+
+---
+
+### August 16, 2026 (patch 2) — Replace sidebar "Needs Attention" with a date-driven "Upcoming Earnings" section
+
+**Why:** per Jared, the sidebar's staleness-driven "Needs Attention" section
+(reportDue / earningsToday / earningsSoon / staleFallback tiers via
+`getAnalysisFreshness()`) is replaced with a simpler "Upcoming Earnings"
+section — the next 5 tracked-universe tickers with a known upcoming earnings
+date, soonest first. No staleness/re-run signal in the sidebar anymore; that
+job stays solely on the Dashboard price table's STALE badge
+(`PriceTable/index.tsx`), which is untouched by this change.
+
+**`src/components/SidePanel/index.tsx` rewritten:** removed
+`AttentionTier`/`AttentionItem`/`TIER_COLORS`/the `needsAttention` useMemo/the
+`getAnalysisFreshness` import/the now-unused `daysSince()` helper. Added a
+purely date-driven `upcomingEarnings` useMemo: iterates `TICKERS`, reads
+`prices[ticker].nextEarningsDate` (already in the store via `useLivePrice` /
+`api/prices.ts` — no new fetch), skips tickers with no date or a date already
+in the past, sorts ascending by days-until, takes the top 5.
+
+**Day-count math (`daysUntilFromToday()`):** date-only ISO strings parse as a
+UTC-midnight instant (`new Date('2026-08-20')` → midnight UTC). Reconstructing
+the target's calendar date from its UTC components (not local components) and
+diffing against today's local calendar date avoids the off-by-one that a naive
+local-timezone read of the parsed UTC instant would produce for readers west
+of UTC (e.g. US timezones) — the existing `fmtEarningsDate()` display helper
+in this file was already subject to that same class of edge case and was left
+as-is (display only, not used for the day-count comparison).
+
+**Section renamed "UPCOMING EARNINGS"; row layout unchanged in shape** (sector
+dot + ticker, secondary line, right-aligned badge) but now shows the formatted
+earnings date as the secondary line and a new `earningsBadgeText()`/
+`earningsBadgeColor()` badge: today = red (`#ff4b6e`), 1–7 days = amber
+(`#ffd166`), >7 days = neutral/muted text — text "⏱ today" / "⏱ tomorrow" /
+"⏱ in Xd". Empty state: "No known upcoming dates". The page-level empty-state
+condition at the bottom of the file now checks `upcomingEarnings.length === 0`
+in place of the old `needsAttention.length === 0`.
+
+**Not touched:** `src/lib/analysisFreshness.ts` (still the single source of
+truth for the Dashboard STALE badge — see the "Analysis Freshness" section
+above, updated to reflect it's now consumed only by `PriceTable/index.tsx`),
+`PriceTable/index.tsx` itself, and the "Recently Analyzed" / "Today's Wire"
+sidebar sections (both left as-is).
+
+**Verification:** `npx tsc --noEmit` and `npm run build` both pass.
+
+**Files modified:** src/components/SidePanel/index.tsx · CLAUDE.md

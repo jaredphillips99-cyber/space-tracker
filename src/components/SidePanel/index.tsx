@@ -4,7 +4,6 @@ import { useStore } from '../../store/useStore';
 import { TICKERS } from '../../config/tickers';
 import { SECTOR_COLORS } from '../../types';
 import type { TickerConfig } from '../../types';
-import { getAnalysisFreshness } from '../../lib/analysisFreshness';
 import { useNewswire, sentimentColor } from '../../hooks/useNewswire';
 
 function relativeTime(ts: number): string {
@@ -40,10 +39,6 @@ function fmtEarningsDate(iso?: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function daysSince(ts: number): number {
-  return Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
-}
-
 function fmtRunDate(isoDate: string | null): string {
   if (!isoDate) return '';
   const d = new Date(isoDate + 'T12:00:00'); // noon to avoid timezone edge cases
@@ -55,25 +50,41 @@ function fmtRunDate(isoDate: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// ─── Needs Attention ──────────────────────────────────────────────────────────
-// Unified stale/earnings tracker — prioritizes "there's a new report you
-// haven't looked at" (reportDue) over a flat days-since-analysis timer.
+// ─── Upcoming Earnings ────────────────────────────────────────────────────────
+// Purely date-driven — the next 5 tracked-universe tickers with a known
+// upcoming earnings date, soonest first. Not tied to analysis staleness
+// (staleness stays on the Dashboard's STALE badge — see PriceTable/index.tsx).
 
-type AttentionTier = 'reportDue' | 'earningsSoon' | 'staleFallback';
-
-interface AttentionItem {
+interface UpcomingEarningsItem {
   ticker: TickerConfig;
-  tier: AttentionTier;
-  sortKey: number;
-  secondaryLine: string;
-  tag: string;
+  daysUntil: number;
+  dateIso: string;
 }
 
-const TIER_COLORS: Record<AttentionTier, { text: string; bg: string }> = {
-  reportDue: { text: '#ff4b6e', bg: '#ff4b6e18' },
-  earningsSoon: { text: '#ffd166', bg: '#ffd16618' },
-  staleFallback: { text: 'var(--text-secondary)', bg: 'transparent' },
-};
+// target is parsed as a UTC-midnight instant (date-only ISO strings parse
+// that way); reconstruct its UTC calendar date and diff against today's
+// local calendar date treated the same way, so the result is a plain
+// midnight-to-midnight day count unaffected by the reader's timezone offset.
+function daysUntilFromToday(iso: string): number {
+  const target = new Date(iso);
+  if (isNaN(target.getTime())) return NaN;
+  const targetMidnight = Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate());
+  const now = new Date();
+  const todayMidnight = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((targetMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
+}
+
+function earningsBadgeColor(days: number): { text: string; bg: string } {
+  if (days === 0) return { text: '#ff4b6e', bg: '#ff4b6e18' };
+  if (days <= 7) return { text: '#ffd166', bg: '#ffd16618' };
+  return { text: 'var(--text-secondary)', bg: 'transparent' };
+}
+
+function earningsBadgeText(days: number): string {
+  if (days === 0) return '⏱ today';
+  if (days === 1) return '⏱ tomorrow';
+  return `⏱ in ${days}d`;
+}
 
 // ─── Section header ───────────────────────────────────────────────────────────
 function SectionHeader({ label }: { label: string }) {
@@ -105,73 +116,19 @@ export function SidePanel() {
       .slice(0, 5);
   }, [analyses]);
 
-  const needsAttention = useMemo(() => {
-    const items: AttentionItem[] = [];
+  const upcomingEarnings = useMemo(() => {
+    const items: UpcomingEarningsItem[] = [];
 
     for (const t of TICKERS) {
-      const a = analyses[t.ticker];
-      const earningsDate = prices[t.ticker]?.nextEarningsDate ?? null;
-      const lastReportedQuarterEnd = prices[t.ticker]?.lastReportedQuarterEnd ?? null;
-      const { status, daysUntilEarnings } = getAnalysisFreshness(a, earningsDate, lastReportedQuarterEnd);
-
-      switch (status) {
-        case 'reportDue': {
-          const overdue = daysUntilEarnings != null ? -daysUntilEarnings : 0;
-          items.push({
-            ticker: t,
-            tier: 'reportDue',
-            sortKey: overdue, // more overdue = higher priority
-            secondaryLine: `overdue since ${fmtEarningsDate(earningsDate!)}`,
-            tag: '⚠ re-run analysis',
-          });
-          break;
-        }
-        case 'earningsToday': {
-          items.push({
-            ticker: t,
-            tier: 'earningsSoon', // reuse amber tier/priority slot
-            // Prioritize above all other earningsSoon items (they sort soonest-
-            // first ascending; -1 places "today" ahead of any 1–7d countdown).
-            sortKey: -1,
-            secondaryLine: fmtEarningsDate(earningsDate!),
-            tag: '⏱ reports today — check before re-running',
-          });
-          break;
-        }
-        case 'earningsSoon': {
-          items.push({
-            ticker: t,
-            tier: 'earningsSoon',
-            sortKey: daysUntilEarnings ?? 0, // soonest first
-            secondaryLine: fmtEarningsDate(earningsDate!),
-            tag: `⏱ earnings in ${daysUntilEarnings}d`,
-          });
-          break;
-        }
-        case 'staleFallback': {
-          const since = a ? daysSince(a.analyzedAt) : Infinity;
-          items.push({
-            ticker: t,
-            tier: 'staleFallback',
-            sortKey: since,
-            secondaryLine: a ? `last analyzed ${relativeTime(a.analyzedAt)}` : 'never analyzed',
-            tag: `◌ stale (${since === Infinity ? '∞' : `${since}d`})`,
-          });
-          break;
-        }
-        // 'awaiting' / 'analyzed' → not surfaced in Needs Attention
-      }
+      const dateIso = prices[t.ticker]?.nextEarningsDate;
+      if (!dateIso) continue;
+      const daysUntil = daysUntilFromToday(dateIso);
+      if (isNaN(daysUntil) || daysUntil < 0) continue;
+      items.push({ ticker: t, daysUntil, dateIso });
     }
 
-    const tierOrder: Record<AttentionTier, number> = { reportDue: 0, earningsSoon: 1, staleFallback: 2 };
-    return items.sort((a, b) => {
-      const tierDiff = tierOrder[a.tier] - tierOrder[b.tier];
-      if (tierDiff !== 0) return tierDiff;
-      if (a.sortKey === b.sortKey) return 0;
-      // earningsSoon sorts soonest-first (ascending); reportDue/staleFallback sort most-urgent-first (descending)
-      return a.tier === 'earningsSoon' ? a.sortKey - b.sortKey : b.sortKey - a.sortKey;
-    });
-  }, [analyses, prices]);
+    return items.sort((a, b) => a.daysUntil - b.daysUntil).slice(0, 5);
+  }, [prices]);
 
   return (
     <div
@@ -303,16 +260,16 @@ export function SidePanel() {
         </div>
       )}
 
-      {/* ── Needs Attention ──────────────────────────────────────────────── */}
+      {/* ── Upcoming Earnings ────────────────────────────────────────────── */}
       <div>
-        <SectionHeader label="NEEDS ATTENTION" />
-        {needsAttention.length === 0 ? (
+        <SectionHeader label="UPCOMING EARNINGS" />
+        {upcomingEarnings.length === 0 ? (
           <div className="px-4 py-3" style={{ color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace', fontSize: 11 }}>
-            All caught up
+            No known upcoming dates
           </div>
         ) : (
-          needsAttention.map(({ ticker: t, tier, secondaryLine, tag }) => {
-            const colors = TIER_COLORS[tier];
+          upcomingEarnings.map(({ ticker: t, daysUntil, dateIso }) => {
+            const colors = earningsBadgeColor(daysUntil);
             const sectorColor = SECTOR_COLORS[t.sectors[0] as keyof typeof SECTOR_COLORS] ?? 'var(--text-primary)';
             return (
               <button
@@ -347,11 +304,11 @@ export function SidePanel() {
                     className="mt-0.5 truncate"
                     style={{
                       fontFamily: 'DM Sans, sans-serif',
-                      color: tier === 'staleFallback' ? 'var(--text-tertiary)' : 'var(--text-secondary)',
-                      fontSize: tier === 'staleFallback' ? 10 : 11,
+                      color: 'var(--text-secondary)',
+                      fontSize: 11,
                     }}
                   >
-                    {secondaryLine}
+                    {fmtEarningsDate(dateIso)}
                   </p>
                 </div>
                 <span
@@ -360,10 +317,10 @@ export function SidePanel() {
                     fontFamily: 'Space Mono, monospace',
                     backgroundColor: colors.bg,
                     color: colors.text,
-                    fontSize: tier === 'staleFallback' ? 9 : 10,
+                    fontSize: 10,
                   }}
                 >
-                  {tag}
+                  {earningsBadgeText(daysUntil)}
                 </span>
               </button>
             );
@@ -416,7 +373,7 @@ export function SidePanel() {
       )}
 
       {/* ── Empty state ─────────────────────────────────────────────────── */}
-      {newswireItems.length === 0 && !newswireLoading && recentAnalyses.length === 0 && needsAttention.length === 0 && (
+      {newswireItems.length === 0 && !newswireLoading && recentAnalyses.length === 0 && upcomingEarnings.length === 0 && (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-center px-6" style={{ color: 'var(--text-muted)', fontFamily: 'Space Mono, monospace', lineHeight: 1.8 }}>
             No analyses yet.{'\n'}
