@@ -346,6 +346,129 @@ export const TICKERS: TickerConfig[] = [
     fiscalYearEnd: 'December',
   },
 
+  // ── AI Infrastructure: Wafer-fab equipment (4) ────────────────────────────
+  {
+    ticker: 'ASML',
+    name: 'ASML Holding',
+    sectors: ['ai_infrastructure'],
+    description: 'EUV lithography monopoly; essential toolmaker for advanced-node AI chips',
+    fiscalYearEnd: 'December',
+    specialNotes: 'Dutch foreign private issuer — files 6-K + 20-F, not 8-K',
+  },
+  {
+    ticker: 'AMAT',
+    name: 'Applied Materials',
+    sectors: ['ai_infrastructure'],
+    description: 'Wafer fab equipment; deposition, etch, and process tools for advanced nodes',
+    fiscalYearEnd: 'October',
+  },
+  {
+    ticker: 'LRCX',
+    name: 'Lam Research',
+    sectors: ['ai_infrastructure'],
+    description: 'Wafer etch and deposition equipment for leading-edge semiconductor manufacturing',
+    fiscalYearEnd: 'June',
+  },
+  {
+    ticker: 'KLAC',
+    name: 'KLA',
+    sectors: ['ai_infrastructure'],
+    description: 'Process-control and inspection equipment for semiconductor yield',
+    fiscalYearEnd: 'June',
+  },
+
+  // ── AI Infrastructure: Compute & foundry (4) ──────────────────────────────
+  {
+    ticker: 'TSM',
+    name: 'Taiwan Semiconductor',
+    sectors: ['ai_infrastructure'],
+    description: "World's leading foundry; manufactures Nvidia, AMD, and Apple AI silicon",
+    fiscalYearEnd: 'December',
+    specialNotes: 'Taiwanese foreign private issuer — files 6-K + 20-F, not 8-K',
+  },
+  {
+    ticker: 'AMD',
+    name: 'Advanced Micro Devices',
+    sectors: ['ai_infrastructure'],
+    description: 'GPUs (Instinct) and CPUs competing in AI training and inference',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'ARM',
+    name: 'Arm Holdings',
+    sectors: ['ai_infrastructure'],
+    description: 'CPU architecture licensed into AI accelerators, smartphones, and data-center chips',
+    fiscalYearEnd: 'March',
+    specialNotes: 'UK foreign private issuer — files 6-K + 20-F, not 8-K',
+  },
+  {
+    ticker: 'MRVL',
+    name: 'Marvell Technology',
+    sectors: ['ai_infrastructure'],
+    description: 'Custom AI accelerators and high-speed data-center networking silicon',
+    fiscalYearEnd: 'January',
+  },
+
+  // ── AI Infrastructure: Networking, platforms & hyperscale (6) ─────────────
+  {
+    ticker: 'CSCO',
+    name: 'Cisco Systems',
+    sectors: ['ai_infrastructure'],
+    description: 'Enterprise and data-center networking; AI-cluster switching and silicon photonics',
+    fiscalYearEnd: 'July',
+  },
+  {
+    ticker: 'COHR',
+    name: 'Coherent',
+    sectors: ['ai_infrastructure'],
+    description: 'Optical materials, lasers, and datacom transceivers for AI cluster interconnects',
+    fiscalYearEnd: 'June',
+  },
+  {
+    ticker: 'ORCL',
+    name: 'Oracle',
+    sectors: ['ai_infrastructure'],
+    description: 'OCI hyperscaler and enterprise database; large AI data-center buildout',
+    fiscalYearEnd: 'May',
+  },
+  {
+    ticker: 'SNOW',
+    name: 'Snowflake',
+    sectors: ['ai_infrastructure'],
+    description: 'Cloud data platform; AI/ML data infrastructure and Cortex AI',
+    fiscalYearEnd: 'January',
+  },
+  {
+    ticker: 'DDOG',
+    name: 'Datadog',
+    sectors: ['ai_infrastructure'],
+    description: 'Observability and monitoring platform for cloud and AI workloads',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'NOW',
+    name: 'ServiceNow',
+    sectors: ['ai_infrastructure'],
+    description: 'Enterprise workflow platform with a growing generative-AI product suite',
+    fiscalYearEnd: 'December',
+  },
+
+  // ── AI Infrastructure: Power, cooling & data-center landlords (2) ─────────
+  {
+    ticker: 'HUBB',
+    name: 'Hubbell',
+    sectors: ['ai_infrastructure'],
+    description: 'Electrical products and infrastructure for data-center power distribution',
+    fiscalYearEnd: 'December',
+  },
+  {
+    ticker: 'DLR',
+    name: 'Digital Realty',
+    sectors: ['ai_infrastructure'],
+    description: 'Data center REIT; hyperscale and AI colocation landlord (EQIX peer)',
+    fiscalYearEnd: 'December',
+  },
+
   // ── Cyber (5) ─────────────────────────────────────────────────────────────
   {
     ticker: 'CRWD',

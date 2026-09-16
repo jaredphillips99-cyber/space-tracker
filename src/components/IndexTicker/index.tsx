@@ -72,14 +72,14 @@ function CompositeCard({ composite, loading }: { composite: LiveIndexValue | und
       }}
       onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-elevated)'; }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-surface)'; }}
-      title="Open the AI Index"
+      title="Open the Book Index"
     >
       <div className="flex flex-col">
         <span
           className="text-xs tracking-widest"
           style={{ fontFamily: 'Space Mono, monospace', color: COMPOSITE_COLOR, fontSize: 10, letterSpacing: '0.14em' }}
         >
-          AI INDEX
+          BOOK INDEX
         </span>
         <div className="flex items-baseline gap-2 mt-0.5">
           <span
@@ -147,9 +147,10 @@ function SubIndexPill({ name, value }: { name: IndexName; value: LiveIndexValue 
 }
 
 /**
- * Compact AI Index header widget for the News tab. Shows the composite value,
- * day %, and a 30-day sparkline, plus one pill per sub-index. All values are
- * computed live in-browser from store prices — no extra fetches, zero API cost.
+ * Compact Book Index header widget for the News tab. Shows the full-universe
+ * composite value, day %, and a 30-day sparkline, plus one pill per sub-index
+ * (the AI Index pill is the AI-primary sleeve). All values are computed live
+ * in-browser from store prices — no extra fetches, zero API cost.
  */
 export function IndexTicker() {
   const { values, loading } = useIndexValues();

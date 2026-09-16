@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { SECTOR_COLORS, SECTOR_LABELS } from '../../types';
+import { SECTOR_COLORS } from '../../types';
 import type { Sector } from '../../types';
 import { TICKER_MAP } from '../../config/tickers';
 import { useIndexValues, useIndexHistory, useIndexConstituents } from '../../hooks/useIndexValue';
@@ -303,7 +303,9 @@ export function IndexDetail() {
           <div className="flex items-center gap-3">
             <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: accent, display: 'inline-block' }} />
             <h1 style={{ fontFamily: 'Space Mono, monospace', color: 'var(--text-primary)', fontSize: 20, fontWeight: 700, margin: 0 }}>
-              {name === 'composite' ? 'AI Index' : `${SECTOR_LABELS[name as Sector]} Index`}
+              {name === 'composite' || name === 'ai_infrastructure'
+                ? INDEX_DISPLAY[name]
+                : `${INDEX_DISPLAY[name]} Index`}
             </h1>
             {name !== 'composite' && (
               <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.08em' }}>

@@ -236,7 +236,7 @@ export function NewsFeed() {
           </p>
         </div>
 
-        {/* AI Index — live composite + sub-index widget (zero extra fetches) */}
+        {/* Book Index — live full-universe composite + sub-index widget (zero extra fetches) */}
         <IndexTicker />
 
         {/* Error (inline, non-fatal) */}

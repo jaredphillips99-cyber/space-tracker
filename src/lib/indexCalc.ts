@@ -71,9 +71,9 @@ export const INDEX_BASE_VALUE = 100;
 export const INDEX_BASE_DATE = '2025-07-31';
 
 export const INDEX_DISPLAY: Record<IndexName, string> = {
-  composite: 'AI Index',
+  composite: 'Book Index',
   space: 'Space',
-  ai_infrastructure: 'AI Infrastructure',
+  ai_infrastructure: 'AI Index',
   defense: 'Defense',
   clean_energy: 'Clean Energy',
   cyber: 'Cyber',
@@ -98,7 +98,12 @@ export function tickersForIndex(indexName: IndexName): string[] {
 // Keep this map in sync with scripts/indexCalc.mjs's TICKER_INTRO_MONTH by
 // hand (same duplication convention as TICKERS/COMPANY_ALIASES elsewhere).
 const TICKER_INTRO_MONTH: Record<string, string> = {
-  // (none currently)
+  // Sep 2026 universe expansion — float on from the first October 2026 close.
+  // Keep in sync with scripts/indexCalc.mjs.
+  ASML: '2026-09', AMAT: '2026-09', LRCX: '2026-09', KLAC: '2026-09',
+  TSM:  '2026-09', AMD:  '2026-09', ARM:  '2026-09', MRVL: '2026-09',
+  CSCO: '2026-09', COHR: '2026-09', ORCL: '2026-09', SNOW: '2026-09',
+  DDOG: '2026-09', NOW:  '2026-09', HUBB: '2026-09', DLR:  '2026-09',
 };
 
 function eligibleFrom(ticker: string): Date | null {

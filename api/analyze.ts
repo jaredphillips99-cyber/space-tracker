@@ -187,6 +187,30 @@ outlook (utility contracting cycles, SMR/reactor restarts as demand drivers). Th
 producer with significant leverage to uranium price — frame the bull/bear cases accordingly.
 Use your training knowledge only to fill in background context the filing doesn't cover, and be
 explicit when you do so.`,
+
+  ASML: `ASML Holding N.V. is a Dutch foreign private issuer. It trades on NASDAQ/Amsterdam but files
+6-K forms on EDGAR rather than 8-K earnings releases. The EARNINGS FILING text below is the press
+release exhibit from ASML's most recent quarterly-results 6-K — ground your analysis in it the
+same way you would an 8-K exhibit for a domestic filer.
+Focus on EUV/High-NA shipment and backlog, China export-control exposure, and foundry-capex
+cycle timing (TSMC, Intel, Samsung). Use training knowledge only for background the filing
+doesn't cover, and be explicit when you do so.`,
+
+  TSM: `TSM (Taiwan Semiconductor Manufacturing) is a Taiwanese foreign private issuer. It trades on
+NYSE as an ADR but files 6-K forms on EDGAR rather than 8-K earnings releases. The EARNINGS
+FILING text below is the press-release exhibit from TSMC's most recent quarterly-results 6-K —
+ground your analysis in it the same way you would an 8-K exhibit for a domestic filer.
+Focus on advanced-node utilization (3nm/2nm), AI accelerator wafer demand, Arizona/Japan/Germany
+capacity buildout, and pricing/gross-margin trajectory. Use training knowledge only for
+background the filing doesn't cover, and be explicit when you do so.`,
+
+  ARM: `ARM (Arm Holdings plc) is a UK foreign private issuer. It trades on NASDAQ but files 6-K
+forms on EDGAR rather than 8-K earnings releases. The EARNINGS FILING text below is the press
+release exhibit from Arm's most recent quarterly-results 6-K — ground your analysis in it the
+same way you would an 8-K exhibit for a domestic filer.
+Focus on royalty/license mix, CSS/v9 adoption in AI accelerators and data-center CPUs, and
+concentration in a handful of large licensees. Use training knowledge only for background the
+filing doesn't cover, and be explicit when you do so.`,
 };
 
 function getSystemPrompt(ticker: string): string | undefined {

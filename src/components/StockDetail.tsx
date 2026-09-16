@@ -44,6 +44,12 @@ const CIK_MAP: Record<string, string> = {
   ETN:  '0001551182', EQIX: '0001101239', GNRC: '0001474735',
   CRWD: '0001535527', PANW: '0001327567', NET:  '0001477333',
   ZS:   '0001713683', FTNT: '0001262039',
+  ASML: '0000937966', AMAT: '0000006951', LRCX: '0000707549',
+  KLAC: '0000319201', TSM:  '0001046179', AMD:  '0000002488',
+  ARM:  '0001973239', MRVL: '0001835632', CSCO: '0000858877',
+  COHR: '0000820318', ORCL: '0001341439', SNOW: '0001640147',
+  DDOG: '0001561550', NOW:  '0001373715', HUBB: '0000048898',
+  DLR:  '0001297996',
 };
 
 // SPECULATIVE = which filings to FETCH (both most-recent 8-K + most-recent 10-Q),
@@ -82,7 +88,9 @@ interface FPIConfig {
 const FILING_REGIME: Record<string, FilingRegime> = {
   NBIS: 'foreign_private_issuer',  // Nebius Group N.V. — Dutch, 6-K + 20-F
   CCJ:  'foreign_private_issuer',  // Cameco Corp — Canadian, 6-K + 40-F
-  // future FPIs added here — single line each, no other file touched.
+  ASML: 'foreign_private_issuer',  // ASML Holding N.V. — Dutch, 6-K + 20-F
+  TSM:  'foreign_private_issuer',  // TSMC — Taiwanese, 6-K + 20-F
+  ARM:  'foreign_private_issuer',  // Arm Holdings plc — UK, 6-K + 20-F
 };
 
 const FPI_EXHIBIT_HINTS = ['ex-99.1', 'ex99.1', 'ex99-1', 'ex99d1', 'ex991'];
@@ -90,6 +98,9 @@ const FPI_EXHIBIT_HINTS = ['ex-99.1', 'ex99.1', 'ex99-1', 'ex99d1', 'ex991'];
 const FPI_CONFIG: Record<string, FPIConfig> = {
   NBIS: { annualForm: '20-F', exhibitHints: FPI_EXHIBIT_HINTS },
   CCJ:  { annualForm: '40-F', exhibitHints: FPI_EXHIBIT_HINTS },
+  ASML: { annualForm: '20-F', exhibitHints: FPI_EXHIBIT_HINTS },
+  TSM:  { annualForm: '20-F', exhibitHints: FPI_EXHIBIT_HINTS },
+  ARM:  { annualForm: '20-F', exhibitHints: FPI_EXHIBIT_HINTS },
 };
 
 // SEDAR_ONLY stays the authority for its own tickers so the two never diverge.

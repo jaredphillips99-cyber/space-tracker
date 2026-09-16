@@ -69,8 +69,9 @@ No LLM calls, no new API cost. Three tiers via the pure `rankFrontPage()`
   can't sweep every slot. Items are deduped by URL and filtered for
   generic/listicle noise and ticker mis-attribution at ingestion (see
   `scripts/newswire.mjs`).
-  `IndexTicker` (the AI Index composite + 5 sub-index pills) mounts above Lead
-  Stories on this page.
+  `IndexTicker` (the Book Index full-universe composite + 5 sub-index pills;
+  the AI Index pill is the AI-primary sleeve) mounts above Lead Stories on
+  this page.
 
 ### Dashboard (`/dashboard`)
 The full tracked universe as a sortable price table (default sort: 1D% change
@@ -267,8 +268,10 @@ for) `SPECULATIVE`/`SEDAR_ONLY` — those control how many filings to fetch;
 defers to `SEDAR_ONLY` first so the two axes can't disagree about NXE.
 Currently populated: `NBIS: 'foreign_private_issuer'` (Dutch, 6-K + 20-F),
 `CCJ: 'foreign_private_issuer'` (Canadian, 6-K + 40-F, enabled Aug 16 2026 —
-see session log). Adding a new FPI is one `FILING_REGIME` line + one
-`FPI_CONFIG` line, no other file touched.
+see session log), `ASML` (Dutch, 6-K + 20-F), `TSM` (Taiwanese, 6-K + 20-F),
+`ARM` (UK, 6-K + 20-F) — the last three added with the Sep 16 2026 universe
+expansion. Adding a new FPI is one `FILING_REGIME` line + one `FPI_CONFIG`
+line, no other file touched.
 
 `fetchForeignIssuerFiling()` scans the `SIX_K_SCAN_LIMIT = 5` most recent
 6-Ks (not just the single most recent one — 6-Ks carry no `items` code like
@@ -442,7 +445,7 @@ what killed the old stock-tracker-five-tau deployment.
 
 ## Key File Locations
 src/types/index.ts                             canonical data schema + SECTOR_COLORS
-src/config/tickers.ts                          tracked universe (49 tickers), sector assignments
+src/config/tickers.ts                          tracked universe, sector assignments
 src/config/gics.ts                             GICS two-tier taxonomy + classifyTicker()
 src/config/themes.ts                           4-theme conviction taxonomy + TICKER_THEME_MAP
 src/store/useStore.ts                          Zustand store, all global state
@@ -501,8 +504,9 @@ src/components/SidePanel/index.tsx             What's New sidebar — Today's Wi
 src/components/PriceTable/index.tsx            Dashboard watchlist table — STALE badge driven
                                                 by getAnalysisFreshness()
 src/components/NewsFeed/index.tsx              News-tab Lead/Also Moving/Feed renderer
-src/components/IndexTicker/index.tsx           News-tab AI Index widget (composite hero +
-                                                sub-index pills + sparkline)
+src/components/IndexTicker/index.tsx           News-tab Book Index widget (full-universe
+                                                composite hero + sub-index pills + sparkline;
+                                                AI Index = AI-primary sleeve)
 src/components/IndexDetail/index.tsx           /index/:indexName drill-down — hand-rolled SVG
                                                 chart w/ hover crosshair + constituent table
 src/components/compare/PortfolioTab.tsx        main portfolio component (default export)
@@ -576,7 +580,7 @@ yahooSector from the live prices response via YAHOO_TO_GICS mapper.
   utilities               #34d399  emerald
   other                   #8b93a8  muted gray
 
-### Tracked Universe → GICS Mapping (current, 49 tickers — SATS removed Aug 6, 2026)
+### Tracked Universe → GICS Mapping
 RKLB  → industrials / space_launch
 FLY   → industrials / space_launch
 SPCX  → industrials / space_launch
@@ -592,8 +596,17 @@ NVDA  → information_technology / semiconductors
 MU    → information_technology / semiconductors
 AVGO  → information_technology / semiconductors
 INTC  → information_technology / semiconductors
+TSM   → information_technology / semiconductors
+AMD   → information_technology / semiconductors
+ARM   → information_technology / semiconductors
+MRVL  → information_technology / semiconductors
+ASML  → information_technology / semiconductor_equipment
+AMAT  → information_technology / semiconductor_equipment
+LRCX  → information_technology / semiconductor_equipment
+KLAC  → information_technology / semiconductor_equipment
 PLTR  → information_technology / it_services
 ANET  → information_technology / it_services
+CSCO  → information_technology / it_services
 CRWV  → information_technology / internet_infrastructure
 IREN  → information_technology / internet_infrastructure
 NBIS  → information_technology / internet_infrastructure
@@ -601,9 +614,14 @@ CIFR  → information_technology / internet_infrastructure
 RIOT  → information_technology / internet_infrastructure
 VRT   → information_technology / electronic_equipment
 MOD   → information_technology / electronic_equipment
+COHR  → information_technology / electronic_equipment
 SMCI  → information_technology / hardware
 DELL  → information_technology / hardware
 MSFT  → information_technology / software
+ORCL  → information_technology / software
+SNOW  → information_technology / software
+DDOG  → information_technology / software
+NOW   → information_technology / software
 CRWD  → information_technology / software
 PANW  → information_technology / software
 NET   → information_technology / software
@@ -625,7 +643,9 @@ NNE   → energy / advanced_reactors
 PWR   → industrials / construction_engineering
 ETN   → industrials / electrical_equipment
 GNRC  → industrials / electrical_equipment
+HUBB  → industrials / electrical_equipment
 EQIX  → real_estate / data_center_reits
+DLR   → real_estate / data_center_reits
 
 Note: SPCX and PWR carry crossover tags on the dashboard-pill taxonomy
 (SPCX → space primary / ai_infrastructure crossover; PWR → ai_infrastructure
@@ -2402,3 +2422,65 @@ sidebar sections (both left as-is).
 **Verification:** `npx tsc --noEmit` and `npm run build` both pass.
 
 **Files modified:** src/components/SidePanel/index.tsx · CLAUDE.md
+
+---
+
+### September 16, 2026 — Universe expansion: 16 AI-infra names + subtheme retags + Book Index label
+
+**What:** added 16 tickers to the tracked universe (Scout proposed adds +
+watchlist, all `ai_infrastructure` primary — no new dashboard pill, cyber
+names untouched). DLR is an EQIX-style data-center REIT, not a clean-energy
+name. Crossovers still do not double-count into a second primary sub-index.
+
+**Adds:** ASML, AMAT, MRVL, CSCO, SNOW, DDOG, ORCL, HUBB
+**Watchlist also added:** LRCX, KLAC, TSM, AMD, ARM, DLR, NOW, COHR
+
+**Themes / subsectors:**
+ - New `wafer_fab_equipment`: ASML, AMAT, LRCX, KLAC
+ - New `gpu_cloud_and_capacity`: CRWV, IREN, NBIS, CIFR, RIOT (CIFR/RIOT
+   demoted from `ai_compute_and_semis` — still in the book, just not AI-core
+   compute)
+ - `ai_compute_and_semis` now core semis/foundry: NVDA, MU, AVGO, INTC, TSM,
+   AMD, ARM
+ - `ai_networking_and_hardware`: + MRVL, CSCO, COHR (alongside ANET, SMCI, DELL)
+ - `hyperscale_cloud`: + ORCL
+ - `ai_applications` relabeled "Data Platforms & AI Apps": + SNOW, DDOG, NOW
+   (PLTR stays)
+ - `ai_power_and_cooling`: + HUBB, DLR
+ - NXE re-tagged from `advanced_reactors` → `nuclear_components_and_fuel`
+   (uranium miner, matching GICS `uranium_mining`)
+
+**Index label:** full-universe composite UI string is now **Book Index**
+(`INDEX_DISPLAY.composite`). **AI Index** is reserved for the AI-primary
+sleeve (`INDEX_DISPLAY.ai_infrastructure`). Minimal string/UX change —
+IndexTicker, IndexDetail, onboarding News card.
+
+**FPI fetch path:** ASML, TSM, ARM added to `FILING_REGIME` / `FPI_CONFIG`
+(all 20-F) plus short `TICKER_SYSTEM_PROMPTS` in `api/analyze.ts` so the
+6-K exhibit is treated as the earnings filing. CIKs verified against SEC
+`company_tickers.json`.
+
+**Float-on:** all 16 tagged `TICKER_INTRO_MONTH = '2026-09'` in both
+`src/lib/indexCalc.ts` and `scripts/indexCalc.mjs`, so they enter the
+indexes at the first October 2026 close (dashboard/news/prices are live
+immediately). Mirror both maps if that date is ever emptied.
+
+**Universe-change checklist run:** tickers.ts · gics.ts UNIVERSE_SECTOR_MAP ·
+themes.ts · StockDetail CIK_MAP + FILING_REGIME/FPI_CONFIG · newswire.mjs
+TICKERS + COMPANY_ALIASES · indexCalc.mjs PRIMARY_SECTOR + TICKER_INTRO_MONTH
+(+ the client TICKER_INTRO_MONTH copy). No Sector type / pill change.
+
+**Follow-ups (not this PR):** Methodology page copy if one exists later;
+one-time `node scripts/indexBackfill.mjs` is NOT required for live values
+(float-on handles entry); previously-run analyses are unchanged.
+
+**Verification:** membership script confirms all 16 present, theme/GICS/CIK/
+newswire/PRIMARY_SECTOR coverage complete, sub-indices partition the book
+with no double-count. `npx tsc --noEmit` and `npm run build` pass.
+
+**Files modified:** src/config/tickers.ts · src/config/gics.ts ·
+src/config/themes.ts · src/components/StockDetail.tsx · api/analyze.ts ·
+scripts/newswire.mjs · scripts/indexCalc.mjs · src/lib/indexCalc.ts ·
+src/components/IndexTicker/index.tsx · src/components/IndexDetail/index.tsx ·
+src/components/Onboarding/OnboardingModal.tsx · src/components/NewsFeed/index.tsx ·
+CLAUDE.md
