@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { News } from './pages/News';
+import { Calendar } from './pages/Calendar';
 import { Dashboard } from './pages/Dashboard';
 import { StockDetail } from './pages/StockDetail';
 import { IndexDetail } from './pages/IndexDetail';
@@ -70,6 +71,7 @@ function AppInner() {
       <Layout>
         <Routes>
           <Route path="/"              element={<News />} />
+          <Route path="/calendar"      element={<Calendar />} />
           <Route path="/dashboard"     element={<Dashboard />} />
           <Route path="/stock/:ticker" element={<StockDetail />} />
           <Route path="/index/:indexName" element={<ErrorBoundary label="Index"><IndexDetail /></ErrorBoundary>} />

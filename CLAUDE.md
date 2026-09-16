@@ -71,7 +71,13 @@ No LLM calls, no new API cost. Three tiers via the pure `rankFrontPage()`
   `scripts/newswire.mjs`).
   `IndexTicker` (the Book Index full-universe composite + 5 sub-index pills;
   the AI Index pill is the AI-primary sleeve) mounts above Lead Stories on
-  this page.
+  this page. Directly under it, **Earnings this week** lists universe tickers
+  Yahoo has on the current America/New_York week (BMO/AMC chips when Yahoo
+  supplied a clock time; EST when `isEarningsDateEstimate` is true). A page-
+  local **Wire | Calendar** switch (not a sixth top-nav item) opens `/calendar`:
+  Week + Month grids, theme filter pills, ticker chips → `/stock/:ticker`.
+  Dates come from `GET /api/earnings-calendar?from=&to=` (Yahoo quote fields,
+  ≥1h cache) — never invented.
 
 ### Dashboard (`/dashboard`)
 The full tracked universe as a sortable price table (default sort: 1D% change
@@ -205,6 +211,17 @@ Yahoo Finance → `api/prices.ts` (Vercel serverless)
   symbol — used by Portfolio for external positions too. Has a
   `quoteType === 'CRYPTOCURRENCY'` short-circuit branch that skips the
   stock-only `quoteSummary` round-trip for crypto symbols.
+
+Yahoo Finance → `api/earnings-calendar.ts` (Vercel serverless)
+  Tracked-universe earnings calendar for News. Query `?from=YYYY-MM-DD&to=`.
+  Source: yahoo-finance2 `quote()` fields `earningsTimestamp` /
+  `earningsTimestampStart` / `earningsTimestampEnd` /
+  `isEarningsDateEstimate` — documented in `lib/earningsDate.ts`. Dates
+  grouped in America/New_York. Tickers Yahoo does not date are omitted
+  (never interpolated). In-process snapshot + `Cache-Control: s-maxage=3600`
+  (1 hour minimum). Public market data — NOT a Claude route; do not wrap
+  with `gateClaudeRoute`. Universe list is `lib/universeTickers.ts`
+  (hand-synced to `ALL_TICKERS`).
 
 Anthropic API → `api/analyze.ts` (stock analysis, streaming SSE)
  Rate limit: 10 calls per authenticated operator per hour (Upstash Redis,
@@ -465,12 +482,21 @@ src/config/tickers.ts                          tracked universe, sector assignme
 src/config/gics.ts                             GICS two-tier taxonomy + classifyTicker()
 src/config/themes.ts                           4-theme conviction taxonomy + TICKER_THEME_MAP
 src/store/useStore.ts                          Zustand store, all global state
-src/App.tsx                                    router — routes: / · /dashboard · /stock/:ticker ·
-                                                /index/:indexName · /portfolio · /networth ·
-                                                /retirement · /admin
+src/App.tsx                                    router — routes: / · /calendar · /dashboard ·
+                                                /stock/:ticker · /index/:indexName · /portfolio ·
+                                                /networth · /retirement · /admin
 src/components/Layout/index.tsx                top nav (NAV_LINKS), brand, sector filter bar
-                                                (Dashboard-route-only)
+                                                (Dashboard-route-only); News stays active on
+                                                `/calendar`
 src/pages/News.tsx                             News landing page (/)
+src/pages/Calendar.tsx                         re-export — News Calendar subsection
+src/components/EarningsCalendar/index.tsx      Week/Month NY calendar + ThisWeekEarnings teaser
+src/components/NewsSectionNav.tsx              Wire | Calendar in-page tabs
+src/hooks/useEarningsCalendar.ts               GET /api/earnings-calendar client (1h cache)
+src/lib/earningsCalendar.ts                    month/week grid math (America/New_York)
+api/earnings-calendar.ts                       Yahoo quote earnings window, ≥1h cache
+lib/earningsDate.ts                            Yahoo quote → events; NY session chips
+lib/universeTickers.ts                         hand-synced ALL_TICKERS copy for the API
 src/pages/Dashboard.tsx                        Dashboard page (/dashboard)
 src/pages/Portfolio.tsx                        thin wrapper over PortfolioTab
 src/pages/NetWorth.tsx                         Net Worth page wrapper (gate/anon/auth flow)
@@ -932,6 +958,8 @@ layer architectural changes on top of an unverified diagnosis.
      month). `src/lib/indexCalc.ts` derives membership from tickers.ts
      directly and needs no manual edit, but ITS OWN `TICKER_INTRO_MONTH` copy
      must be kept hand-in-sync with the .mjs one (see Aug/July 30 patch).
+  8. `lib/universeTickers.ts` — earnings-calendar API universe (hand-synced
+     to ALL_TICKERS; `lib/universeTickers.test.ts` fails if they drift).
 Skipping any of these causes a silent failure that `tsc`/`npm run build`
 cannot catch.
 
@@ -2555,3 +2583,50 @@ src/components/networth/NetWorthTab.tsx ·
 src/components/retirement/RetirementTab.tsx · package.json · .env.example ·
 DEPLOY_INSTRUCTIONS.md · CLAUDE.md
 **Files deleted:** api/edgar.ts
+
+---
+
+### September 16, 2026 — Earnings calendar in News
+
+**What:** tracked-universe earnings calendar, reached from News (not a sixth
+top-nav tab). Page-local **Wire | Calendar** switch: `/` stays the newswire
+front page; `/calendar` is Week (default) + Month grids in America/New_York.
+News Wire also mounts an **Earnings this week** strip under the Book Index
+with a "Full calendar →" link. Ticker chips go to `/stock/:ticker`. Theme
+filter pills (the four `themes.ts` themes) are client-side.
+
+**Data (do not invent dates):** `GET /api/earnings-calendar?from=&to=` reads
+yahoo-finance2 `quote()` — `earningsTimestamp` (last print),
+`earningsTimestampStart`/`End` (next window), `isEarningsDateEstimate`.
+Same vendor as `api/prices.ts`. Tickers Yahoo does not date are omitted.
+BMO/AMC chips only when Yahoo supplied a non-midnight NY clock time
+(AMC ≥ 15:00 ET to survive Yahoo's year-round 20:00 UTC "after close" stamp).
+EST chip = Yahoo's estimate flag, or a multi-day start/end window (placed on
+the start date only — we do not fill in-between days).
+
+**Cache:** in-process snapshot 1h + `Cache-Control: s-maxage=3600`. Client
+hook also caches 1h. Public market data — **not** wrapped in
+`gateClaudeRoute` (no Claude spend; auth/rate limits on analyze / portfolio
+/ retirement are unchanged).
+
+**Universe sync:** `lib/universeTickers.ts` is a hand-synced ALL_TICKERS
+copy; `lib/universeTickers.test.ts` fails on drift. Added as checklist
+item 8.
+
+**Local dev:** vite `configureServer` middleware serves
+`/api/earnings-calendar` from the Vercel handler so `npm run dev` can
+render the calendar without `vercel dev`. Production still uses the
+function.
+
+**Verification:** `npm test` · `npx tsc --noEmit` · `npm run build`.
+
+**Files created:** api/earnings-calendar.ts · lib/earningsDate.ts ·
+lib/earningsDate.test.ts · lib/universeTickers.ts ·
+src/lib/earningsCalendar.ts · src/lib/earningsCalendar.test.ts ·
+lib/universeTickers.test.ts · src/hooks/useEarningsCalendar.ts ·
+src/components/EarningsCalendar/index.tsx · src/components/NewsSectionNav.tsx ·
+src/pages/Calendar.tsx
+**Files modified:** src/App.tsx · src/components/Layout/index.tsx ·
+src/components/NewsFeed/index.tsx · src/components/Onboarding/OnboardingModal.tsx ·
+vite.config.ts · package.json · CLAUDE.md
+

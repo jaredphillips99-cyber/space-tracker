@@ -8,6 +8,8 @@ import { sentimentColor } from '../../hooks/useNewswire';
 import { rankFrontPage } from '../../lib/newsRanking';
 import type { NewsStory } from '../../lib/newsRanking';
 import { IndexTicker } from '../IndexTicker';
+import { ThisWeekEarnings } from '../EarningsCalendar';
+import { NewsSectionNav } from '../NewsSectionNav';
 
 // ─── Relative time ────────────────────────────────────────────────────────────
 function relativeTime(iso: string): string {
@@ -224,20 +226,26 @@ export function NewsFeed() {
     <div className="h-full overflow-y-auto" style={{ height: 'calc(100vh - 88px)' }}>
       <div className="max-w-5xl mx-auto px-6 py-6">
         {/* Page header */}
-        <div className="mb-6">
-          <h1
-            className="text-lg font-bold"
-            style={{ fontFamily: 'Space Mono, monospace', color: 'var(--text-primary)', margin: 0 }}
-          >
-            News
-          </h1>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)', fontFamily: 'DM Sans, sans-serif' }}>
-            Space economy, AI infrastructure, defense & clean energy
-          </p>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1
+              className="text-lg font-bold"
+              style={{ fontFamily: 'Space Mono, monospace', color: 'var(--text-primary)', margin: 0 }}
+            >
+              News
+            </h1>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)', fontFamily: 'DM Sans, sans-serif' }}>
+              Space economy, AI infrastructure, defense & clean energy
+            </p>
+          </div>
+          <NewsSectionNav />
         </div>
 
         {/* Book Index — live full-universe composite + sub-index widget (zero extra fetches) */}
         <IndexTicker />
+
+        {/* This week's universe earnings — teaser into /calendar */}
+        <ThisWeekEarnings />
 
         {/* Error (inline, non-fatal) */}
         {error && (

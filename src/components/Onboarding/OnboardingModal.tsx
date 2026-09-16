@@ -12,7 +12,7 @@ const TAB_CARDS: { label: string; accent: string; body: string }[] = [
   {
     label: 'News',
     accent: '#ffd166',
-    body: 'Your landing page — an editorially-ranked front page built entirely from data already in hand (market cap, day moves, a filtered newswire archive), at zero added AI cost. Lead Stories surface the biggest tracked names with recent coverage, Also Moving catches outsized single-day movers at any size, and a paginated Feed covers the rest. The Book Index widget up top tracks the full universe plus one sub-index per sector (the AI Index sleeve is AI-primary names only) — click through for the full chart and constituent breakdown.',
+    body: 'Your landing page — an editorially-ranked front page built entirely from data already in hand (market cap, day moves, a filtered newswire archive), at zero added AI cost. Lead Stories surface the biggest tracked names with recent coverage, Also Moving catches outsized single-day movers at any size, and a paginated Feed covers the rest. The Book Index widget up top tracks the full universe plus one sub-index per sector (the AI Index sleeve is AI-primary names only) — click through for the full chart and constituent breakdown. Wire | Calendar in the page header opens the tracked-universe earnings calendar (Yahoo dates, America/New_York).',
   },
   {
     label: 'Dashboard',
