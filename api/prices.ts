@@ -4,15 +4,32 @@ import YahooFinance from 'yahoo-finance2';
 // yahoo-finance2 v3 requires instantiation (breaking change from v2)
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
-const SYMBOL_OVERRIDES: Record<string, string> = {
-  // Bare "STRC" has resolved inconsistently on Yahoo (incl. an unrelated
-  // small-cap name); pin explicitly to Strategy Inc's (formerly
-  // MicroStrategy) variable-rate preferred stock, the intended ticker.
-  STRC: 'STRC',
-};
+// Pin Yahoo's listing ONLY when it differs from the book ticker
+// (e.g. BRK.B → BRK-B). None of the current tracked universe needs a remap —
+// add a row here only when quote() for the book ticker resolves to the wrong
+// listing, and document why.
+const SYMBOL_OVERRIDES: Record<string, string> = {};
 
 function resolveSymbol(ticker: string): string {
   return SYMBOL_OVERRIDES[ticker] ?? ticker;
+}
+
+// Hard cap is a safety rail, not the book size. The tracked universe is ~65
+// and growing; the previous 50-ticker cap silently dropped ARM+ and the entire
+// cyber sleeve. Client loaders chunk to PRICE_BATCH_SIZE (40). Keep this
+// well above any single batch AND above the full book.
+const MAX_PRICE_TICKERS = 120;
+
+function parseTickersParam(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(',')) {
+    const ticker = part.trim().toUpperCase();
+    if (!ticker || seen.has(ticker)) continue;
+    seen.add(ticker);
+    out.push(ticker);
+  }
+  return out;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -25,11 +42,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing tickers query param' });
   }
 
-  const tickers = tickersParam
-    .split(',')
-    .map((t) => t.trim().toUpperCase())
-    .filter(Boolean)
-    .slice(0, 50); // hard cap
+  const requested = parseTickersParam(tickersParam);
+  if (requested.length === 0) {
+    return res.status(400).json({ error: 'No tickers provided' });
+  }
+
+  const tickers = requested.slice(0, MAX_PRICE_TICKERS);
+  const overflow = requested.slice(MAX_PRICE_TICKERS);
+  if (overflow.length > 0) {
+    console.warn(
+      `[prices] capping ${requested.length} tickers to ${MAX_PRICE_TICKERS}; ` +
+        `${overflow.length} returned as fetchError`,
+    );
+  }
 
   const fetchedAt = Date.now();
 
@@ -42,6 +67,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Primary quote for price/market data
       const quote = await yahooFinance.quote(symbol);
+
+      // Do not invent a $0 last price when Yahoo omitted regularMarketPrice.
+      if (quote.regularMarketPrice == null) {
+        return {
+          ticker,
+          price: 0,
+          change: 0,
+          changePercent: 0,
+          nextEarningsDate: null,
+          lastReportedQuarterEnd: null,
+          fetchError: true,
+          fetchedAt,
+        };
+      }
 
       // quoteType tells us whether this is a stock, ETF, or mutual fund —
       // stocks-only modules (financialData/assetProfile) return empty for
@@ -198,6 +237,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fetchedAt,
     };
   });
+
+  for (const ticker of overflow) {
+    prices.push({
+      ticker,
+      price: 0,
+      change: 0,
+      changePercent: 0,
+      nextEarningsDate: null,
+      lastReportedQuarterEnd: null,
+      fetchError: true,
+      fetchedAt,
+    });
+  }
 
   res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60');
   return res.status(200).json(prices);

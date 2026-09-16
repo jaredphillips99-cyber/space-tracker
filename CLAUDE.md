@@ -207,8 +207,12 @@ one re-run post-deploy to trigger its first real Supabase write.
 
 Yahoo Finance → `api/prices.ts` (Vercel serverless)
   Never call yahoo-finance2 from the browser. Cache 5 minutes. On error:
-  `fetchError: true`, UI shows last cached values. Works for ANY ticker
-  symbol — used by Portfolio for external positions too. Has a
+  `fetchError: true`, UI shows last cached values (never invents a quote).
+  Works for ANY ticker symbol — used by Portfolio for external positions too.
+  Hard cap is 120 (safety rail, not the book size); client loaders
+  (`src/lib/fetchPrices.ts`) chunk the full `ALL_TICKERS` list into parallel
+  batches of 40. `SYMBOL_OVERRIDES` is only for Yahoo listings that differ
+  from the book ticker — currently empty. Has a
   `quoteType === 'CRYPTOCURRENCY'` short-circuit branch that skips the
   stock-only `quoteSummary` round-trip for crypto symbols.
 
@@ -460,15 +464,16 @@ VITE_SUPABASE_ANON_KEY       → Vercel dashboard → Settings → Environment V
 ADMIN_EMAILS                 → comma-separated operator emails (server-only). Magic-link
                                login does NOT grant admin. Empty allowlist = nobody can
                                Run Analysis. Rotate by editing the var + redeploying.
-UPSTASH_REDIS_REST_URL       → Upstash Redis REST URL (durable Claude rate limits)
-UPSTASH_REDIS_REST_TOKEN     → Upstash Redis REST token
+UPSTASH_REDIS_REST_URL       → Upstash Redis REST URL (optional durable rate limits)
+UPSTASH_REDIS_REST_TOKEN     → Upstash Redis REST token (optional)
 (Yahoo Finance requires no key — uses yahoo-finance2 npm package)
 
 Claude routes (`api/analyze`, `api/portfolio`, `api/retirement`) also read
 `SUPABASE_URL` / `SUPABASE_ANON_KEY` if set, falling back to the `VITE_*` pair
 for JWT verification. JWT is required; unauthenticated POSTs return 401.
 `api/analyze` additionally requires the caller's email to be on `ADMIN_EMAILS`.
-Missing Upstash vars → 503 (fail closed — no in-memory production fallback).
+Missing Upstash vars → in-memory per-instance rate limit (hobby/personal).
+Do not 503 Claude routes when Upstash is unset.
 
 Set for Production, Preview, AND Development. Missing any of the three
 Supabase-related vars throws a fatal init exception on load — this is exactly
@@ -569,10 +574,15 @@ src/components/PortfolioAuthGate.tsx           Portfolio-tab anonymous/admin gat
 src/components/AuthGate.tsx                    /admin route login screen (magic link;
                                                 does NOT grant operator access)
 src/components/Onboarding/OnboardingModal.tsx  per-tab onboarding cards (NOT per-feature)
-lib/claudeGuard.ts                             JWT + ADMIN_EMAILS + Upstash rate limit
-                                                for Claude routes (repo-root lib/, NOT api/_shared)
+lib/claudeGuard.ts                             JWT + ADMIN_EMAILS + optional Upstash
+                                                (lazy-import Redis/Supabase — never at
+                                                module load). Root lib/, included via
+                                                vercel.json includeFiles. NOT api/_shared.
 api/me.ts                                      GET operator status for the signed-in session
 src/lib/authHeaders.ts                         attaches Bearer token to Claude fetches
+src/lib/fetchPrices.ts                         batched /api/prices client (chunks of 40)
+src/lib/priceBatches.ts                        chunk + merge helpers; omitted tickers → fetchError
+src/lib/operatorAccess.ts                      signed-in-but-not-admin copy helper
 api/prices.ts                                  Yahoo Finance proxy (+ crypto short-circuit branch)
 api/analyze.ts                                 Anthropic streaming proxy, stock analysis
                                                 (JWT + operator allowlist + Upstash 10/hr)
@@ -966,10 +976,12 @@ cannot catch.
 ### Do not factor shared code into an api/_shared/ (or any underscore-prefixed)
 module and import it across Vercel functions — it deploys broken with no
 local-build signal. Duplicate small `api/` helpers inline, **or** put shared
-server helpers in repo-root `lib/` (traced/bundled as a normal import — this
-is how `lib/claudeGuard.ts` is shared). Always curl the production endpoint
-after deploying a new/changed `api/*.ts` function rather than trusting tsc/build
-alone.
+server helpers in repo-root `lib/` and list `includeFiles: "lib/**"` on
+`api/*.ts` in vercel.json. Never statically import `@upstash/redis` or
+`@supabase/supabase-js` from a module that `/api/me` loads at boot — lazy
+`import()` those inside the helper that needs them. Always curl the
+production endpoint after deploying a new/changed `api/*.ts` function rather
+than trusting tsc/build alone.
 
 ### Ticker counts should not be hardcoded in UI copy
 Use "the full tracked universe" to stay resilient to future changes.
@@ -2629,4 +2641,54 @@ src/pages/Calendar.tsx
 **Files modified:** src/App.tsx · src/components/Layout/index.tsx ·
 src/components/NewsFeed/index.tsx · src/components/Onboarding/OnboardingModal.tsx ·
 vite.config.ts · package.json · CLAUDE.md
+
+---
+
+### September 16, 2026 — Yahoo 50-cap + /api/me boot crash + optional Upstash
+
+**Bug 1 (live-confirmed):** `GET /api/prices?tickers=<full book>` returned
+exactly 50 rows. The 16 Sep universe expand left the book at 65; the handler
+silently capped the list. Missing on production: ARM, MRVL, CSCO, COHR,
+ORCL, SNOW, DDOG, NOW, HUBB, DLR, CRWD, PANW, NET, ZS, FTNT.
+
+**Fix:** `MAX_PRICE_TICKERS = 120`. Overflow / missing `regularMarketPrice`
+→ `fetchError: true` (no invented $0 last). Client `fetchAllPrices()` chunks
+into parallel batches of 40. `SYMBOL_OVERRIDES` empty (no remap needed).
+
+**Bug 2 (live-confirmed):** `GET /api/me` with no Authorization header
+returned `FUNCTION_INVOCATION_FAILED` 500 (should be 200
+`{authenticated:false,isAdmin:false}`). Same 500 on unauthenticated POST
+`/api/analyze` and `/api/portfolio`. `/api/prices` still 200. Root cause:
+`lib/claudeGuard.ts` statically imported `@upstash/redis` and
+`@supabase/supabase-js`, so the module graph crashed at load before the
+handler ran.
+
+**Fix:**
+- Restored root `lib/claudeGuard.ts`. Redis and Supabase are **lazy
+  `import()`** inside `createUpstashStore` / `verifySupabaseJwt` only.
+- `/api/me` has **no static import** of the guard — unauth GET inlines
+  bearer parsing and returns 200; JWT verify is a dynamic import after a
+  token is present. Outer try/catch returns JSON 500, never a raw
+  FUNCTION_INVOCATION_FAILED.
+- Claude routes import `../lib/claudeGuard.js` and wrap handlers in
+  try/catch JSON errors.
+- `vercel.json` `includeFiles: "lib/**"` so NFT always ships the helper.
+- **Upstash is optional.** Missing `UPSTASH_REDIS_*` uses an in-memory
+  per-instance limiter — does **not** 503. Recommended later for
+  public/paid; not required for personal use.
+- `ADMIN_EMAILS` remains the sole Run Analysis gate. Magic-link ≠ admin.
+  Authenticated non-admins see "Signed in as X — not on operator allowlist".
+
+**Verification:** `npm test` · `npx tsc --noEmit` · `npm run build`. After
+deploy: `curl /api/me` → 200 JSON; `/api/prices` includes ASML/TSM/ARM/CRWD.
+
+**Files created:** src/lib/priceBatches.ts · src/lib/priceBatches.test.ts ·
+src/lib/fetchPrices.ts · src/lib/operatorAccess.ts ·
+src/lib/operatorAccess.test.ts
+**Files modified:** lib/claudeGuard.ts · lib/claudeGuard.test.ts · api/me.ts ·
+api/analyze.ts · api/portfolio.ts · api/retirement.ts · api/prices.ts ·
+vercel.json · src/hooks/useLivePrice.ts · src/App.tsx · src/store/useStore.ts ·
+src/components/StockDetail.tsx · src/components/Layout/index.tsx ·
+src/components/networth/NetWorthTab.tsx · package.json · .env.example ·
+DEPLOY_INSTRUCTIONS.md · CLAUDE.md
 

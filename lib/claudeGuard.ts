@@ -1,15 +1,15 @@
 /**
- * Shared Claude-route guard: JWT auth, operator allowlist, durable rate limit.
+ * Shared Claude-route guard: JWT auth, operator allowlist, optional rate limit.
  *
- * Lives at repo-root `lib/` on purpose — NOT under `api/_shared/`.
- * Vercel does not bundle underscore-prefixed paths under `api/` as importable
- * dependencies of serverless functions (see Aug 6 2026 hotfix). Root-level
- * `lib/` is traced and bundled as a normal import from `api/*.ts`.
+ * Lives at repo-root `lib/claudeGuard.ts` so Vercel NFT can trace it from
+ * `api/*.ts` (vercel.json also includeFiles this folder).
+ *
+ * CRITICAL: do NOT statically import `@upstash/redis` or `@supabase/supabase-js`
+ * here. A top-level Redis/Supabase import crashed every Claude-route AND
+ * `/api/me` at module load (FUNCTION_INVOCATION_FAILED) even when the request
+ * had no Authorization header. Load those packages only inside the helpers
+ * that need them.
  */
-
-import { createClient } from '@supabase/supabase-js';
-import { Redis } from '@upstash/redis';
-import type { VercelRequest } from '@vercel/node';
 
 export interface GuardUser {
   id: string;
@@ -31,12 +31,22 @@ export interface ClaudeGuardDeps {
   adminEmails: string;
 }
 
+export interface GuardRequest {
+  headers: {
+    authorization?: string | string[];
+  };
+}
+
 const DEFAULT_WINDOW_MS = 60 * 60 * 1000;
+
+function stripWrappingQuotes(s: string): string {
+  return s.replace(/^['"]+/, '').replace(/['"]+$/, '');
+}
 
 export function parseAdminEmails(raw: string | undefined): string[] {
   return (raw ?? '')
     .split(',')
-    .map((s) => s.trim().toLowerCase())
+    .map((s) => stripWrappingQuotes(s.trim()).trim().toLowerCase())
     .filter(Boolean);
 }
 
@@ -59,11 +69,6 @@ export function extractBearerToken(
   return match ? match[1] : null;
 }
 
-/**
- * Fixed-window counter. Atomic INCR + PEXPIRE-on-first-hit.
- * Two serverless instances sharing this store share the same count — that is
- * the cold-start / multi-instance property in-memory Maps do not have.
- */
 export async function consumeFixedWindowLimit(
   store: RateLimitStore,
   identity: string,
@@ -99,15 +104,22 @@ export function createMemoryRateLimitStore(): RateLimitStore {
   };
 }
 
-export function createUpstashStore(): RateLimitStore | null {
+/** Lazy-load Upstash. Returns null when env is missing or Redis fails to init. */
+export async function createUpstashStore(): Promise<RateLimitStore | null> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
-  const redis = new Redis({ url, token });
-  return {
-    incr: (key) => redis.incr(key),
-    pexpire: (key, ms) => redis.pexpire(key, ms),
-  };
+  try {
+    const { Redis } = await import('@upstash/redis');
+    const redis = new Redis({ url, token });
+    return {
+      incr: (key) => redis.incr(key),
+      pexpire: (key, ms) => redis.pexpire(key, ms),
+    };
+  } catch (err) {
+    console.error('[claudeGuard] Upstash Redis init failed — using in-memory fallback', err);
+    return null;
+  }
 }
 
 export async function verifySupabaseJwt(token: string): Promise<GuardUser | null> {
@@ -115,26 +127,38 @@ export async function verifySupabaseJwt(token: string): Promise<GuardUser | null
   const key = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
   if (!url || !key) return null;
 
-  const supabase = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) return null;
-  const email = data.user.email?.trim() ?? '';
-  if (!email) return null;
-  return { id: data.user.id, email };
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data.user) return null;
+    const email = data.user.email?.trim() ?? '';
+    if (!email) return null;
+    return { id: data.user.id, email };
+  } catch (err) {
+    console.error('[claudeGuard] JWT verify failed', err);
+    return null;
+  }
 }
 
-export function productionGuardDeps(): ClaudeGuardDeps {
+export async function productionGuardDeps(): Promise<ClaudeGuardDeps> {
+  const upstash = await createUpstashStore();
+  if (!upstash) {
+    console.warn(
+      '[claudeGuard] Upstash not configured — in-memory rate limit (per-instance). Fine for personal use; add UPSTASH_REDIS_* for durable multi-instance limits.',
+    );
+  }
   return {
     verifyJwt: verifySupabaseJwt,
-    rateLimitStore: createUpstashStore(),
+    rateLimitStore: upstash ?? createMemoryRateLimitStore(),
     adminEmails: process.env.ADMIN_EMAILS ?? '',
   };
 }
 
 export async function gateClaudeRequest(
-  req: Pick<VercelRequest, 'headers'>,
+  req: GuardRequest,
   opts: {
     requireOperator: boolean;
     bucket: string;
@@ -162,16 +186,10 @@ export async function gateClaudeRequest(
     };
   }
 
-  if (!deps.rateLimitStore) {
-    return {
-      ok: false,
-      status: 503,
-      error: 'Rate limiter not configured (set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN)',
-    };
-  }
-
+  // Upstash is optional. A missing store must not 503 Claude routes.
+  const store = deps.rateLimitStore ?? createMemoryRateLimitStore();
   const { allowed } = await consumeFixedWindowLimit(
-    deps.rateLimitStore,
+    store,
     user.id,
     opts.limit,
     opts.windowMs ?? DEFAULT_WINDOW_MS,
@@ -189,10 +207,16 @@ export async function gateClaudeRequest(
   return { ok: true, user, isAdmin };
 }
 
-/** Convenience wrapper used by the Vercel handlers. */
 export async function gateClaudeRoute(
-  req: VercelRequest,
+  req: GuardRequest,
   opts: { requireOperator: boolean; bucket: string; limit: number },
 ): Promise<GateResult> {
-  return gateClaudeRequest(req, opts, productionGuardDeps());
+  return gateClaudeRequest(req, opts, await productionGuardDeps());
+}
+
+export function jsonHandlerError(res: { headersSent?: boolean; status: (n: number) => { json: (b: unknown) => unknown } }, err: unknown, label: string): void {
+  console.error(label, err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
 }

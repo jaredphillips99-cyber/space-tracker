@@ -20,25 +20,55 @@ import type { Session } from '@supabase/supabase-js';
 async function resolveAuth(session: Session | null) {
   const setAuthState = useStore.getState().setAuthState;
   if (!session) {
-    setAuthState({ isAuthenticated: false, isAdmin: false });
+    setAuthState({
+      isAuthenticated: false,
+      isAdmin: false,
+      email: null,
+      operatorCheckFailed: false,
+    });
     return;
   }
+  const sessionEmail = session.user?.email?.trim() || null;
   try {
     const res = await fetch('/api/me', {
       headers: { Authorization: `Bearer ${session.access_token}` },
     });
     if (!res.ok) {
-      // Signed in locally but token rejected — treat as authenticated reader
-      setAuthState({ isAuthenticated: true, isAdmin: false });
+      // Signed in locally but /api/me failed — fail closed on isAdmin.
+      console.info('[auth] /api/me non-OK', { status: res.status, email: sessionEmail });
+      setAuthState({
+        isAuthenticated: true,
+        isAdmin: false,
+        email: sessionEmail,
+        operatorCheckFailed: true,
+      });
       return;
     }
-    const body = await res.json() as { authenticated?: boolean; isAdmin?: boolean };
+    const body = await res.json() as {
+      authenticated?: boolean;
+      isAdmin?: boolean;
+      email?: string | null;
+    };
+    const email = (body.email ?? sessionEmail)?.trim() || null;
+    console.info('[auth] /api/me', {
+      authenticated: true,
+      isAdmin: !!body.isAdmin,
+      email,
+    });
     setAuthState({
       isAuthenticated: true,
       isAdmin: !!body.isAdmin,
+      email,
+      operatorCheckFailed: false,
     });
-  } catch {
-    setAuthState({ isAuthenticated: true, isAdmin: false });
+  } catch (err) {
+    console.info('[auth] /api/me failed', err);
+    setAuthState({
+      isAuthenticated: true,
+      isAdmin: false,
+      email: sessionEmail,
+      operatorCheckFailed: true,
+    });
   }
 }
 

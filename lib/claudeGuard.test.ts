@@ -50,9 +50,15 @@ describe('parseAdminEmails / isOperatorEmail', () => {
     assert.equal(isOperatorEmail('jared@example.com', '   '), false);
   });
 
-  it('allowlist match is case-insensitive', () => {
-    assert.equal(isOperatorEmail('JARED@example.com', 'jared@example.com'), true);
-    assert.equal(isOperatorEmail('reader@example.com', 'jared@example.com'), false);
+  it('strips wrapping quotes from env-dashboard pasted values', () => {
+    assert.deepEqual(
+      parseAdminEmails('"jared@example.com", \'other@example.com\''),
+      ['jared@example.com', 'other@example.com'],
+    );
+    assert.equal(
+      isOperatorEmail('jared@example.com', '"jared@example.com"'),
+      true,
+    );
   });
 });
 
@@ -164,14 +170,14 @@ describe('durable rate limit (shared store ≈ Redis across instances)', () => {
     if (!a2.ok) assert.equal(a2.status, 429);
   });
 
-  it('missing store fail-closes with 503 (no in-memory production fallback)', async () => {
+  it('missing store falls back to in-memory (Upstash is optional)', async () => {
     const result = await gateClaudeRequest(
       req('Bearer op-token'),
       { requireOperator: true, bucket: 'analyze', limit: 10 },
       deps({ rateLimitStore: null }),
     );
-    assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.status, 503);
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.isAdmin, true);
   });
 
   it('consumeFixedWindowLimit itself is store-backed, not process-local', async () => {
@@ -187,15 +193,40 @@ describe('durable rate limit (shared store ≈ Redis across instances)', () => {
 });
 
 describe('handler wiring', () => {
-  it('Claude routes import gateClaudeRequest and no longer use in-memory rateLimitMap', () => {
+  it('Claude routes import gateClaudeRoute from root lib/claudeGuard (no static Redis)', () => {
     for (const file of ['api/analyze.ts', 'api/portfolio.ts', 'api/retirement.ts']) {
       const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
       assert.match(src, /gateClaudeRoute/);
+      assert.match(src, /from ['"]\.\.\/lib\/claudeGuard/);
+      assert.doesNotMatch(src, /@investai\/claude-guard/);
       assert.doesNotMatch(src, /rateLimitMap/);
     }
   });
 
+  it('lib/claudeGuard.ts never statically imports Upstash or supabase', () => {
+    const src = readFileSync(new URL('./claudeGuard.ts', import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /^import .*@upstash\/redis/m);
+    assert.doesNotMatch(src, /^import .*@supabase\/supabase-js/m);
+    assert.match(src, /await import\('@upstash\/redis'\)/);
+    assert.match(src, /await import\('@supabase\/supabase-js'\)/);
+  });
+
+  it('api/me has no static claudeGuard / Redis / supabase import (boot-safe unauth GET)', () => {
+    const src = readFileSync(new URL('../api/me.ts', import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /^import .*from ['"]\.\.\/lib\/claudeGuard/m);
+    assert.doesNotMatch(src, /^import .*@upstash\/redis/m);
+    assert.doesNotMatch(src, /^import .*@supabase\/supabase-js/m);
+    assert.match(src, /authenticated: false/);
+    assert.match(src, /import\('\.\.\/lib\/claudeGuard/);
+  });
+
   it('dead api/edgar.ts is not present', () => {
     assert.equal(existsSync(new URL('../api/edgar.ts', import.meta.url)), false);
+  });
+
+  it('api/prices does not silently drop tickers past 50', () => {
+    const src = readFileSync(new URL('../api/prices.ts', import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /slice\(0,\s*50\)/);
+    assert.match(src, /MAX_PRICE_TICKERS/);
   });
 });
