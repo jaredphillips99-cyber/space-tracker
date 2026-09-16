@@ -54,7 +54,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {/* Nav */}
           <nav className="flex items-center gap-1">
             {NAV_LINKS.map(({ to, label }) => {
-              const active = location.pathname === to;
+              const active = to === '/'
+                ? location.pathname === '/' || location.pathname === '/calendar'
+                : location.pathname === to;
               return (
                 <Link
                   key={to}
