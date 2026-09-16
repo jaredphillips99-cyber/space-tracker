@@ -207,8 +207,12 @@ one re-run post-deploy to trigger its first real Supabase write.
 
 Yahoo Finance → `api/prices.ts` (Vercel serverless)
   Never call yahoo-finance2 from the browser. Cache 5 minutes. On error:
-  `fetchError: true`, UI shows last cached values. Works for ANY ticker
-  symbol — used by Portfolio for external positions too. Has a
+  `fetchError: true`, UI shows last cached values (never invents a quote).
+  Works for ANY ticker symbol — used by Portfolio for external positions too.
+  Hard cap is 120 (safety rail, not the book size); client loaders
+  (`src/lib/fetchPrices.ts`) chunk the full `ALL_TICKERS` list into parallel
+  batches of 40. `SYMBOL_OVERRIDES` is only for Yahoo listings that differ
+  from the book ticker — currently empty. Has a
   `quoteType === 'CRYPTOCURRENCY'` short-circuit branch that skips the
   stock-only `quoteSummary` round-trip for crypto symbols.
 
@@ -569,10 +573,15 @@ src/components/PortfolioAuthGate.tsx           Portfolio-tab anonymous/admin gat
 src/components/AuthGate.tsx                    /admin route login screen (magic link;
                                                 does NOT grant operator access)
 src/components/Onboarding/OnboardingModal.tsx  per-tab onboarding cards (NOT per-feature)
-lib/claudeGuard.ts                             JWT + ADMIN_EMAILS + Upstash rate limit
-                                                for Claude routes (repo-root lib/, NOT api/_shared)
+packages/claude-guard                          JWT + ADMIN_EMAILS + Upstash rate limit
+                                                (`file:` workspace package `@investai/claude-guard`).
+                                                Do NOT relative-import this from api/*.ts as
+                                                `../lib/claudeGuard` — that 500s on Vercel.
 api/me.ts                                      GET operator status for the signed-in session
 src/lib/authHeaders.ts                         attaches Bearer token to Claude fetches
+src/lib/fetchPrices.ts                         batched /api/prices client (chunks of 40)
+src/lib/priceBatches.ts                        chunk + merge helpers; omitted tickers → fetchError
+src/lib/operatorAccess.ts                      signed-in-but-not-admin copy helper
 api/prices.ts                                  Yahoo Finance proxy (+ crypto short-circuit branch)
 api/analyze.ts                                 Anthropic streaming proxy, stock analysis
                                                 (JWT + operator allowlist + Upstash 10/hr)
@@ -965,11 +974,13 @@ cannot catch.
 
 ### Do not factor shared code into an api/_shared/ (or any underscore-prefixed)
 module and import it across Vercel functions — it deploys broken with no
-local-build signal. Duplicate small `api/` helpers inline, **or** put shared
-server helpers in repo-root `lib/` (traced/bundled as a normal import — this
-is how `lib/claudeGuard.ts` is shared). Always curl the production endpoint
-after deploying a new/changed `api/*.ts` function rather than trusting tsc/build
-alone.
+local-build signal. Duplicate small `api/` helpers inline, **or** share via a
+`file:` workspace package imported through `node_modules` (this is how
+`@investai/claude-guard` is shared). Do NOT relative-import repo-root
+`lib/*.ts` from `api/*.ts` — that 500s at function init on this Vercel
+setup (confirmed production 2026-09-16). Always curl the production
+endpoint after deploying a new/changed `api/*.ts` function rather than
+trusting tsc/build alone.
 
 ### Ticker counts should not be hardcoded in UI copy
 Use "the full tracked universe" to stay resilient to future changes.
@@ -2629,4 +2640,62 @@ src/pages/Calendar.tsx
 **Files modified:** src/App.tsx · src/components/Layout/index.tsx ·
 src/components/NewsFeed/index.tsx · src/components/Onboarding/OnboardingModal.tsx ·
 vite.config.ts · package.json · CLAUDE.md
+
+---
+
+### September 16, 2026 — Yahoo 50-cap + /api/me 500s + non-admin analysis UX
+
+**Bug 1 (live-confirmed):** `GET /api/prices?tickers=<full book>` returned
+exactly 50 rows. The 16 Sep universe expand left the book at 65; the handler
+silently `.slice(0, 50)`'d the list. Missing on production: ARM, MRVL, CSCO,
+COHR, ORCL, SNOW, DDOG, NOW, HUBB, DLR, CRWD, PANW, NET, ZS, FTNT (entire
+cyber sleeve + the tail of the AI expansion). Client `useLivePrice` sent all
+`ALL_TICKERS` in one query, so the tail never loaded — dashboard/index/news
+showed "—" not ERR.
+
+**Fix:** `MAX_PRICE_TICKERS = 120` (safety rail, not the book size). Overflow
+tickers are returned as `fetchError: true` stubs instead of being dropped.
+Missing `regularMarketPrice` is also `fetchError` (no invented $0 last).
+`SYMBOL_OVERRIDES` kept as an empty documented map — none of the current
+book needs a Yahoo remap. Client `fetchAllPrices()` chunks into parallel
+batches of 40 and merges so every requested ticker gets a row; a failed
+batch cannot blank the rest of the book. News/Dashboard/Index already read
+the App-level store, so they inherit the full book. Net Worth linked
+portfolio value uses the same helper.
+
+**Bug 2 (live-confirmed):** every handler that imported `../lib/claudeGuard`
+(`GET /api/me`, `/api/analyze`, `/api/portfolio`, `/api/retirement`) returned
+`FUNCTION_INVOCATION_FAILED` 500 on production — the function never ran,
+so even an allowlisted operator got `isAdmin: false` and no Run Analysis
+button. Same class of Vercel bundling failure as the Aug 6 `api/_shared`
+hotfix. Relative `lib/*.ts` imports are **not** bundled here.
+
+Auth plumbing itself was correct: `/api/me` + `isOperatorEmail` trim/lowercase
+(and now strip wrapping quotes from env-dashboard pasted values); the client
+already sent `Authorization: Bearer` on `/api/me` and re-ran after magic-link
+via `onAuthStateChange`. Magic-link still does not grant admin.
+
+**Fix:** moved the guard to `packages/claude-guard` and import it as
+`@investai/claude-guard` (`file:` workspace package through node_modules).
+Redis and Supabase load lazily so a GET/405 does not eval those packages.
+P0 JWT / `ADMIN_EMAILS` / Upstash limits unchanged. Authenticated non-admins
+now see "Signed in as X — not on operator allowlist" next to the analysis
+controls instead of a silent missing button; if `/api/me` itself fails the
+copy is "operator status unavailable".
+
+**Verification:** `npm test` · `npx tsc --noEmit` · `npm run build`. Curl
+production after deploy: `/api/me` must 200 JSON (not 500); `/api/prices`
+with the full book must return one row per ticker.
+
+**Files created:** packages/claude-guard/package.json ·
+packages/claude-guard/index.js · packages/claude-guard/index.d.ts ·
+src/lib/priceBatches.ts · src/lib/priceBatches.test.ts ·
+src/lib/fetchPrices.ts · src/lib/operatorAccess.ts ·
+src/lib/operatorAccess.test.ts
+**Files modified:** api/prices.ts · api/me.ts · api/analyze.ts ·
+api/portfolio.ts · api/retirement.ts · src/hooks/useLivePrice.ts ·
+src/App.tsx · src/store/useStore.ts · src/components/StockDetail.tsx ·
+src/components/Layout/index.tsx · src/components/networth/NetWorthTab.tsx ·
+lib/claudeGuard.test.ts · package.json · CLAUDE.md
+**Files deleted:** lib/claudeGuard.ts
 

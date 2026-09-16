@@ -8,11 +8,22 @@ const ANALYSIS_STORAGE_KEY = 'space-tracker-analyses';
 // isAuthenticated = has a valid magic-link session (portfolio/networth persist)
 // isAdmin         = email is on ADMIN_EMAILS (Run Analysis / operator actions)
 // Magic-link login does NOT imply admin — /api/me is the source of truth.
+// sessionEmail    = signed-in address for UX copy (not an auth signal).
+// operatorCheckFailed = /api/me did not return 200; isAdmin stays false.
+
+interface AuthSnapshot {
+  isAuthenticated: boolean;
+  isAdmin: boolean;
+  email?: string | null;
+  operatorCheckFailed?: boolean;
+}
 
 interface ExtendedAppState extends AppState {
   isAuthenticated: boolean;
   isAdmin: boolean;
-  setAuthState: (next: { isAuthenticated: boolean; isAdmin: boolean }) => void;
+  sessionEmail: string | null;
+  operatorCheckFailed: boolean;
+  setAuthState: (next: AuthSnapshot) => void;
 }
 
 export const useStore = create<ExtendedAppState>()(
@@ -28,11 +39,15 @@ export const useStore = create<ExtendedAppState>()(
       sortDir: 'desc',
       isAuthenticated: false,
       isAdmin: false,
+      sessionEmail: null,
+      operatorCheckFailed: false,
 
       // ── Auth actions ───────────────────────────────────────────────────────
       setAuthState: (next) => set({
         isAuthenticated: next.isAuthenticated,
         isAdmin: next.isAdmin,
+        sessionEmail: next.email === undefined ? get().sessionEmail : next.email,
+        operatorCheckFailed: next.operatorCheckFailed ?? false,
       }),
 
       // ── Price actions ──────────────────────────────────────────────────────

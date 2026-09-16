@@ -8,6 +8,7 @@ import { usePortfolioSync } from '../../hooks/usePortfolioSync';
 import { useFinancialProfile, type FinancialProfile } from '../../hooks/useFinancialProfile';
 import { readSessionPositions, type PortfolioPosition } from '../compare/PortfolioTab';
 import { classifyTicker } from '../../config/gics';
+import { fetchAllPrices } from '../../lib/fetchPrices';
 import AddAccountPanel from './AddAccountPanel';
 import { KIND_DISPLAY } from './kindDisplay';
 import { jsonAuthHeaders } from '../../lib/authHeaders';
@@ -139,18 +140,14 @@ function useLinkedPortfolioValue(): {
       setLoading(true);
       try {
         const tickers = [...new Set(positions.map(p => p.ticker.toUpperCase()))];
-        const res = await fetch(`/api/prices?tickers=${encodeURIComponent(tickers.join(','))}`);
-        if (!res.ok) throw new Error('price fetch failed');
-        const data = await res.json();
+        const { prices } = await fetchAllPrices(tickers);
         if (cancelled) return;
 
         const priceMap = new Map<string, number>();
-        if (Array.isArray(data)) {
-          for (const d of data) {
-            // fetchError entries come back with price: 0 — a valid-looking number
-            // that must be treated as "not found", same guard as PortfolioTab
-            if (!d.fetchError && d.price != null) priceMap.set(d.ticker, d.price);
-          }
+        for (const d of prices) {
+          // fetchError entries come back with price: 0 — a valid-looking number
+          // that must be treated as "not found", same guard as PortfolioTab
+          if (!d.fetchError && d.price != null) priceMap.set(d.ticker, d.price);
         }
 
         let total = 0;

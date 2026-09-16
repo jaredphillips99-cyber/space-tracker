@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { gateClaudeRoute } from '../lib/claudeGuard';
+import { gateClaudeRoute } from '@investai/claude-guard';
 
 // ─── Account block ────────────────────────────────────────────────────────────
 

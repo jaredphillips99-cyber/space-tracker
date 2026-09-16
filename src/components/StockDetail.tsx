@@ -7,6 +7,7 @@ import { ConvictionBadge } from './ConvictionBadge';
 import ReactMarkdown from 'react-markdown';
 import type { StockAnalysis, AnalystRating } from '../types';
 import { TICKERS } from '../config/tickers';
+import { operatorAccessMessage } from '../lib/operatorAccess';
 
 // Re-import constants directly to avoid circular issues
 const SECTOR_COLOR_MAP: Record<string, string> = {
@@ -545,6 +546,9 @@ export function StockDetail() {
   const storedAnalysis = useStore(s => ticker ? s.analyses[ticker] : undefined);
   const livePrice      = useStore(s => ticker ? s.prices[ticker] : undefined);
   const isAdmin        = useStore(s => s.isAdmin);
+  const isAuthenticated = useStore(s => s.isAuthenticated);
+  const sessionEmail   = useStore(s => s.sessionEmail);
+  const operatorCheckFailed = useStore(s => s.operatorCheckFailed);
 
   const [edgarError, setEdgarError]            = useState<string | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -902,6 +906,24 @@ export function StockDetail() {
             )}
           </div>
         )}
+        {isAuthenticated && !isAdmin && (
+          <div
+            role="status"
+            style={{
+              marginBottom: '24px',
+              padding: '10px 14px',
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
+              background: 'var(--bg-surface)',
+              color: 'var(--text-secondary)',
+              fontFamily: 'DM Sans, sans-serif',
+              fontSize: '13px',
+              lineHeight: 1.5,
+            }}
+          >
+            {operatorAccessMessage({ email: sessionEmail, operatorCheckFailed })}
+          </div>
+        )}
 
         {/* ── Loading indicator ──────────────────────────────────────────── */}
         {isBusy && (
@@ -1041,7 +1063,11 @@ export function StockDetail() {
           <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '60px 20px', fontFamily: 'DM Sans, sans-serif' }}>
             {displayErr
               ? 'Analysis failed — check the error above and try again.'
-              : 'Click "Run Analysis" to generate an AI-powered earnings breakdown.'}
+              : isAdmin
+                ? 'Click "Run Analysis" to generate an AI-powered earnings breakdown.'
+                : isAuthenticated
+                  ? 'Operator allowlist required to run analysis.'
+                  : 'No analysis has been run for this ticker yet.'}
           </div>
         )}
 

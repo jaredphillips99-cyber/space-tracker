@@ -163,7 +163,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <button
                 onClick={async () => {
                   await signOut();
-                  setAuthState({ isAuthenticated: false, isAdmin: false });
+                  setAuthState({
+                    isAuthenticated: false,
+                    isAdmin: false,
+                    email: null,
+                    operatorCheckFailed: false,
+                  });
                 }}
                 style={{
                   fontFamily: 'Space Mono, monospace',

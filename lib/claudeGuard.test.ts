@@ -10,7 +10,7 @@ import {
   parseAdminEmails,
   type ClaudeGuardDeps,
   type GuardUser,
-} from './claudeGuard.ts';
+} from '@investai/claude-guard';
 
 const operator: GuardUser = { id: 'user-op', email: 'jared@example.com' };
 const reader: GuardUser = { id: 'user-reader', email: 'reader@example.com' };
@@ -50,9 +50,15 @@ describe('parseAdminEmails / isOperatorEmail', () => {
     assert.equal(isOperatorEmail('jared@example.com', '   '), false);
   });
 
-  it('allowlist match is case-insensitive', () => {
-    assert.equal(isOperatorEmail('JARED@example.com', 'jared@example.com'), true);
-    assert.equal(isOperatorEmail('reader@example.com', 'jared@example.com'), false);
+  it('strips wrapping quotes from env-dashboard pasted values', () => {
+    assert.deepEqual(
+      parseAdminEmails('"jared@example.com", \'other@example.com\''),
+      ['jared@example.com', 'other@example.com'],
+    );
+    assert.equal(
+      isOperatorEmail('jared@example.com', '"jared@example.com"'),
+      true,
+    );
   });
 });
 
@@ -187,15 +193,29 @@ describe('durable rate limit (shared store ≈ Redis across instances)', () => {
 });
 
 describe('handler wiring', () => {
-  it('Claude routes import gateClaudeRequest and no longer use in-memory rateLimitMap', () => {
+  it('Claude routes import gateClaudeRoute from the workspace package (not a relative lib/ path)', () => {
     for (const file of ['api/analyze.ts', 'api/portfolio.ts', 'api/retirement.ts']) {
       const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
       assert.match(src, /gateClaudeRoute/);
+      assert.match(src, /@investai\/claude-guard/);
+      assert.doesNotMatch(src, /from ['"]\.\.\/lib\/claudeGuard/);
       assert.doesNotMatch(src, /rateLimitMap/);
     }
   });
 
   it('dead api/edgar.ts is not present', () => {
     assert.equal(existsSync(new URL('../api/edgar.ts', import.meta.url)), false);
+  });
+
+  it('api/me imports the workspace package, not a relative lib/ path', () => {
+    const src = readFileSync(new URL('../api/me.ts', import.meta.url), 'utf8');
+    assert.match(src, /@investai\/claude-guard/);
+    assert.doesNotMatch(src, /from ['"]\.\.\/lib\/claudeGuard/);
+  });
+
+  it('api/prices does not silently drop tickers past 50', () => {
+    const src = readFileSync(new URL('../api/prices.ts', import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /slice\(0,\s*50\)/);
+    assert.match(src, /MAX_PRICE_TICKERS/);
   });
 });

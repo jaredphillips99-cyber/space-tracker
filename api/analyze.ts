@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Anthropic from '@anthropic-ai/sdk';
-import { gateClaudeRoute } from '../lib/claudeGuard';
+import { gateClaudeRoute } from '@investai/claude-guard';
 
 // ─── Request body type ────────────────────────────────────────────────────────
 // EDGAR is fetched browser-side (avoids Vercel IP blocks from SEC).

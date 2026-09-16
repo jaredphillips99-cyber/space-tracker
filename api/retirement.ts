@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { gateClaudeRoute } from '../lib/claudeGuard';
+import { gateClaudeRoute } from '@investai/claude-guard';
 
 // ─── Shared net-worth prompt helpers ─────────────────────────────────────────
 // Duplicated (not imported) from api/portfolio.ts's buildNetWorthPrompt — the

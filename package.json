@@ -8,9 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test lib/*.test.ts src/lib/earningsCalendar.test.ts"
+    "test": "node --experimental-strip-types --test lib/*.test.ts src/lib/*.test.ts"
   },
   "dependencies": {
+    "@investai/claude-guard": "file:./packages/claude-guard",
     "@anthropic-ai/sdk": "^0.97.1",
     "@supabase/supabase-js": "^2.107.0",
     "@upstash/redis": "^1.38.4",

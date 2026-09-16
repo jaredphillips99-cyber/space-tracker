@@ -3,7 +3,7 @@ import {
   extractBearerToken,
   isOperatorEmail,
   verifySupabaseJwt,
-} from '../lib/claudeGuard';
+} from '@investai/claude-guard';
 
 /**
  * GET /api/me
