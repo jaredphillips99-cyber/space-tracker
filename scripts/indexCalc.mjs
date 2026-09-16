@@ -67,6 +67,12 @@ const PRIMARY_SECTOR = {
   SMCI: 'ai_infrastructure', AVGO: 'ai_infrastructure', INTC: 'ai_infrastructure',
   DELL: 'ai_infrastructure', PWR: 'ai_infrastructure', ETN: 'ai_infrastructure',
   EQIX: 'ai_infrastructure', GNRC: 'ai_infrastructure',
+  ASML: 'ai_infrastructure', AMAT: 'ai_infrastructure', LRCX: 'ai_infrastructure',
+  KLAC: 'ai_infrastructure', TSM: 'ai_infrastructure', AMD: 'ai_infrastructure',
+  ARM: 'ai_infrastructure', MRVL: 'ai_infrastructure', CSCO: 'ai_infrastructure',
+  COHR: 'ai_infrastructure', ORCL: 'ai_infrastructure', SNOW: 'ai_infrastructure',
+  DDOG: 'ai_infrastructure', NOW: 'ai_infrastructure', HUBB: 'ai_infrastructure',
+  DLR: 'ai_infrastructure',
   // Clean Energy / Nuclear
   CEG: 'clean_energy', VST: 'clean_energy', BWXT: 'clean_energy', GEV: 'clean_energy',
   BE: 'clean_energy', CCJ: 'clean_energy', LEU: 'clean_energy', NXE: 'clean_energy',
@@ -91,8 +97,11 @@ export const INDEX_BASE_DATE = '2025-07-31';
 // A ticker enters the index at the first available close AFTER the month it was
 // introduced to the app. Tickers absent from this map are eligible immediately.
 const TICKER_INTRO_MONTH = {
-  // (none currently — add 'TICKER: "YYYY-MM"' entries on the next universe
-  // expansion to float a new name on starting the following month)
+  // Sep 2026 universe expansion — float on from the first October 2026 close.
+  ASML: '2026-09', AMAT: '2026-09', LRCX: '2026-09', KLAC: '2026-09',
+  TSM:  '2026-09', AMD:  '2026-09', ARM:  '2026-09', MRVL: '2026-09',
+  CSCO: '2026-09', COHR: '2026-09', ORCL: '2026-09', SNOW: '2026-09',
+  DDOG: '2026-09', NOW:  '2026-09', HUBB: '2026-09', DLR:  '2026-09',
 };
 
 /** First calendar date (UTC) a ticker becomes eligible: 1st of the month AFTER

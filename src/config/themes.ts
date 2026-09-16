@@ -30,6 +30,8 @@ export type SubTheme =
   | 'satellite_and_earth_observation'
   // AI infrastructure
   | 'ai_compute_and_semis'
+  | 'wafer_fab_equipment'
+  | 'gpu_cloud_and_capacity'
   | 'ai_power_and_cooling'
   | 'ai_applications'
   | 'hyperscale_cloud'
@@ -60,8 +62,10 @@ export const SUBTHEME_DISPLAY: Record<SubTheme, { label: string; parent: Theme }
   satellite_and_earth_observation: { label: 'Satellite & Earth Observation',  parent: 'space_economy' },
   // AI infrastructure
   ai_compute_and_semis:            { label: 'AI Compute & Semis',             parent: 'ai_infrastructure' },
+  wafer_fab_equipment:             { label: 'Wafer-Fab Equipment',            parent: 'ai_infrastructure' },
+  gpu_cloud_and_capacity:          { label: 'GPU Cloud & Capacity',           parent: 'ai_infrastructure' },
   ai_power_and_cooling:            { label: 'AI Power & Cooling',             parent: 'ai_infrastructure' },
-  ai_applications:                 { label: 'AI Applications & Platforms',    parent: 'ai_infrastructure' },
+  ai_applications:                 { label: 'Data Platforms & AI Apps',       parent: 'ai_infrastructure' },
   hyperscale_cloud:                { label: 'Hyperscale Cloud',               parent: 'ai_infrastructure' },
   ai_networking_and_hardware:      { label: 'AI Networking & Hardware',       parent: 'ai_infrastructure' },
   cybersecurity:                   { label: 'Cybersecurity',                  parent: 'ai_infrastructure' },
@@ -115,29 +119,48 @@ export const TICKER_THEME_MAP: Record<string, { theme: Theme; subTheme: SubTheme
   SPCX: { theme: 'space_economy', subTheme: 'launch_and_space_systems' }, // crossover: ai_infrastructure via xAI/Colossus
 
   // ── AI infrastructure ──
+  // Core semis / foundry (designers, memory, custom ASICs — not GPU-cloud or miners)
   NVDA: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
-  CRWV: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
-  IREN: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
-  NBIS: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
-  CIFR: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
-  RIOT: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
-  VRT:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
-  MOD:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
-  PLTR: { theme: 'ai_infrastructure', subTheme: 'ai_applications' },
-  MSFT: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
-  GOOGL:{ theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
-  AMZN: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
-  META: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
-  ANET: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
   MU:   { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
-  SMCI: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
   AVGO: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
   INTC: { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
-  DELL: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
+  TSM:  { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
+  AMD:  { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
+  ARM:  { theme: 'ai_infrastructure', subTheme: 'ai_compute_and_semis' },
+  // Wafer-fab equipment (tools, not chips)
+  ASML: { theme: 'ai_infrastructure', subTheme: 'wafer_fab_equipment' },
+  AMAT: { theme: 'ai_infrastructure', subTheme: 'wafer_fab_equipment' },
+  LRCX: { theme: 'ai_infrastructure', subTheme: 'wafer_fab_equipment' },
+  KLAC: { theme: 'ai_infrastructure', subTheme: 'wafer_fab_equipment' },
+  // GPU cloud + miner-to-AI capacity (adjacent to core compute, not the same sleeve)
+  CRWV: { theme: 'ai_infrastructure', subTheme: 'gpu_cloud_and_capacity' },
+  IREN: { theme: 'ai_infrastructure', subTheme: 'gpu_cloud_and_capacity' },
+  NBIS: { theme: 'ai_infrastructure', subTheme: 'gpu_cloud_and_capacity' },
+  CIFR: { theme: 'ai_infrastructure', subTheme: 'gpu_cloud_and_capacity' }, // demoted from ai_compute_and_semis — still primarily a Bitcoin miner
+  RIOT: { theme: 'ai_infrastructure', subTheme: 'gpu_cloud_and_capacity' }, // demoted from ai_compute_and_semis — still primarily a Bitcoin miner
+  VRT:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
+  MOD:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
   PWR:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' }, // crossover: clean_energy_nuclear grid work
   ETN:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
   EQIX: { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
   GNRC: { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
+  HUBB: { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' },
+  DLR:  { theme: 'ai_infrastructure', subTheme: 'ai_power_and_cooling' }, // data-center REIT, EQIX peer
+  PLTR: { theme: 'ai_infrastructure', subTheme: 'ai_applications' },
+  SNOW: { theme: 'ai_infrastructure', subTheme: 'ai_applications' },
+  DDOG: { theme: 'ai_infrastructure', subTheme: 'ai_applications' },
+  NOW:  { theme: 'ai_infrastructure', subTheme: 'ai_applications' },
+  MSFT: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
+  GOOGL:{ theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
+  AMZN: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
+  META: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
+  ORCL: { theme: 'ai_infrastructure', subTheme: 'hyperscale_cloud' },
+  ANET: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
+  SMCI: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
+  DELL: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
+  MRVL: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
+  CSCO: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
+  COHR: { theme: 'ai_infrastructure', subTheme: 'ai_networking_and_hardware' },
   CRWD: { theme: 'ai_infrastructure', subTheme: 'cybersecurity' },
   PANW: { theme: 'ai_infrastructure', subTheme: 'cybersecurity' },
   NET:  { theme: 'ai_infrastructure', subTheme: 'cybersecurity' },
@@ -157,7 +180,7 @@ export const TICKER_THEME_MAP: Record<string, { theme: Theme; subTheme: SubTheme
   LEU:  { theme: 'clean_energy_nuclear', subTheme: 'nuclear_components_and_fuel' },
   OKLO: { theme: 'clean_energy_nuclear', subTheme: 'advanced_reactors' },
   NNE:  { theme: 'clean_energy_nuclear', subTheme: 'advanced_reactors' },
-  NXE:  { theme: 'clean_energy_nuclear', subTheme: 'advanced_reactors' },
+  NXE:  { theme: 'clean_energy_nuclear', subTheme: 'nuclear_components_and_fuel' }, // uranium miner, not an advanced-reactor developer
   GEV:  { theme: 'clean_energy_nuclear', subTheme: 'grid_and_alt_generation' },
   BE:   { theme: 'clean_energy_nuclear', subTheme: 'grid_and_alt_generation' },
 };

@@ -69,6 +69,24 @@ const TICKERS = [
   { ticker: 'EQIX', sector: 'ai_infrastructure' },
   { ticker: 'GNRC', sector: 'ai_infrastructure' },
 
+  // AI Infrastructure (added Sep 2026 — Scout adds + watchlist)
+  { ticker: 'ASML', sector: 'ai_infrastructure' },
+  { ticker: 'AMAT', sector: 'ai_infrastructure' },
+  { ticker: 'LRCX', sector: 'ai_infrastructure' },
+  { ticker: 'KLAC', sector: 'ai_infrastructure' },
+  { ticker: 'TSM',  sector: 'ai_infrastructure' },
+  { ticker: 'AMD',  sector: 'ai_infrastructure' },
+  { ticker: 'ARM',  sector: 'ai_infrastructure' },
+  { ticker: 'MRVL', sector: 'ai_infrastructure' },
+  { ticker: 'CSCO', sector: 'ai_infrastructure' },
+  { ticker: 'COHR', sector: 'ai_infrastructure' },
+  { ticker: 'ORCL', sector: 'ai_infrastructure' },
+  { ticker: 'SNOW', sector: 'ai_infrastructure' },
+  { ticker: 'DDOG', sector: 'ai_infrastructure' },
+  { ticker: 'NOW',  sector: 'ai_infrastructure' },
+  { ticker: 'HUBB', sector: 'ai_infrastructure' },
+  { ticker: 'DLR',  sector: 'ai_infrastructure' },
+
   // Cyber (added in 31→50 expansion)
   { ticker: 'CRWD', sector: 'cyber' },
   { ticker: 'PANW', sector: 'cyber' },
@@ -250,6 +268,22 @@ const COMPANY_ALIASES = {
   NET:  ['cloudflare'],
   ZS:   ['zscaler'],
   FTNT: ['fortinet'],
+  ASML: ['asml'],
+  AMAT: ['applied materials'],
+  LRCX: ['lam research'],
+  KLAC: ['kla'],
+  TSM:  ['taiwan semiconductor', 'tsmc'],
+  AMD:  ['advanced micro devices'],
+  ARM:  ['arm holdings'],
+  MRVL: ['marvell'],
+  CSCO: ['cisco'],
+  COHR: ['coherent'],
+  ORCL: ['oracle'],
+  SNOW: ['snowflake'],
+  DDOG: ['datadog'],
+  NOW:  ['servicenow'],
+  HUBB: ['hubbell'],
+  DLR:  ['digital realty'],
 };
 
 /**
