@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { gateClaudeRoute } from '@investai/claude-guard';
+import { gateClaudeRoute, jsonHandlerError } from '../lib/claudeGuard.js';
 
 // ─── Shared net-worth prompt helpers ─────────────────────────────────────────
 // Duplicated (not imported) from api/portfolio.ts's buildNetWorthPrompt — the
@@ -239,6 +239,7 @@ Keep the total response under 700 words. Be specific about dollar amounts and pe
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  try {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   // JWT required. Operator allowlist is NOT required — Retirement AI is a
@@ -288,5 +289,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return res.status(500).json({ error: msg });
+  }
+  } catch (err) {
+    jsonHandlerError(res, err, '[retirement]');
   }
 }

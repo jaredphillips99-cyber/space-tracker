@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Anthropic from '@anthropic-ai/sdk';
-import { gateClaudeRoute } from '@investai/claude-guard';
+import { gateClaudeRoute, jsonHandlerError } from '../lib/claudeGuard.js';
 
 // ─── Request body type ────────────────────────────────────────────────────────
 // EDGAR is fetched browser-side (avoids Vercel IP blocks from SEC).
@@ -211,22 +211,23 @@ function sseEvent(res: VercelResponse, event: string, data: unknown): void {
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
+  try {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
 
-  // JWT + operator allowlist BEFORE body validation so unauthenticated
-  // callers get 401, not 400. Run Analysis is operator-only.
-  const gate = await gateClaudeRoute(req, {
-    requireOperator: true,
-    bucket: 'analyze',
-    limit: 10,
-  });
-  if (!gate.ok) {
-    res.status(gate.status).json({ error: gate.error });
-    return;
-  }
+    // JWT + operator allowlist BEFORE body validation so unauthenticated
+    // callers get 401, not 400. Run Analysis is operator-only.
+    const gate = await gateClaudeRoute(req, {
+      requireOperator: true,
+      bucket: 'analyze',
+      limit: 10,
+    });
+    if (!gate.ok) {
+      res.status(gate.status).json({ error: gate.error });
+      return;
+    }
 
   const body = req.body as Partial<AnalyzeRequestBody>;
   const { ticker, earningsText, isSpeculative, hasReportedRevenue, filingMeta } = body;
@@ -311,5 +312,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     sseEvent(res, 'error', { message: err instanceof Error ? err.message : String(err) });
   } finally {
     res.end();
+  }
+  } catch (err) {
+    jsonHandlerError(res, err, '[analyze]');
   }
 }

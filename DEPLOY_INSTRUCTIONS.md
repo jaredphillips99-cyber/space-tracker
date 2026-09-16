@@ -150,11 +150,14 @@ Required:
   VITE_SUPABASE_URL           Supabase project URL
   VITE_SUPABASE_ANON_KEY      Supabase anon key
   ADMIN_EMAILS                comma-separated operator emails (server-only)
+
+Optional (durable multi-instance rate limits; recommended later for public/paid):
   UPSTASH_REDIS_REST_URL      Upstash Redis REST URL
   UPSTASH_REDIS_REST_TOKEN    Upstash Redis REST token
 
 Claude routes 401 without a valid Supabase JWT. /api/analyze also requires
-the caller's email to be listed in ADMIN_EMAILS. Missing Upstash vars → 503.
+the caller's email to be listed in ADMIN_EMAILS. Missing Upstash vars uses
+an in-memory per-instance limiter — it does NOT 503.
 
 Not required (Yahoo Finance uses no API key):
   yahoo-finance2 npm package handles prices with no credentials
@@ -178,8 +181,9 @@ Analysis button does nothing / returns error
   → Confirm you redeployed after adding the key (vercel --prod)
 
 "Too many requests" error on analysis
-  → Durable Upstash limiter (10 analyses/user/hour) is working
-  → Confirm UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are set
+  → Rate limiter (10 analyses/user/hour) is working
+  → With Upstash configured the count is durable across instances
+  → Without Upstash it is per-instance (hobby/personal)
   → Wait an hour, or raise the limit in api/analyze.ts (`limit: 10`)
 
 Build fails on deploy

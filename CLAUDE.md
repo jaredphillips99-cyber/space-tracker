@@ -464,15 +464,16 @@ VITE_SUPABASE_ANON_KEY       → Vercel dashboard → Settings → Environment V
 ADMIN_EMAILS                 → comma-separated operator emails (server-only). Magic-link
                                login does NOT grant admin. Empty allowlist = nobody can
                                Run Analysis. Rotate by editing the var + redeploying.
-UPSTASH_REDIS_REST_URL       → Upstash Redis REST URL (durable Claude rate limits)
-UPSTASH_REDIS_REST_TOKEN     → Upstash Redis REST token
+UPSTASH_REDIS_REST_URL       → Upstash Redis REST URL (optional durable rate limits)
+UPSTASH_REDIS_REST_TOKEN     → Upstash Redis REST token (optional)
 (Yahoo Finance requires no key — uses yahoo-finance2 npm package)
 
 Claude routes (`api/analyze`, `api/portfolio`, `api/retirement`) also read
 `SUPABASE_URL` / `SUPABASE_ANON_KEY` if set, falling back to the `VITE_*` pair
 for JWT verification. JWT is required; unauthenticated POSTs return 401.
 `api/analyze` additionally requires the caller's email to be on `ADMIN_EMAILS`.
-Missing Upstash vars → 503 (fail closed — no in-memory production fallback).
+Missing Upstash vars → in-memory per-instance rate limit (hobby/personal).
+Do not 503 Claude routes when Upstash is unset.
 
 Set for Production, Preview, AND Development. Missing any of the three
 Supabase-related vars throws a fatal init exception on load — this is exactly
@@ -573,10 +574,10 @@ src/components/PortfolioAuthGate.tsx           Portfolio-tab anonymous/admin gat
 src/components/AuthGate.tsx                    /admin route login screen (magic link;
                                                 does NOT grant operator access)
 src/components/Onboarding/OnboardingModal.tsx  per-tab onboarding cards (NOT per-feature)
-packages/claude-guard                          JWT + ADMIN_EMAILS + Upstash rate limit
-                                                (`file:` workspace package `@investai/claude-guard`).
-                                                Do NOT relative-import this from api/*.ts as
-                                                `../lib/claudeGuard` — that 500s on Vercel.
+lib/claudeGuard.ts                             JWT + ADMIN_EMAILS + optional Upstash
+                                                (lazy-import Redis/Supabase — never at
+                                                module load). Root lib/, included via
+                                                vercel.json includeFiles. NOT api/_shared.
 api/me.ts                                      GET operator status for the signed-in session
 src/lib/authHeaders.ts                         attaches Bearer token to Claude fetches
 src/lib/fetchPrices.ts                         batched /api/prices client (chunks of 40)
@@ -974,13 +975,13 @@ cannot catch.
 
 ### Do not factor shared code into an api/_shared/ (or any underscore-prefixed)
 module and import it across Vercel functions — it deploys broken with no
-local-build signal. Duplicate small `api/` helpers inline, **or** share via a
-`file:` workspace package imported through `node_modules` (this is how
-`@investai/claude-guard` is shared). Do NOT relative-import repo-root
-`lib/*.ts` from `api/*.ts` — that 500s at function init on this Vercel
-setup (confirmed production 2026-09-16). Always curl the production
-endpoint after deploying a new/changed `api/*.ts` function rather than
-trusting tsc/build alone.
+local-build signal. Duplicate small `api/` helpers inline, **or** put shared
+server helpers in repo-root `lib/` and list `includeFiles: "lib/**"` on
+`api/*.ts` in vercel.json. Never statically import `@upstash/redis` or
+`@supabase/supabase-js` from a module that `/api/me` loads at boot — lazy
+`import()` those inside the helper that needs them. Always curl the
+production endpoint after deploying a new/changed `api/*.ts` function rather
+than trusting tsc/build alone.
 
 ### Ticker counts should not be hardcoded in UI copy
 Use "the full tracked universe" to stay resilient to future changes.
@@ -2643,59 +2644,51 @@ vite.config.ts · package.json · CLAUDE.md
 
 ---
 
-### September 16, 2026 — Yahoo 50-cap + /api/me 500s + non-admin analysis UX
+### September 16, 2026 — Yahoo 50-cap + /api/me boot crash + optional Upstash
 
 **Bug 1 (live-confirmed):** `GET /api/prices?tickers=<full book>` returned
 exactly 50 rows. The 16 Sep universe expand left the book at 65; the handler
-silently `.slice(0, 50)`'d the list. Missing on production: ARM, MRVL, CSCO,
-COHR, ORCL, SNOW, DDOG, NOW, HUBB, DLR, CRWD, PANW, NET, ZS, FTNT (entire
-cyber sleeve + the tail of the AI expansion). Client `useLivePrice` sent all
-`ALL_TICKERS` in one query, so the tail never loaded — dashboard/index/news
-showed "—" not ERR.
+silently capped the list. Missing on production: ARM, MRVL, CSCO, COHR,
+ORCL, SNOW, DDOG, NOW, HUBB, DLR, CRWD, PANW, NET, ZS, FTNT.
 
-**Fix:** `MAX_PRICE_TICKERS = 120` (safety rail, not the book size). Overflow
-tickers are returned as `fetchError: true` stubs instead of being dropped.
-Missing `regularMarketPrice` is also `fetchError` (no invented $0 last).
-`SYMBOL_OVERRIDES` kept as an empty documented map — none of the current
-book needs a Yahoo remap. Client `fetchAllPrices()` chunks into parallel
-batches of 40 and merges so every requested ticker gets a row; a failed
-batch cannot blank the rest of the book. News/Dashboard/Index already read
-the App-level store, so they inherit the full book. Net Worth linked
-portfolio value uses the same helper.
+**Fix:** `MAX_PRICE_TICKERS = 120`. Overflow / missing `regularMarketPrice`
+→ `fetchError: true` (no invented $0 last). Client `fetchAllPrices()` chunks
+into parallel batches of 40. `SYMBOL_OVERRIDES` empty (no remap needed).
 
-**Bug 2 (live-confirmed):** every handler that imported `../lib/claudeGuard`
-(`GET /api/me`, `/api/analyze`, `/api/portfolio`, `/api/retirement`) returned
-`FUNCTION_INVOCATION_FAILED` 500 on production — the function never ran,
-so even an allowlisted operator got `isAdmin: false` and no Run Analysis
-button. Same class of Vercel bundling failure as the Aug 6 `api/_shared`
-hotfix. Relative `lib/*.ts` imports are **not** bundled here.
+**Bug 2 (live-confirmed):** `GET /api/me` with no Authorization header
+returned `FUNCTION_INVOCATION_FAILED` 500 (should be 200
+`{authenticated:false,isAdmin:false}`). Same 500 on unauthenticated POST
+`/api/analyze` and `/api/portfolio`. `/api/prices` still 200. Root cause:
+`lib/claudeGuard.ts` statically imported `@upstash/redis` and
+`@supabase/supabase-js`, so the module graph crashed at load before the
+handler ran.
 
-Auth plumbing itself was correct: `/api/me` + `isOperatorEmail` trim/lowercase
-(and now strip wrapping quotes from env-dashboard pasted values); the client
-already sent `Authorization: Bearer` on `/api/me` and re-ran after magic-link
-via `onAuthStateChange`. Magic-link still does not grant admin.
+**Fix:**
+- Restored root `lib/claudeGuard.ts`. Redis and Supabase are **lazy
+  `import()`** inside `createUpstashStore` / `verifySupabaseJwt` only.
+- `/api/me` has **no static import** of the guard — unauth GET inlines
+  bearer parsing and returns 200; JWT verify is a dynamic import after a
+  token is present. Outer try/catch returns JSON 500, never a raw
+  FUNCTION_INVOCATION_FAILED.
+- Claude routes import `../lib/claudeGuard.js` and wrap handlers in
+  try/catch JSON errors.
+- `vercel.json` `includeFiles: "lib/**"` so NFT always ships the helper.
+- **Upstash is optional.** Missing `UPSTASH_REDIS_*` uses an in-memory
+  per-instance limiter — does **not** 503. Recommended later for
+  public/paid; not required for personal use.
+- `ADMIN_EMAILS` remains the sole Run Analysis gate. Magic-link ≠ admin.
+  Authenticated non-admins see "Signed in as X — not on operator allowlist".
 
-**Fix:** moved the guard to `packages/claude-guard` and import it as
-`@investai/claude-guard` (`file:` workspace package through node_modules).
-Redis and Supabase load lazily so a GET/405 does not eval those packages.
-P0 JWT / `ADMIN_EMAILS` / Upstash limits unchanged. Authenticated non-admins
-now see "Signed in as X — not on operator allowlist" next to the analysis
-controls instead of a silent missing button; if `/api/me` itself fails the
-copy is "operator status unavailable".
+**Verification:** `npm test` · `npx tsc --noEmit` · `npm run build`. After
+deploy: `curl /api/me` → 200 JSON; `/api/prices` includes ASML/TSM/ARM/CRWD.
 
-**Verification:** `npm test` · `npx tsc --noEmit` · `npm run build`. Curl
-production after deploy: `/api/me` must 200 JSON (not 500); `/api/prices`
-with the full book must return one row per ticker.
-
-**Files created:** packages/claude-guard/package.json ·
-packages/claude-guard/index.js · packages/claude-guard/index.d.ts ·
-src/lib/priceBatches.ts · src/lib/priceBatches.test.ts ·
+**Files created:** src/lib/priceBatches.ts · src/lib/priceBatches.test.ts ·
 src/lib/fetchPrices.ts · src/lib/operatorAccess.ts ·
 src/lib/operatorAccess.test.ts
-**Files modified:** api/prices.ts · api/me.ts · api/analyze.ts ·
-api/portfolio.ts · api/retirement.ts · src/hooks/useLivePrice.ts ·
-src/App.tsx · src/store/useStore.ts · src/components/StockDetail.tsx ·
-src/components/Layout/index.tsx · src/components/networth/NetWorthTab.tsx ·
-lib/claudeGuard.test.ts · package.json · CLAUDE.md
-**Files deleted:** lib/claudeGuard.ts
+**Files modified:** lib/claudeGuard.ts · lib/claudeGuard.test.ts · api/me.ts ·
+api/analyze.ts · api/portfolio.ts · api/retirement.ts · api/prices.ts ·
+vercel.json · src/hooks/useLivePrice.ts · src/App.tsx · src/store/useStore.ts ·
+src/components/StockDetail.tsx · src/components/Layout/index.tsx ·
+src/components/networth/NetWorthTab.tsx · package.json · .env.example ·
+DEPLOY_INSTRUCTIONS.md · CLAUDE.md
 

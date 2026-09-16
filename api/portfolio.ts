@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { gateClaudeRoute } from '@investai/claude-guard';
+import { gateClaudeRoute, jsonHandlerError } from '../lib/claudeGuard.js';
 
 // ─── Account block ────────────────────────────────────────────────────────────
 
@@ -1078,6 +1078,7 @@ interface RequestBody {
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  try {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   // JWT required (any signed-in user). Operator allowlist is NOT required —
@@ -1197,5 +1198,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return res.status(500).json({ error: msg });
+  }
+  } catch (err) {
+    jsonHandlerError(res, err, '[portfolio]');
   }
 }
