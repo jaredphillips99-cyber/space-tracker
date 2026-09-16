@@ -14,10 +14,34 @@ import { supabase } from './lib/supabase';
 import { useStore } from './store/useStore';
 import { useSupabaseSync } from './hooks/useSupabaseSync';
 import { useLivePrice } from './hooks/useLivePrice';
+import type { Session } from '@supabase/supabase-js';
+
+async function resolveAuth(session: Session | null) {
+  const setAuthState = useStore.getState().setAuthState;
+  if (!session) {
+    setAuthState({ isAuthenticated: false, isAdmin: false });
+    return;
+  }
+  try {
+    const res = await fetch('/api/me', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (!res.ok) {
+      // Signed in locally but token rejected — treat as authenticated reader
+      setAuthState({ isAuthenticated: true, isAdmin: false });
+      return;
+    }
+    const body = await res.json() as { authenticated?: boolean; isAdmin?: boolean };
+    setAuthState({
+      isAuthenticated: true,
+      isAdmin: !!body.isAdmin,
+    });
+  } catch {
+    setAuthState({ isAuthenticated: true, isAdmin: false });
+  }
+}
 
 function AppInner() {
-  const setAdminSession = useStore((s) => s.setAdminSession);
-
   // Hydrate Supabase → Zustand on mount
   useSupabaseSync();
 
@@ -27,20 +51,19 @@ function AppInner() {
   // internally, so hoisting causes no duplicate fetches.
   useLivePrice();
 
-  // Listen for magic-link auth callback + session restore on page load
+  // Session restore + magic-link callback. Operator status comes from /api/me
+  // (ADMIN_EMAILS), not from "has a session".
   useEffect(() => {
-    // Check if there's already an active session (e.g. user refreshed the page)
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) setAdminSession(true);
+      void resolveAuth(data.session);
     });
 
-    // Listen for sign-in / sign-out events
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAdminSession(!!session);
+      void resolveAuth(session);
     });
 
     return () => subscription.unsubscribe();
-  }, [setAdminSession]);
+  }, []);
 
   return (
     <BrowserRouter>

@@ -5,12 +5,14 @@ import type { AppState, LivePrice, StockAnalysis, Sector, SortField, SortDir } f
 const ANALYSIS_STORAGE_KEY = 'space-tracker-analyses';
 
 // ─── Extend AppState with auth ─────────────────────────────────────────────────
-// isAdmin = true  → logged-in user, sees Run Analysis button
-// isAdmin = false → reader, dashboard is read-only, portfolio still works
+// isAuthenticated = has a valid magic-link session (portfolio/networth persist)
+// isAdmin         = email is on ADMIN_EMAILS (Run Analysis / operator actions)
+// Magic-link login does NOT imply admin — /api/me is the source of truth.
 
 interface ExtendedAppState extends AppState {
+  isAuthenticated: boolean;
   isAdmin: boolean;
-  setAdminSession: (isAdmin: boolean) => void;
+  setAuthState: (next: { isAuthenticated: boolean; isAdmin: boolean }) => void;
 }
 
 export const useStore = create<ExtendedAppState>()(
@@ -24,10 +26,14 @@ export const useStore = create<ExtendedAppState>()(
       sectorFilter: null,
       sortBy: 'dayChange',
       sortDir: 'desc',
+      isAuthenticated: false,
       isAdmin: false,
 
       // ── Auth actions ───────────────────────────────────────────────────────
-      setAdminSession: (isAdmin: boolean) => set({ isAdmin }),
+      setAuthState: (next) => set({
+        isAuthenticated: next.isAuthenticated,
+        isAdmin: next.isAdmin,
+      }),
 
       // ── Price actions ──────────────────────────────────────────────────────
       setPrices: (prices: LivePrice[]) => {
@@ -76,10 +82,11 @@ export const useStore = create<ExtendedAppState>()(
     {
       name: ANALYSIS_STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
-      // Persist analyses + admin session to localStorage
+      // Persist analyses only. Auth flags are derived from the live session
+      // + /api/me on every load — never from localStorage (a stale isAdmin
+      // true would show Run Analysis to a non-operator).
       partialize: (state) => ({
         analyses: state.analyses,
-        isAdmin:  state.isAdmin,
       }),
     },
   ),

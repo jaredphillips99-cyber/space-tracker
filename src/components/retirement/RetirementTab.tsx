@@ -4,6 +4,7 @@ import { useNetWorthSync, type NetWorthAccount, type AccountKind } from '../../h
 import { useCryptoPrices, type CryptoPrice } from '../../hooks/useCryptoPrices';
 import { useFinancialProfile } from '../../hooks/useFinancialProfile';
 import { MarkdownCard } from '../common/MarkdownCard';
+import { jsonAuthHeaders } from '../../lib/authHeaders';
 
 const ACCENT = '#06b6d4'; // teal — distinct from Portfolio (purple/amber) + Net Worth cards
 
@@ -209,7 +210,7 @@ export default function RetirementTab() {
       const netWorthAccounts = buildNetWorthPayload(accounts ?? [], cryptoPrices);
       const res = await fetch('/api/retirement', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await jsonAuthHeaders(),
         body: JSON.stringify({
           retirementProfile: {
             employmentType:         p.employmentType,
@@ -287,6 +288,7 @@ export default function RetirementTab() {
       {!isAuthenticated && (
         <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.5 }}>
           You're not signed in — inputs live in memory only and are lost when you close the tab.
+          AI analysis requires sign-in.
         </div>
       )}
 

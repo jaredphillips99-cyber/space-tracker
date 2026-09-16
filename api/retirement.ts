@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { gateClaudeRoute } from '../lib/claudeGuard';
 
 // ─── Shared net-worth prompt helpers ─────────────────────────────────────────
 // Duplicated (not imported) from api/portfolio.ts's buildNetWorthPrompt — the
@@ -60,25 +61,9 @@ function buildAccountLines(accounts: NetWorthAccountPayload[]): string {
   }).join('\n');
 }
 
-// ─── Rate limiting (15 calls / IP / hour) ────────────────────────────────────
+// Rate limit: 15 calls / user / hour via Upstash (lib/claudeGuard).
 // Own bucket — deliberately NOT shared with analyze.ts (10/hr) or
-// portfolio.ts (20/hr). Same pattern as api/analyze.ts, fresh Map.
-
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 15;
-const RATE_WINDOW_MS = 60 * 60 * 1000;
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT) return false;
-  entry.count++;
-  return true;
-}
+// portfolio.ts (20/hr).
 
 // ─── Request body ─────────────────────────────────────────────────────────────
 // PRIVACY EXCEPTION — same class as networth_analysis. Real salary/balances by
@@ -256,8 +241,14 @@ Keep the total response under 700 words. Be specific about dollar amounts and pe
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? 'unknown';
-  if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Rate limit exceeded. Try again later.' });
+  // JWT required. Operator allowlist is NOT required — Retirement AI is a
+  // signed-in feature. Durable per-user limit, own bucket.
+  const gate = await gateClaudeRoute(req, {
+    requireOperator: false,
+    bucket: 'retirement',
+    limit: 15,
+  });
+  if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
 
   const body = req.body as RetirementRequestBody;
   const rp = body?.retirementProfile;

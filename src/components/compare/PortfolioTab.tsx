@@ -13,6 +13,7 @@ import {
 } from '../../config/gics';
 import ThematicFrameworkPanel from './ThematicFrameworkPanel';
 import { classifyTickerTheme } from '../../config/themes';
+import { jsonAuthHeaders } from '../../lib/authHeaders';
 
 // ─── Session cache (anonymous fallback only) ──────────────────────────────────
 
@@ -864,7 +865,7 @@ export default function PortfolioTab({
       const cashCtx = cashAmount > 0 ? buildCashContext(cashAmount, totalValue) : undefined;
       const res = await fetch('/api/portfolio', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await jsonAuthHeaders(),
         body: JSON.stringify({
           type: 'macro_risk',
           positions: computed.map(p => ({
@@ -923,7 +924,7 @@ export default function PortfolioTab({
     try {
       const res = await fetch('/api/portfolio', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await jsonAuthHeaders(),
         body: JSON.stringify({
           type: 'macro_scenario',
           positions: computed.map(p => ({
@@ -1054,7 +1055,7 @@ export default function PortfolioTab({
 
       const res = await fetch('/api/portfolio', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await jsonAuthHeaders(),
         body: JSON.stringify({
           type: 'trim',
           positions: computed.map(p => ({
@@ -1133,7 +1134,7 @@ export default function PortfolioTab({
 
       const res = await fetch('/api/portfolio', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await jsonAuthHeaders(),
         body: JSON.stringify({
           type: 'trim_memo',
           positions: computed.map(p => ({
@@ -1236,7 +1237,7 @@ export default function PortfolioTab({
     try {
       const res = await fetch('/api/portfolio', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await jsonAuthHeaders(),
         body: JSON.stringify({
           type: 'cash_deploy',
           positions: computed.map(p => ({
@@ -1276,7 +1277,7 @@ export default function PortfolioTab({
     try {
       const res = await fetch('/api/portfolio', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await jsonAuthHeaders(),
         body: JSON.stringify({
           type: 'sector_explore',
           exploreSector: sector,

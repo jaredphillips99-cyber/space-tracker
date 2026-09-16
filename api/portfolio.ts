@@ -1,22 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-// ─── Rate limiting ────────────────────────────────────────────────────────────
-
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 20;
-const RATE_WINDOW_MS = 60 * 60 * 1000;
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT) return false;
-  entry.count++;
-  return true;
-}
+import { gateClaudeRoute } from '../lib/claudeGuard';
 
 // ─── Account block ────────────────────────────────────────────────────────────
 
@@ -1097,8 +1080,14 @@ interface RequestBody {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? 'unknown';
-  if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Rate limit exceeded. Try again later.' });
+  // JWT required (any signed-in user). Operator allowlist is NOT required —
+  // Portfolio / Net Worth AI is a signed-in feature. Durable per-user limit.
+  const gate = await gateClaudeRoute(req, {
+    requireOperator: false,
+    bucket: 'portfolio',
+    limit: 20,
+  });
+  if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
 
   const body = req.body as RequestBody;
   const { type } = body;

@@ -1,21 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Anthropic from '@anthropic-ai/sdk';
-
-// ─── Rate limiting (10 calls / IP / hour) ────────────────────────────────────
-
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + 60 * 60 * 1000 });
-    return true;
-  }
-  if (entry.count >= 10) return false;
-  entry.count++;
-  return true;
-}
+import { gateClaudeRoute } from '../lib/claudeGuard';
 
 // ─── Request body type ────────────────────────────────────────────────────────
 // EDGAR is fetched browser-side (avoids Vercel IP blocks from SEC).
@@ -231,9 +216,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
 
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? 'unknown';
-  if (!checkRateLimit(ip)) {
-    res.status(429).json({ error: 'Rate limit exceeded — 10 analyses per hour per IP.' });
+  // JWT + operator allowlist BEFORE body validation so unauthenticated
+  // callers get 401, not 400. Run Analysis is operator-only.
+  const gate = await gateClaudeRoute(req, {
+    requireOperator: true,
+    bucket: 'analyze',
+    limit: 10,
+  });
+  if (!gate.ok) {
+    res.status(gate.status).json({ error: gate.error });
     return;
   }
 

@@ -1024,6 +1024,15 @@ export function StockDetail() {
                 animation: 'blink 1s infinite',
               }} />
             )}
+            <p style={{
+              marginTop: '28px',
+              fontSize: '11px',
+              color: 'var(--text-muted)',
+              fontFamily: 'DM Sans, sans-serif',
+              lineHeight: 1.5,
+            }}>
+              For informational purposes only. Not investment advice.
+            </p>
           </div>
         )}
 
