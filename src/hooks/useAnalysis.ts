@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { jsonAuthHeaders } from '../lib/authHeaders';
 
 export type AnalysisStatus =
   | 'idle'
@@ -186,7 +187,7 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
     try {
       const res = await fetch('/api/analyze', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await jsonAuthHeaders(),
         body:    JSON.stringify({
           ticker:             payload.ticker,
           earningsText:       payload.earningsText,
@@ -196,6 +197,18 @@ export function useAnalysis(options: UseAnalysisOptions = {}): UseAnalysisReturn
         }),
         signal: ctrl.signal,
       });
+
+      if (res.status === 401) {
+        setError('Sign in required to run analysis.');
+        setStatus('error');
+        return;
+      }
+
+      if (res.status === 403) {
+        setError('Operator access required — your account is signed in but not on the admin allowlist.');
+        setStatus('error');
+        return;
+      }
 
       if (res.status === 429) {
         setError('Rate limit reached — 10 analyses per hour. Try again later.');

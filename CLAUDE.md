@@ -207,13 +207,17 @@ Yahoo Finance → `api/prices.ts` (Vercel serverless)
   stock-only `quoteSummary` round-trip for crypto symbols.
 
 Anthropic API → `api/analyze.ts` (stock analysis, streaming SSE)
-  Rate limit: 10 calls per IP per hour. Model: claude-sonnet-4-6.
-  Two-call pattern: Call 1 — JSON extraction; Call 2 — narrative (What
-  Happened / Bull Case / Bear Case / Key Catalysts).
+ Rate limit: 10 calls per authenticated operator per hour (Upstash Redis,
+ `bucket=analyze`, keyed by Supabase user id — NOT an in-memory Map).
+ JWT required; `ADMIN_EMAILS` operator allowlist required.
+ Model: claude-sonnet-4-6.
+ Two-call pattern: Call 1 — JSON extraction; Call 2 — narrative (What
+ Happened / Bull Case / Bear Case / Key Catalysts).
 
 Anthropic API → `api/portfolio.ts` (portfolio + net worth features, non-streaming)
-  Rate limit: 20 calls per IP per hour (separate bucket from analyze.ts AND
-  from retirement.ts). Model: claude-sonnet-4-6.
+ Rate limit: 20 calls per authenticated user per hour (Upstash, `bucket=portfolio`,
+ separate from analyze.ts AND from retirement.ts). JWT required; operator
+ allowlist is NOT required (signed-in feature). Model: claude-sonnet-4-6.
   Request types: `"macro_risk" | "macro_scenario" | "trim" | "trim_memo" |
   "sector_explore" | "cash_deploy" | "networth_analysis"`.
   `useWebSearch` is true for `cash_deploy`, `macro_risk`, and `sector_explore`
@@ -230,11 +234,12 @@ Anthropic API → `api/portfolio.ts` (portfolio + net worth features, non-stream
   narration around the array.
 
 Anthropic API → `api/retirement.ts` (retirement contribution-waterfall, non-streaming)
-  Rate limit: 15 calls per IP per hour — own bucket, separate from both
-  analyze.ts and portfolio.ts. Model: claude-sonnet-4-6. No `tools` array
-  (tool-free by design this pass). Single request type
-  (`retirement_analysis`), 400s if `annualSalary` or `primaryContributionPct`
-  is missing.
+ Rate limit: 15 calls per authenticated user per hour — own Upstash bucket,
+ separate from both analyze.ts and portfolio.ts. JWT required; operator
+ allowlist is NOT required. Model: claude-sonnet-4-6. No `tools` array
+ (tool-free by design this pass). Single request type
+ (`retirement_analysis`), 400s if `annualSalary` or `primaryContributionPct`
+ is missing.
   `NETWORTH_GROUNDING_RULE` / `fmtUsd` / `buildAccountLines` /
   `NetWorthAccountPayload` are **duplicated inline** here, matching the same
   copy in `api/portfolio.ts` — deliberately NOT factored into a shared
@@ -432,10 +437,21 @@ Always route sidebar snippets through extractSnippet().
 ---
 
 ## Environment Variables Required
-ANTHROPIC_API_KEY       → Vercel dashboard → Settings → Environment Variables
-VITE_SUPABASE_URL       → Vercel dashboard → Settings → Environment Variables
-VITE_SUPABASE_ANON_KEY  → Vercel dashboard → Settings → Environment Variables
+ANTHROPIC_API_KEY            → Vercel dashboard → Settings → Environment Variables
+VITE_SUPABASE_URL            → Vercel dashboard → Settings → Environment Variables
+VITE_SUPABASE_ANON_KEY       → Vercel dashboard → Settings → Environment Variables
+ADMIN_EMAILS                 → comma-separated operator emails (server-only). Magic-link
+                               login does NOT grant admin. Empty allowlist = nobody can
+                               Run Analysis. Rotate by editing the var + redeploying.
+UPSTASH_REDIS_REST_URL       → Upstash Redis REST URL (durable Claude rate limits)
+UPSTASH_REDIS_REST_TOKEN     → Upstash Redis REST token
 (Yahoo Finance requires no key — uses yahoo-finance2 npm package)
+
+Claude routes (`api/analyze`, `api/portfolio`, `api/retirement`) also read
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` if set, falling back to the `VITE_*` pair
+for JWT verification. JWT is required; unauthenticated POSTs return 401.
+`api/analyze` additionally requires the caller's email to be on `ADMIN_EMAILS`.
+Missing Upstash vars → 503 (fail closed — no in-memory production fallback).
 
 Set for Production, Preview, AND Development. Missing any of the three
 Supabase-related vars throws a fatal init exception on load — this is exactly
@@ -524,19 +540,24 @@ src/components/PortfolioAuthGate.tsx           Portfolio-tab anonymous/admin gat
                                                 the Net Worth / Retirement auth gates — Portfolio
                                                 itself is publicly readable, this only gates admin
                                                 write actions)
-src/components/AuthGate.tsx                    /admin route login screen
+src/components/AuthGate.tsx                    /admin route login screen (magic link;
+                                                does NOT grant operator access)
 src/components/Onboarding/OnboardingModal.tsx  per-tab onboarding cards (NOT per-feature)
+lib/claudeGuard.ts                             JWT + ADMIN_EMAILS + Upstash rate limit
+                                                for Claude routes (repo-root lib/, NOT api/_shared)
+api/me.ts                                      GET operator status for the signed-in session
+src/lib/authHeaders.ts                         attaches Bearer token to Claude fetches
 api/prices.ts                                  Yahoo Finance proxy (+ crypto short-circuit branch)
 api/analyze.ts                                 Anthropic streaming proxy, stock analysis
+                                                (JWT + operator allowlist + Upstash 10/hr)
 api/edgar-proxy.ts                             CORS proxy for SEC /Archives/ URLs
 api/portfolio.ts                               portfolio + net worth API — macro_risk ·
                                                 macro_scenario · trim · trim_memo ·
                                                 sector_explore · cash_deploy · networth_analysis
-                                                (self-contained; no api/_shared import — see
-                                                Aug 6 hotfix)
-api/retirement.ts                              retirement API — single retirement_analysis
-                                                one-shot (own 15/hr bucket); net-worth prompt
-                                                helpers inlined, not imported (see Aug 6 hotfix)
+                                                (JWT + Upstash 20/hr; no api/_shared import)
+api/retirement.ts                              retirement API — JWT + Upstash 15/hr;
+                                                net-worth prompt helpers inlined, not imported
+                                                (see Aug 6 hotfix)
 scripts/newswire.mjs                           RSS pull + classification cron; own
                                                 TICKERS/COMPANY_ALIASES (does not import
                                                 tickers.ts — plain .mjs, no build step)
@@ -916,9 +937,11 @@ cannot catch.
 
 ### Do not factor shared code into an api/_shared/ (or any underscore-prefixed)
 module and import it across Vercel functions — it deploys broken with no
-local-build signal. Duplicate small `api/` helpers inline instead (see Aug 6,
-2026 hotfix). Always curl the production endpoint after deploying a
-new/changed `api/*.ts` function rather than trusting tsc/build alone.
+local-build signal. Duplicate small `api/` helpers inline, **or** put shared
+server helpers in repo-root `lib/` (traced/bundled as a normal import — this
+is how `lib/claudeGuard.ts` is shared). Always curl the production endpoint
+after deploying a new/changed `api/*.ts` function rather than trusting tsc/build
+alone.
 
 ### Ticker counts should not be hardcoded in UI copy
 Use "the full tracked universe" to stay resilient to future changes.
@@ -2484,3 +2507,51 @@ scripts/newswire.mjs · scripts/indexCalc.mjs · src/lib/indexCalc.ts ·
 src/components/IndexTicker/index.tsx · src/components/IndexDetail/index.tsx ·
 src/components/Onboarding/OnboardingModal.tsx · src/components/NewsFeed/index.tsx ·
 CLAUDE.md
+
+---
+
+### September 16, 2026 — P0 auth + Claude cost harden
+
+**What:** stop anonymous Anthropic spend; separate reader vs operator.
+
+**Claude routes now require a valid Supabase JWT** (`Authorization: Bearer
+<access_token>`). Unauthenticated POST returns **401** before body validation
+(not 400). Shared guard lives in repo-root `lib/claudeGuard.ts` — NOT
+`api/_shared/` (Vercel does not bundle underscore-prefixed `api/` paths).
+
+**Operator allowlist (`ADMIN_EMAILS`):** comma-separated emails, case-
+insensitive, fail-closed if empty. Magic-link login no longer sets `isAdmin`.
+`GET /api/me` is the source of truth. `api/analyze` (Run Analysis) requires
+the allowlist (403 otherwise). `api/portfolio` / `api/retirement` require JWT
+but not operator (signed-in features), still durable-rate-limited.
+
+**Durable rate limits (Upstash Redis REST):** keyed by Supabase user id, not
+IP, not an in-memory Map. Separate buckets: analyze 10/hr · portfolio 20/hr ·
+retirement 15/hr. Missing `UPSTASH_REDIS_REST_URL` /
+`UPSTASH_REDIS_REST_TOKEN` → **503 fail-closed**.
+
+**Client:** `isAuthenticated` vs `isAdmin` split. Auth flags are not persisted
+to localStorage. Claude fetches send the Bearer token. StockDetail shows a
+one-line "Not investment advice" note under narrative output.
+
+**Dead code:** `api/edgar.ts` deleted (was still in the tree despite docs).
+
+**RLS:** no dashboard access this session. Handoff file
+`supabase_migration_analyses_authenticated_write.sql` — public SELECT kept,
+anon writes revoked, authenticated INSERT/UPDATE allowed. Operator spend is
+enforced in `/api/analyze`, not SQL. `user_preferences` / `accounts` /
+`retirement_profile` already look user-scoped from existing migrations.
+
+**Verification:** `npm test` (node:test on `lib/claudeGuard.test.ts`) ·
+`npx tsc --noEmit` · `npm run build`.
+
+**Files created:** lib/claudeGuard.ts · lib/claudeGuard.test.ts · api/me.ts ·
+src/lib/authHeaders.ts · supabase_migration_analyses_authenticated_write.sql
+**Files modified:** api/analyze.ts · api/portfolio.ts · api/retirement.ts ·
+src/App.tsx · src/store/useStore.ts · src/components/AuthGate.tsx ·
+src/components/Layout/index.tsx · src/hooks/useAnalysis.ts ·
+src/components/StockDetail.tsx · src/components/compare/PortfolioTab.tsx ·
+src/components/networth/NetWorthTab.tsx ·
+src/components/retirement/RetirementTab.tsx · package.json · .env.example ·
+DEPLOY_INSTRUCTIONS.md · CLAUDE.md
+**Files deleted:** api/edgar.ts

@@ -1,25 +1,12 @@
-import { useState, useEffect } from 'react';
-import { supabase, sendMagicLink } from '../lib/supabase';
-import { useStore } from '../store/useStore';
+import { useState } from 'react';
+import { sendMagicLink } from '../lib/supabase';
 
 type AuthStage = 'idle' | 'sending' | 'sent' | 'error';
 
 export function AuthGate() {
-  const setAdminSession = useStore((s) => s.setAdminSession);
-
   const [email, setEmail] = useState('');
   const [stage, setStage] = useState<AuthStage>('idle');
   const [errorMsg, setErrorMsg] = useState('');
-
-  // Listen for Supabase auth state changes (handles magic-link callback)
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        setAdminSession(true);
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, [setAdminSession]);
 
   async function handleSendLink() {
     if (!email.trim()) return;
@@ -61,10 +48,12 @@ export function AuthGate() {
 
         <div>
           <div style={{ color: 'var(--text-primary)', fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
-            Admin access
+            Sign in
           </div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-            Enter your email to receive a magic link. Readers can access the dashboard without logging in.
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.55 }}>
+            Enter your email to receive a magic link. Signing in does not grant
+            operator access — Run Analysis is limited to allowlisted operators.
+            Readers can use the dashboard without logging in.
           </div>
         </div>
 
@@ -129,10 +118,9 @@ export function AuthGate() {
         )}
 
         <div style={{ color: 'var(--text-secondary)', fontSize: 12, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-          Not an admin? <a
+          Not signing in? <a
             href="/"
             style={{ color: '#00c8ff', textDecoration: 'none' }}
-            onClick={e => { e.preventDefault(); useStore.getState().setAdminSession(false); }}
           >
             Continue as reader →
           </a>

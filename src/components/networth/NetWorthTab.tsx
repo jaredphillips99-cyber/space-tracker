@@ -10,6 +10,7 @@ import { readSessionPositions, type PortfolioPosition } from '../compare/Portfol
 import { classifyTicker } from '../../config/gics';
 import AddAccountPanel from './AddAccountPanel';
 import { KIND_DISPLAY } from './kindDisplay';
+import { jsonAuthHeaders } from '../../lib/authHeaders';
 
 // ─── Formatting helpers ─────────────────────────────────────────────────────────
 
@@ -769,7 +770,7 @@ export default function NetWorthTab() {
 
       const res = await fetch('/api/portfolio', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await jsonAuthHeaders(),
         body: JSON.stringify({
           type: 'networth_analysis',
           accounts: accountPayload,
@@ -837,7 +838,7 @@ export default function NetWorthTab() {
           padding: '10px 14px', marginBottom: 16, color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.5,
         }}>
           You're not signed in — balances you enter here are held in memory only and
-          will be lost when you close this tab.
+          will be lost when you close this tab. AI analysis requires sign-in.
         </div>
       )}
 

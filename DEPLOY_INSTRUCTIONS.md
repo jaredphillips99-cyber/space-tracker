@@ -146,14 +146,18 @@ Vercel deploys automatically.
 ## Environment Variables Reference
 
 Required:
-  ANTHROPIC_API_KEY     sk-ant-...   (from console.anthropic.com)
+  ANTHROPIC_API_KEY           sk-ant-...   (from console.anthropic.com)
+  VITE_SUPABASE_URL           Supabase project URL
+  VITE_SUPABASE_ANON_KEY      Supabase anon key
+  ADMIN_EMAILS                comma-separated operator emails (server-only)
+  UPSTASH_REDIS_REST_URL      Upstash Redis REST URL
+  UPSTASH_REDIS_REST_TOKEN    Upstash Redis REST token
+
+Claude routes 401 without a valid Supabase JWT. /api/analyze also requires
+the caller's email to be listed in ADMIN_EMAILS. Missing Upstash vars → 503.
 
 Not required (Yahoo Finance uses no API key):
   yahoo-finance2 npm package handles prices with no credentials
-
-For Stage 2 (not needed yet):
-  SUPABASE_URL          from your Supabase project settings
-  SUPABASE_ANON_KEY     from your Supabase project settings
 
 ---
 
@@ -174,8 +178,9 @@ Analysis button does nothing / returns error
   → Confirm you redeployed after adding the key (vercel --prod)
 
 "Too many requests" error on analysis
-  → The rate limiter (10 calls/IP/hour) is working correctly
-  → Wait an hour or temporarily raise the limit in api/analyze.ts
+  → Durable Upstash limiter (10 analyses/user/hour) is working
+  → Confirm UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are set
+  → Wait an hour, or raise the limit in api/analyze.ts (`limit: 10`)
 
 Build fails on deploy
   → Run npm run build locally first to catch TypeScript errors

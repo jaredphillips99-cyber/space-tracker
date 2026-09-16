@@ -24,7 +24,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const setSectorFilter = useStore((s) => s.setSectorFilter);
   const pricesLoadingState = useStore((s) => s.pricesLoadingState);
   const isAdmin         = useStore((s) => s.isAdmin);
-  const setAdminSession = useStore((s) => s.setAdminSession);
+  const isAuthenticated = useStore((s) => s.isAuthenticated);
+  const setAuthState    = useStore((s) => s.setAuthState);
   const { theme, toggleTheme } = useTheme();
   const [showOnboarding, setShowOnboarding] = useState(() => !hasOnboarded());
 
@@ -140,23 +141,42 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {theme === 'dark' ? '☀' : '☾'}
           </button>
 
-          {/* Admin control */}
-          {isAdmin ? (
-            <button
-              onClick={async () => { await signOut(); setAdminSession(false); }}
-              style={{
-                fontFamily: 'Space Mono, monospace',
-                fontSize: '10px',
-                letterSpacing: '0.08em',
-                color: 'var(--text-muted)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '2px 0',
-              }}
-            >
-              SIGN OUT
-            </button>
+          {/* Auth control — SIGN OUT for any signed-in user (operator or not).
+              isAdmin only gates Run Analysis, not the session chrome. */}
+          {isAuthenticated ? (
+            <div className="flex items-center gap-3">
+              {isAdmin && (
+                <span
+                  title="Operator allowlist"
+                  style={{
+                    fontFamily: 'Space Mono, monospace',
+                    fontSize: '9px',
+                    letterSpacing: '0.1em',
+                    color: '#00c8ff',
+                  }}
+                >
+                  OP
+                </span>
+              )}
+              <button
+                onClick={async () => {
+                  await signOut();
+                  setAuthState({ isAuthenticated: false, isAdmin: false });
+                }}
+                style={{
+                  fontFamily: 'Space Mono, monospace',
+                  fontSize: '10px',
+                  letterSpacing: '0.08em',
+                  color: 'var(--text-muted)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '2px 0',
+                }}
+              >
+                SIGN OUT
+              </button>
+            </div>
           ) : (
             <Link
               to="/admin"
